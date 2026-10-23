@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { defaultAppSettings } from "../../domain/settings";
 import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database";
 import { runMigrations } from "../storage/migrations";
-import { isTableSyncSupported, strategyForTable } from "./merge-strategies";
+import { isTableSyncSupported } from "./merge-strategies";
 import {
   assertSettingPublishable,
   assertSidecarPublishable,
@@ -449,9 +449,13 @@ describe("domain and merge-class sanity", () => {
     expect(registration("finance_account_balance_snapshots").rowFilter?.publishWhen).toBe(
       "source = 'statement'",
     );
-    expect(registration("pomodoro_sessions").rowFilter?.publishWhen).toContain("completed");
-    expect(registration("pomodoro_sessions").rowFilter?.publishWhen).toContain("cancelled");
-    expect(registration("pomodoro_segments").rowFilter).toBeDefined();
+    expect(registration("pomodoro_sessions").rowFilter?.publishWhen).toBe(
+      "status IN ('completed', 'cancelled')",
+    );
+    // Real SQL over the segment's own columns, built from the session predicate.
+    expect(registration("pomodoro_segments").rowFilter?.publishWhen).toBe(
+      "session_id IN (SELECT id FROM pomodoro_sessions WHERE status IN ('completed', 'cancelled'))",
+    );
     const filtered = TABLE_REGISTRY.filter((entry) => entry.rowFilter).map((entry) => entry.table);
     expect(filtered.sort()).toEqual(
       ["finance_account_balance_snapshots", "pomodoro_segments", "pomodoro_sessions"].sort(),
@@ -471,54 +475,78 @@ describe("domain and merge-class sanity", () => {
   });
 
   describe("declared foreign keys (production enforces them)", () => {
-    // Every table in a declared foreign key, as the migrated schema reports it. A parent that can
-    // be deleted by a merge (anything but an insert-only grow-only-union table) is as much a
-    // hazard as a child: deleting it cascades inside the database where the capture triggers are
-    // off, and a child for a deleted parent aborts the whole bundle.
-    const involved = (): string[] => {
-      const tables = new Set<string>();
-      for (const [table, info] of schema) {
-        for (const fk of info.foreignKeys) {
-          tables.add(table);
-          if (registration(fk.table).mergeClass !== "grow-only-union") tables.add(fk.table);
-        }
-      }
-      return [...tables].sort();
-    };
-
-    it("flags exactly the tables the schema's foreign keys involve as referencesMergePending", () => {
-      // Derived from PRAGMA foreign_key_list, so a migration that adds a foreign key fails here
-      // until the table is flagged (or the references slice replaces the whole rule).
-      const flagged = TABLE_REGISTRY.filter((entry) => entry.referencesMergePending).map(
-        (entry) => entry.table,
+    // Every declared foreign key, as the migrated schema reports it. `apply-references.ts` derives
+    // its ordering, cascade and orphan rules from the same pragma; this is the guard that a
+    // migration adding a key it has no rule for fails here, not on a real database.
+    const edges = (): { child: string; column: string; parent: string; onDelete: string }[] =>
+      [...schema].flatMap(([child, info]) =>
+        info.foreignKeys.map((fk) => ({
+          child,
+          column: fk.from,
+          parent: fk.table,
+          onDelete: fk.on_delete.toUpperCase(),
+        })),
       );
-      expect(flagged.sort()).toEqual(involved());
-      expect(involved()).toEqual(["ai_proposals", "weekly_objective_results", "weekly_objectives"]);
+
+    it("pins the two declared keys, both ON DELETE CASCADE", () => {
+      expect(edges().sort((a, b) => a.child.localeCompare(b.child))).toEqual([
+        {
+          child: "ai_proposals",
+          column: "message_id",
+          parent: "ai_messages",
+          onDelete: "CASCADE",
+        },
+        {
+          child: "weekly_objective_results",
+          column: "objective_id",
+          parent: "weekly_objectives",
+          onDelete: "CASCADE",
+        },
+      ]);
     });
 
-    it("never supports a flagged table", () => {
-      for (const table of involved()) {
-        expect(isTableSyncSupported(table), table).toBe(false);
-        expect(strategyForTable(table), table).toBeNull();
-      }
-    });
-
-    it("leaves no supported table with a foreign key of its own or a deletable foreign-key parent", () => {
+    it("has no referencesMergePending flag left: every key is handled by apply-references.ts", () => {
       for (const entry of TABLE_REGISTRY) {
-        if (strategyForTable(entry.table) === null) continue;
-        expect(schema.get(entry.table)?.foreignKeys ?? [], `${entry.table} references`).toEqual([]);
-        for (const [child, info] of schema) {
-          for (const fk of info.foreignKeys) {
-            if (fk.table !== entry.table) continue;
-            // Only an insert-only table may be a parent: a merge never deletes from it.
-            expect({ child, parent: entry.table, mergeClass: entry.mergeClass }).toEqual({
-              child,
-              parent: entry.table,
-              mergeClass: "grow-only-union",
-            });
-          }
-        }
+        expect(Object.keys(entry), entry.table).not.toContain("referencesMergePending");
       }
+    });
+
+    it("keeps every foreign key inside one domain, between supported tables, with a rule", () => {
+      for (const edge of edges()) {
+        const child = registration(edge.child);
+        const parent = registration(edge.parent);
+        // A key across domains would let a bundle of one domain depend on rows of another.
+        expect(child.domain, `${edge.child} -> ${edge.parent}`).toBe(parent.domain);
+        expect(isTableSyncSupported(edge.child), edge.child).toBe(true);
+        expect(isTableSyncSupported(edge.parent), edge.parent).toBe(true);
+        // The apply path has one delete rule: tombstone what the cascade removes.
+        expect(edge.onDelete, `${edge.child}.${edge.column}`).toBe("CASCADE");
+        // Parents are referenced by a single-column primary key (entity id = the value as text).
+        expect(parent.primaryKey).toHaveLength(1);
+        // The registry documents the key as a foreign-key reference of the child.
+        expect(
+          child.references.some(
+            (reference) =>
+              reference.column === edge.column &&
+              reference.table === edge.parent &&
+              reference.kind === "foreign-key",
+          ),
+          `${edge.child}.${edge.column} declared`,
+        ).toBe(true);
+      }
+    });
+
+    it("declares as foreign-key references exactly the keys the schema has", () => {
+      const declared = TABLE_REGISTRY.flatMap((entry) =>
+        entry.references
+          .filter((reference) => reference.kind === "foreign-key")
+          .map((reference) => `${entry.table}.${reference.column}->${reference.table}`),
+      ).sort();
+      expect(declared).toEqual(
+        edges()
+          .map((edge) => `${edge.child}.${edge.column}->${edge.parent}`)
+          .sort(),
+      );
     });
   });
 

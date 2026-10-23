@@ -1,6 +1,6 @@
-import { hash128 } from "../finance/hash";
 import type { RawRow } from "./capture-decode";
 import type { SyncEntity } from "./change-set";
+import { type ExtraConflict, terminalDivergenceId } from "./conflicts";
 import {
   canonicalJson,
   type FieldClocks,
@@ -32,6 +32,9 @@ import {
   outcomeOfStatus,
   type TemplateRecurrence,
 } from "./recurrence-occurrences";
+
+// Shared conflict types and ids live in conflicts.ts; re-exported for the GTD modules.
+export { type ExtraConflict, terminalDivergenceId };
 
 /**
  * Merge rules of the GTD task and of the recurring template: the `gtd_tasks` and
@@ -122,15 +125,6 @@ export interface LifecycleTuple {
   clock: string | null;
 }
 
-export interface ExtraConflict {
-  id: string;
-  kind: "terminal_divergence";
-  entityType: string;
-  entityId: string;
-  local: unknown;
-  remote: unknown;
-}
-
 export interface TaskMergeContext {
   /** True when the project is known to be deleted (a tombstone). Unknown projects are NOT gone. */
   projectGone?: (projectId: string) => boolean;
@@ -212,18 +206,6 @@ const snapshotOf = (tuple: LifecycleTuple): Record<string, unknown> => ({
   ...tuple.values,
   clock: tuple.clock,
 });
-
-/**
- * Deterministic id of a `terminal_divergence` conflict: one per task (or per occurrence of a
- * recurring task). A task can only become terminal once, so the same divergence found again (the
- * bundle is applied twice, or republished) is the same row, and a divergence the user already
- * resolved is never raised again.
- */
-export const terminalDivergenceId = (
-  entityType: string,
-  entityId: string,
-  occurrence: string | null,
-): string => `terminal-divergence:${hash128(JSON.stringify([entityType, entityId, occurrence]))}`;
 
 // ---------------------------------------------------------------------------------------------
 // Normalization

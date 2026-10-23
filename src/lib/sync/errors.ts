@@ -57,7 +57,20 @@ export type SyncApplyErrorCode =
   | "merge_failed"
   /** A settings key a bundle may never write (unknown, device-scoped, secret, other domain). */
   | "setting_not_syncable"
-  | "invalid_setting_value";
+  | "invalid_setting_value"
+  /**
+   * A row the table's registry `rowFilter` says is never published (a running or paused Pomodoro
+   * session, a segment of one). An honest peer cannot send it, so the whole bundle is refused.
+   */
+  | "row_filter_violation"
+  /**
+   * An incoming terminal Pomodoro session or segment would replace or delete part of a timer that is
+   * running or paused on this laptop. Impossible between honest peers; the bundle is refused so the
+   * live timer is never corrupted.
+   */
+  | "local_timer_conflict"
+  /** A declared foreign key whose delete action the apply path has no convergent rule for. */
+  | "unsupported_foreign_key";
 
 /** A bundle that was refused or aborted. When it is thrown from a transaction, nothing was kept. */
 export class SyncApplyError extends Error {

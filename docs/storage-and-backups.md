@@ -521,8 +521,9 @@ entities.
   row clock is set to a fresh clock. `finance_transaction_splits` are stamped as row-clock entities
   of their own: they are not yet reflected in the parent transaction's categorization-unit clock,
   which belongs to the merge slice. Rows excluded from publishing by a registry `rowFilter`
-  (non-terminal Pomodoro sessions, derived balance snapshots) are still captured; publish filtering
-  is a later slice.
+  (non-terminal Pomodoro sessions, derived balance snapshots) are still captured and stamped;
+  `listSyncChanges` filters them out when it publishes (see below), so a session becomes publishable
+  the moment its state changes, with no capture change.
 - Deletes write a tombstone (`deleted_at` = `row_hlc` = a fresh clock, field clocks kept) and drop
   the snapshot. An entity that never had a meta row was never published and gets nothing. A row
   that exists again after a tombstone restarts as a creation with clean clocks and clears
@@ -627,29 +628,29 @@ version stays 1 (sync is not shipped, so no change set from before this key exis
 
 **What is merged and what is refused.** `src/lib/sync/merge-strategies.ts` is the seam between the
 registry and the engine. This build merges the `field-clock` tables (the `gtd` ones and the `personal`
-ones except the foreign-key tables below) and the `grow-only-union` tables (`gtd_task_events`, `ai_messages`).
+ones, including `weekly_objectives` and `weekly_objective_results`), the `grow-only-union` tables
+(`gtd_task_events`, `ai_messages`) and, through their own rules, three whole-row (`row_hlc`) tables:
+`pomodoro_sessions`, `pomodoro_segments` and `ai_proposals`
+(`TABLE_STRATEGY_OVERRIDES`; [Pomodoro, AI proposals, objectives and results](#pomodoro-ai-proposals-objectives-and-results)).
 `gtd_tasks` and `recurring_task_templates` are field-clock tables with their own rules on top
-(`TABLE_STRATEGY_OVERRIDES`, [below](#gtd-task-and-recurring-template-rules)). The recurrence sidecars
-travel in `recurrence`, never as entities (an entity of those tables is refused). Every other class
-(row-clock, monotonic-status, child-set, Pomodoro, all of `finance`),
-every table with a registry `rowFilter` and every table flagged `referencesMergePending` is not
-published by `listSyncChanges` and makes `applySyncBundle` throw
-`SyncApplyError("unsupported_merge_class")` naming the table, for the whole bundle. A `finance`
-change set therefore carries only finance settings today.
+([below](#gtd-task-and-recurring-template-rules)). The recurrence sidecars travel in `recurrence`,
+never as entities (an entity of those tables is refused). Every other class (the rest of row-clock,
+child-set, all of `finance`) and every table with a registry `rowFilter` that has no rule of its
+own (the finance statement snapshots) is not published by `listSyncChanges` and makes
+`applySyncBundle` throw `SyncApplyError("unsupported_merge_class")` naming the table, for the whole
+bundle. A `finance` change set therefore carries only finance settings today.
 
 **Foreign keys.** Production enforces SQL foreign keys, and apply runs with the capture triggers off,
 so a merge that tombstoned a parent would cascade-delete child rows the engine never sees go, and a
 child arriving for a deleted parent would abort the whole bundle. The schema declares two foreign
 keys, `weekly_objective_results.objective_id -> weekly_objectives` and
-`ai_proposals.message_id -> ai_messages` (both `ON DELETE CASCADE`). Until the references slice
-(natural keys, aliases, declared references) defines a convergent rule, `weekly_objectives`,
-`weekly_objective_results` and `ai_proposals` carry `referencesMergePending: true` and are neither
-published nor merged (a deleted objective therefore does not propagate; each laptop keeps its own
-objectives and results). `ai_messages` is only inserted by a merge, never deleted, so being a foreign-key
-parent is harmless there. `registry.test.ts` derives the expected flag set from
-`PRAGMA foreign_key_list` on the migrated schema and checks that no supported table has a foreign key of
-its own or a deletable foreign-key parent, so a new foreign key cannot slip in. The two-laptop test
-harness runs every scenario with foreign keys on.
+`ai_proposals.message_id -> ai_messages` (both `ON DELETE CASCADE`). `src/lib/sync/apply-references.ts`
+derives its rules from `PRAGMA foreign_key_list`, never from a per-table list (rules below). The
+`referencesMergePending` registry flag is gone; `registry.test.ts` pins the two keys, requires every key
+to stay inside one domain, between supported tables, `ON DELETE CASCADE`, on a single-column parent key and declared as
+a `foreign-key` reference in the registry, so a migration that adds a key without a rule fails there,
+and `ReferenceGuard` refuses (`unsupported_foreign_key`) any other delete action on a parent sync can
+delete. The two-laptop test harness runs every scenario with foreign keys on.
 
 **`listSyncChanges(domain)`** runs inside the repository writer slot (so no write transaction can
 interleave between its SELECTs), issues only SELECTs and never writes. It returns every live entity
@@ -657,7 +658,11 @@ of the supported tables with its `sync_entity_meta` clocks, tombstones, the full
 tables and the stamped synced settings of the domain (a key nobody changed has no clock and is not
 listed). Tables go through the registry's publish guards, the result is passed through
 `validateChangeSet`, and a row without a meta row (never stamped) is not published until
-`enableSyncCapture`'s scan stamps it. It needs the sync identity.
+`enableSyncCapture`'s scan stamps it. A table with a registry `rowFilter` is read with the filter as
+SQL (`RowFilter.publishWhen` is real SQL, the single source) and its `sync_entity_meta` rows are
+published only together with their row; the pure predicate in `row-filter.ts` double-checks the result
+(`row-filter.test.ts` runs both over the same rows) and a breach throws instead of leaking. It needs
+the sync identity.
 
 **`applySyncBundle(domain, changeSet)`** validates and refuses before taking a writer slot (shape,
 domain match with the bundle, unsupported tables, a remote clock malformed or more than 24 hours ahead
@@ -677,9 +682,11 @@ through. Inside the transaction, in order:
    `sync_dirty` mark, stamp no local clock and do not touch `change_counter`. The flag is reset to 0
    before COMMIT and is rolled back with everything else on failure.
 5. In the `gtd` domain the recurrence sidecars are joined first (`apply-recurrence.ts`).
-6. Entities are merged table by table (registry order, entity id order; `gtd_tasks` last, so the
-   project tombstones it consults are applied), union rows are inserted, the settings are merged,
-   overwritten edits and divergences are logged.
+6. Entities and union rows are applied table by table (registry order, entity id order; `gtd_tasks`
+   last, so the project tombstones it consults are applied), reordered so that every foreign-key
+   PARENT comes before its children (`ai_messages` before `ai_proposals`, objectives before results),
+   then the deletes of parents the bundle removed run last, children first (`ReferenceGuard.flush`);
+   the settings are merged, overwritten edits and divergences are logged.
 
 Every applied row also gets its `sync_entity_snapshot` (the row as the capture decoder reads it back
 from the database) and `sync_entity_meta`, so the next local edit diffs against the merged state and
@@ -733,6 +740,7 @@ Merge rules (`src/lib/sync/merge-entity.ts`, built from the `merge-primitives.ts
   local meta), which would make resurrection a join too;
 - grow-only-union tables: `INSERT ... ON CONFLICT DO NOTHING`, never an update, so a collision on
   `dedupe_key` keeps the first row;
+- whole-row (`row_hlc`) tables: see [Pomodoro, AI proposals, objectives and results](#pomodoro-ai-proposals-objectives-and-results);
 - settings: per key by the settings registry rule (`lww` by key clock, `monotonic-max`,
   `non-empty-wins` by value), written through the same settings writer as `updateSettings` so device keys
   are untouched. Secrets, device-scoped keys, unknown keys and keys of another domain are rejected by
@@ -754,6 +762,143 @@ that had synced is told apart. A peer that has overwritten every field of an ent
 evidence and is logged as possibly concurrent. Only the device whose value was replaced logs it; a
 value that merely loses to a newer local one is not an overwrite. Overwritten setting values are not
 logged (a setting entry carries no evidence of what the sender had seen).
+
+#### Pomodoro, AI proposals, objectives and results
+
+These tables were refused until the references slice; each now has a convergent rule. Sync is still
+not user-enabled.
+
+**Row-clock merge** (`merge-row.ts`, pure; `apply-rows.ts` is the glue). Capture stamps these tables as
+a whole row (one `row_hlc`, a content hash, no field clocks), so the merge is whole-row: the state of
+an entity is a live version (row and clock) or a tombstone, and the greatest state of a total order
+wins, which makes the merge a join over one entity's live states: the later clock wins; an edit with a
+clock equal to a delete's keeps the row (edit wins over delete); between two live versions a
+table rule may rank first (terminal status), then the later clock, then the smaller canonical JSON.
+The winner brings all its columns; a column the sender lacks keeps its local value. It is not a join in
+every case: a tombstone carries no row, so (as for field-clock tables) resurrection is not a join, and a
+joined column (a segment's `ended_at`) is lost when a tombstone sits between two versions, so three
+versions are not guaranteed to give one result in one pass in every order. In both cases replicas
+converge once they exchange. The stored snapshot is the
+content hash of the row as the stamper decodes it, so a verifying scan restamps nothing.
+
+**Pomodoro** (`merge-pomodoro.ts`, `row-filter.ts`). Only TERMINAL sessions (`completed`, `cancelled`)
+and the segments of a terminal session are published or accepted; a running or paused timer belongs to
+the laptop it runs on and never leaves it, and neither do its segments or their metadata.
+
+- Publishing is a function of the row's current state, not of when it was last stamped: the change
+  set is the full state, so the first publish after a session completes carries it and every one of
+  its segments although their clocks are older. Running or paused sessions keep being stamped
+  locally (capture is unchanged) and simply are not read.
+- Tombstones of Pomodoro rows are NOT published. A tombstone has no row, so nothing proves the row was
+  ever terminal, and publishing it could reveal that a timer's segment existed; the private side is
+  chosen. No product path deletes a terminal session or a segment of one (the only delete site removes
+  a placeholder segment of a running or paused session), so nothing is lost today; a future
+  delete-history feature must carry the session id in the tombstone first. Applying a tombstone from
+  a peer is supported (edit wins over delete by clock) and tested with hand-built bundles.
+- Applying: a bundle row for a non-terminal session, or a segment of a session the bundle carries as
+  non-terminal or deleted, is refused for the whole bundle with `row_filter_violation` (checked before
+  a writer slot is taken). A segment whose session is neither in the bundle nor a terminal session here
+  is refused the same way; one whose session the bundle carries but this laptop deleted (its delete is
+  later) is skipped with an informational `orphaned_child` conflict, so one laptop's delete never makes
+  every later bundle from the other fail.
+- A LOCAL running or paused timer is never touched: an incoming session with its id, a segment of it,
+  or a delete of either aborts the bundle with `local_timer_conflict` (impossible between honest
+  peers). Pulling the other laptop's completed sessions never changes the local session itself
+  (`getPomodoroState().activeSession` stays the local one, given consistent clocks, see the last bullet) and counts toward the day: `computeDailyPomodoroStats` and the suggested `pomodoris` metric read all
+  sessions.
+- Two versions of one terminal session or segment (only a hand edit or a bug produces them): whole-row
+  last-writer-wins; the loser's device logs an `overwritten_edit` with `field = "(row)"` (the whole
+  row). A segment's `ended_at` is joined across both versions instead: non-null beats null, and two
+  different ends keep the later timestamp, so the result does not depend on which version is newer.
+  Delete against edit follows the clocks; because deletes are not published, a delete on one laptop
+  never reaches the other: if the delete is later the session stays deleted only on the laptop that
+  deleted it (known limit, no product path).
+- Known limit, wall-clock skew: remote sessions feed the local cycle and idle-reset logic
+  (`buildPomodoroState` / `shouldResetPomodoroCycleAfterIdle` in `engine.ts` read every session). With
+  a laptop whose wall clock is far from the other's, a remote session can look like activity in the
+  future or past and trigger an idle reset, so a live local break can be auto-completed
+  (`completeExpiredPomodoroSessionsInternal`). A running focus is not affected (a live focus is never
+  reset). The timer rows themselves are never modified by a pull.
+
+**AI proposals** (`merge-proposal.ts`, `apply-proposals.ts`). Rows are whole-row too.
+
+- A terminal status (`accepted`, `dismissed`, `expired`) beats `pending` whatever the clocks say, and
+  brings its whole row (`decided_at` and `applied_entity_id` describe that decision). Two different
+  terminals keep the smaller status (`mergeTerminalBeatsPending`: `accepted` before `dismissed` before
+  `expired`) and write an unresolved `terminal_divergence` conflict (`entity_type = 'ai_proposals'`)
+  with an id derived from the proposal alone. The replica that first meets both rows logs it (usually
+  the one that adopts the winner); the other learns of it when conflicts travel, in a later slice.
+  The same status on both sides, or two pending rows: the later clock.
+- The registry's two partial unique indexes allow one pending proposal per message and type (and per
+  message and goal for `goal_evaluation`). Two pending proposals for one key created on two laptops are
+  resolved without the alias engine: among the incoming row and every stored pending row that shares a
+  declared pending key (found with the index's own `where` and key expressions from the registry), the
+  later row clock (then the greater id) keeps `pending`; every other one is stored as `expired`
+  (same id, same clock, every other column kept) and a `pending_collision` conflict (informational,
+  deterministic id) records it. It is stored, not dropped, so every replica holds the same rows, and
+  because terminal beats pending a replica that still holds the loser as pending converges to
+  `expired` whichever order things arrive in. The bundle never aborts for this; any OTHER unique
+  violation still does (`natural_key_collision` / `unique_violation`).
+- `ai_messages` is a grow-only union table applied BEFORE `ai_proposals` in the same bundle. A proposal
+  whose message is not here is skipped (nothing written, `orphaned_child` conflict) without aborting the
+  bundle, and a later bundle that brings the message applies it; re-applying is a no-op. JSON payload
+  references (`payload_json.taskId`, `goalId`) are left as they are until the alias slice.
+- Within one bundle, decided (terminal) proposals are applied before deletes and before pending ones,
+  so a replica that holds P1 pending and receives {P1 accepted, P2 pending} never expires anything
+  against a P1 that is about to stop being pending; a replica without P1 ends in the same state.
+- Deletes. No current code path deletes a synced proposal: `clearPendingAiProposals` has no callers, and
+  `saveCoachPulseEpisode` only deletes pending rows of the message it has just inserted. The merge still
+  handles tombstones: a pending proposal follows the clocks (a later delete removes it everywhere, a
+  later edit keeps it), and every terminal proposal (`accepted`, `dismissed`, `expired`) beats any tombstone whatever the clocks
+  (`survivesDelete`), because the app only ever deletes pending rows, so a delete racing a decision means
+  the deleter had not seen it. A row the engine itself expired for a pending collision is terminal too, so
+  it also survives a later delete of the pending row it came from; whether a replica derived it before or
+  after the delete arrived can differ in a single pass, and replicas agree exactly once they exchange.
+
+**Objectives and results** (field-clock, `weekly_objective_results` is `ON DELETE CASCADE` of
+`weekly_objectives`; `apply-references.ts`). Merged per field like the other personal tables, plus:
+
+- Parents are applied before children; deletes of parents run after every table was applied (so
+  children are deleted first). The parent row a bundle deletes stays until then.
+- Parent tombstone wins, local children exist: the apply deletes the children itself and writes their
+  tombstone meta in the same transaction (`deleted_at = row_hlc` = the parent's `deletedAt` when that is
+  later than every clock the child retains, otherwise a clock issued by the APPLYING device; field clocks
+  kept, snapshot dropped). Capture-off cascades therefore never leave "live meta, no row".
+- A child edit that arrives for a parent that is deleted (here, or in this bundle) is not inserted: the
+  child ends as a tombstone STRICTLY later than its own newest edit (an equal clock would keep the
+  edit): the latest delete the child or its parent already has when that is later than the edit,
+  otherwise a clock issued by the applying device, and an `orphaned_child` conflict (informational, one per child) records the
+  discarded row. "Edit wins over delete" applies to the PARENT: a parent edit later than its delete
+  resurrects it, and children whose own edit is later than their tombstone come back with it. A
+  child whose parent was never heard of is skipped (nothing written, `orphaned_child`) and applied by the
+  bundle that brings the parent. A child listed before its parent in a bundle is fine.
+- The tombstone clocks the apply invents are never derived from another device's clock (for example
+  "the child author's counter + 1", a value that author issues itself next and that would tie with its
+  own edit). They are drawn from the applying device's clock store inside the apply transaction, after
+  the bundle's clock was absorbed, so they are unique to that device and later than everything in the
+  bundle; only `sync_identity`'s clock state moves (no dirty mark, no `change_counter`), and nothing is
+  issued when a delete that outranks the edit already exists, so re-applying a bundle changes nothing.
+  Consequence: replicas that each had to invent the tombstone of the same child hold different, all
+  valid, clocks until they exchange; tombstone against tombstone keeps the later, so they converge
+  (`references.convergence.test.ts` and `classes.convergence.test.ts` compare tombstone clocks masked in
+  one pass and exactly after the exchange).
+- Known limit: an invented tombstone (the forced one for a child edit that arrives for a deleted parent,
+  or the cascade tombstone of a child edited after the parent's delete) is dated at the APPLYING
+  device's clock when it applies. Every concurrent child edit dated before that tombstone is lost once
+  the parent comes back (a later parent edit resurrects it, and the child tombstone outranks the older
+  edit), including edits made after the parent's delete that this device never applied inside the
+  window, and wall-clock skew on the applying device widens this. The replicas that applied the child
+  edit while the parent was gone drop it; the others keep it until they hear the tombstone, which then
+  wins everywhere. It can happen with just two laptops (A deletes the objective; B edits a result and A
+  applies that bundle; B then edits the objective and A applies the new bundle: the result was dropped
+  while the objective was gone). Deleting an objective is rare and results are small, so this was
+  accepted (the dating rule is deliberate) rather than carrying orphaned child values.
+- What the fresh clock fixes. An earlier version dated these tombstones as "the child author's newest
+  clock + 1 counter". The scenario a review described for it (a child that survives its deleted parent
+  forever) does not reproduce: foreign keys are enforced and the forced-orphan rule tombstones any
+  child whose parent is gone, so such a child cannot stay. The real flaw was a duplicate clock: the
+  invented tombstone could equal a clock the child's author issues itself next, and an equal clock ties
+  with that edit. The tombstone is now drawn from the applying device's own clock store.
 
 #### GTD task and recurring template rules
 
@@ -869,8 +1014,8 @@ Other known limits:
   project has no next action"), so a merged project can sit without a next action until the next local
   mutation of that project.
 
-Sync must still not be user-enabled before the remaining slices (Pomodoro, monotonic-status and reference
-tables, row-clock tables, canonical identity, engine and UI) land.
+Sync must still not be user-enabled before the remaining slices (the rest of the row-clock tables,
+finance, canonical identity and aliases, engine, transport and UI) land.
 
 Test-only clock: `TauriSqliteRepository` takes an optional third constructor argument, the wall clock
 (epoch milliseconds) behind every sync clock it issues (default `Date.now`). Production never passes it;

@@ -16,6 +16,7 @@ import { entityIdOf } from "./entity-id";
 import { getOwn } from "./field-clocks";
 import { encodeHlc, maxHlcOf } from "./hlc";
 import { supportedEntityTables, supportedUnionTables, tableOrder } from "./merge-strategies";
+import { assertEntitiesPublishable, publishFilterSql, rowPassesFilter } from "./row-filter";
 import { type ClearRow, type OccurrenceRow, occurrenceFromRow } from "./recurrence-store";
 import {
   assertTablePublishable,
@@ -41,6 +42,16 @@ import { readTableInfo, toSyncRow } from "./table-info";
  * `validateChangeSet` so a classification mistake fails loudly instead of leaking a row. Rows
  * without a `sync_entity_meta` row (never stamped) are not published; `enableSyncCapture`'s
  * verifying backfill stamps them.
+ *
+ * Row filters (`rowFilter` in the registry: only terminal Pomodoro sessions and their segments) are
+ * applied in the `SELECT` itself, and a row's `sync_entity_meta` is published only together with
+ * the row, so the metadata of a running timer never travels either. Eligibility depends on the
+ * row's CURRENT state, not on when it was last stamped: the change set is the full state, so the
+ * first publish after a session completes carries it and its segments although their clocks are
+ * older than the completion. Tombstones of filtered tables are NOT published: a tombstone has no
+ * row, so nothing proves the row was ever eligible, and the private choice is to say nothing (no
+ * product path deletes a terminal session or one of its segments; the one delete site removes a
+ * placeholder segment of a running or paused session).
  */
 
 const byText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
@@ -56,7 +67,10 @@ const readEntities = async (db: Database, domain: SyncDomain): Promise<SyncEntit
   for (const table of supportedEntityTables(domain)) {
     assertTablePublishable(table, domain);
     const info = await readTableInfo(db, table);
-    const rows = await db.select<Record<string, unknown>[]>(`SELECT * FROM ${quoteIdent(table)}`);
+    const filter = publishFilterSql(table);
+    const rows = await db.select<Record<string, unknown>[]>(
+      `SELECT * FROM ${quoteIdent(table)}${filter === null ? "" : ` WHERE (${filter})`}`,
+    );
     const byId = new Map<string, Record<string, unknown>>();
     for (const row of rows) {
       try {
@@ -80,6 +94,7 @@ const readEntities = async (db: Database, domain: SyncDomain): Promise<SyncEntit
     for (const meta of metas) {
       const fieldClocks = parseClocks(meta.field_clocks_json);
       if (meta.deleted_at !== null) {
+        if (filter !== null) continue; // see the module comment
         entities.push({
           table,
           entityId: meta.entity_id,
@@ -104,9 +119,29 @@ const readEntities = async (db: Database, domain: SyncDomain): Promise<SyncEntit
       });
     }
   }
-  return entities.sort(
+  return publishableOnly(entities).sort(
     (a, b) => tableOrder(a.table) - tableOrder(b.table) || byText(a.entityId, b.entityId),
   );
+};
+
+/**
+ * Drops live entities that fail their table's filter judged against what is actually published: a
+ * segment goes only with a session that is itself in the set (its session may be terminal but
+ * unstamped), then asserts the result, so a filter breach is a loud bug, never a leak.
+ */
+const publishableOnly = (entities: SyncEntity[]): SyncEntity[] => {
+  const context = {
+    terminalSessionIds: new Set(
+      entities
+        .filter((entity) => entity.table === "pomodoro_sessions" && entity.row !== null)
+        .map((entity) => entity.entityId),
+    ),
+  };
+  const kept = entities.filter(
+    (entity) => entity.row === null || rowPassesFilter(entity.table, entity.row, context),
+  );
+  assertEntitiesPublishable(kept, "publish");
+  return kept;
 };
 
 const readUnionRows = async (

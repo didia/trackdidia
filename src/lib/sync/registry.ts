@@ -103,9 +103,16 @@ export interface NaturalKey {
   description?: string;
 }
 
-/** A subset of a table's rows that is published; the rest stays on the machine. */
+/**
+ * A subset of a table's rows that is published; the rest stays on the machine.
+ *
+ * `publishWhen` is REAL SQL, the single source of the filter: a boolean expression over the table's
+ * own columns (unqualified; it may use a sub-select on another registry table). `list-changes.ts`
+ * appends it to the table's `SELECT`, and `row-filter.ts` holds the matching pure predicate that
+ * validates incoming rows; `row-filter.test.ts` runs both over the same rows so they cannot drift.
+ */
 export interface RowFilter {
-  /** SQL-ish predicate describing the rows that are published. */
+  /** SQL predicate selecting the rows that are published. */
   publishWhen: string;
   /** What the excluded rows are and why they stay local. */
   localOnly: string;
@@ -128,24 +135,20 @@ export interface TableRegistration {
    * entity a row describes, which decides the bundle the row travels in.
    */
   entityTypeColumn?: string;
-  /**
-   * TEMPORARY. The table takes part in a declared SQL foreign key (`PRAGMA foreign_key_list`) whose
-   * parent can be deleted: production enforces foreign keys, so deleting a parent cascades to its
-   * children inside the database. A merge that tombstones the parent would silently delete child
-   * rows the sync engine never saw go (apply runs with the capture triggers off), and a child
-   * arriving for a deleted parent would abort the whole bundle. Until the references slice (natural
-   * keys, aliases, declared references) defines a convergent rule, `merge-strategies.ts` neither
-   * publishes nor merges these tables and `applySyncBundle` refuses them. That slice removes the
-   * flag; `registry.test.ts` derives the expected set from the migrated schema, so a new foreign
-   * key cannot appear unnoticed either.
-   */
-  referencesMergePending?: true;
   notes?: string;
 }
 
 // ---------------------------------------------------------------------------------------------
 // Table registry
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * Statuses of a Pomodoro session that has ended. Only such a session (and its segments) is ever
+ * published: a running or paused timer belongs to the laptop it runs on.
+ */
+export const POMODORO_TERMINAL_STATUSES = ["completed", "cancelled"] as const;
+
+const TERMINAL_SESSION_SQL = `status IN (${POMODORO_TERMINAL_STATUSES.map((status) => `'${status}'`).join(", ")})`;
 
 const noKeys: readonly NaturalKey[] = [];
 const noRefs: readonly TableReference[] = [];
@@ -245,9 +248,11 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     naturalKeys: noKeys,
     references: noRefs,
     rowFilter: {
-      publishWhen: "status IN ('completed', 'cancelled')",
+      publishWhen: TERMINAL_SESSION_SQL,
       localOnly: "A running or paused timer is owned by the laptop it runs on and never leaves it.",
     },
+    notes:
+      "Only terminal sessions are published or applied. A terminal session is immutable in practice; two versions of one are merged by whole-row last-writer-wins (merge-pomodoro.ts). Tombstones are never published (a tombstone cannot prove its session was ever terminal).",
   },
   {
     table: "pomodoro_segments",
@@ -260,10 +265,11 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       { column: "task_id", table: "gtd_tasks", kind: "soft" },
     ],
     rowFilter: {
-      publishWhen: "session_id belongs to a published (terminal) session",
+      publishWhen: `session_id IN (SELECT id FROM pomodoro_sessions WHERE ${TERMINAL_SESSION_SQL})`,
       localOnly: "Segments of a running or paused session stay with that session.",
     },
-    notes: "ended_at: non-null beats null.",
+    notes:
+      "Whole-row last-writer-wins, except ended_at: a non-null value beats null, and two different non-null values keep the later timestamp (merge-pomodoro.ts). Tombstones are never published.",
   },
 
   // Recurrence sidecars: keyed by a gtd template, so they travel with the gtd bundle.
@@ -346,9 +352,8 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     primaryKey: ["id"],
     naturalKeys: noKeys,
     references: noRefs,
-    referencesMergePending: true,
     notes:
-      "Parent of weekly_objective_results (ON DELETE CASCADE): not merged until the references slice.",
+      "Parent of weekly_objective_results (ON DELETE CASCADE). Merged per field; a parent tombstone also tombstones the results the cascade removes (apply-references.ts).",
   },
   {
     table: "weekly_objective_results",
@@ -357,7 +362,8 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     primaryKey: ["week_start_date", "objective_id"],
     naturalKeys: noKeys,
     references: [{ column: "objective_id", table: "weekly_objectives", kind: "foreign-key" }],
-    referencesMergePending: true,
+    notes:
+      "A result for a deleted or unknown objective is never inserted (it would violate the foreign key): it stays tombstoned or is skipped, with an orphaned_child conflict (apply-references.ts).",
   },
   {
     table: "ai_messages",
@@ -372,7 +378,6 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     table: "ai_proposals",
     domain: "personal",
     mergeClass: "monotonic-status",
-    referencesMergePending: true,
     primaryKey: ["id"],
     naturalKeys: [
       {
@@ -407,7 +412,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       { column: "payload_json", table: "annual_goals", kind: "json-payload", note: "$.goalId" },
     ],
     notes:
-      "Terminal state (accepted / dismissed / expired) beats pending. gtd_action proposals refer to tasks but live in personal.",
+      "Terminal state (accepted / dismissed / expired) beats pending whatever the clocks say; two different terminals keep the smaller status and write a terminal_divergence conflict. Two pending proposals for one natural key keep the later row clock pending and expire the other (merge-proposal.ts). gtd_action proposals refer to tasks but live in personal.",
   },
   {
     table: "ai_memories",

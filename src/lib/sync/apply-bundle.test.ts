@@ -396,35 +396,12 @@ describe("refusals", () => {
   });
 
   const unsupported: [string, "gtd" | "personal" | "finance", string, string, Draft][] = [
-    ["a Pomodoro session", "gtd", "pomodoro_sessions", "s1", { id: "s1" }],
-    ["a Pomodoro segment", "gtd", "pomodoro_segments", "seg1", { id: "seg1" }],
     [
       "a recurrence sidecar row",
       "gtd",
       "sync_recurrence_clears",
       "tpl-1",
       { template_id: "tpl-1" },
-    ],
-    [
-      "an AI proposal (monotonic status, foreign key)",
-      "personal",
-      "ai_proposals",
-      "p1",
-      { id: "p1" },
-    ],
-    [
-      "a weekly objective (parent of a cascading foreign key)",
-      "personal",
-      "weekly_objectives",
-      "o1",
-      { id: "o1" },
-    ],
-    [
-      "a weekly objective result (foreign key)",
-      "personal",
-      "weekly_objective_results",
-      JSON.stringify(["2026-10-04", "o1"]),
-      { week_start_date: "2026-10-04", objective_id: "o1" },
     ],
     ["an AI memory (row clock)", "personal", "ai_memories", "m1", { id: "m1" }],
     ["a finance account (row clock)", "finance", "finance_accounts", "acc-1", { id: "acc-1" }],

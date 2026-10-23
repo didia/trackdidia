@@ -250,6 +250,32 @@ these writes inside its writer queue.
 Eligible GTD tasks are active Next Actions. Scheduled tasks stay off the picker
 until they are promoted to Next Actions.
 
+### Multi-device sync (terminal sessions only; not user-enabled)
+
+Groundwork for the multi-laptop sync (design:
+[`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)). Sync is not user-enabled, so
+none of this changes behavior on a normal install; it is exercised by tests that move change sets
+between simulated laptops.
+
+- Only **terminal** sessions (`completed` or `cancelled`) and the segments of a terminal session are
+  published. A running or paused timer belongs to the laptop it runs on: neither it, nor its
+  segments, nor their sync metadata ever leave it. A session becomes publishable when it is stopped
+  (or auto-completed), with all of its segments, including ones closed earlier by a pause.
+- A pull never touches the local timer: another laptop's finished sessions arrive as ordinary history,
+  count toward the day (`computeDailyPomodoroStats`, the suggested `pomodoris` metric) and the task
+  summaries, and `getPomodoroState().activeSession` stays the local one, given consistent clocks:
+  remote sessions also feed the local cycle and idle-reset logic, so with wall-clock skew between the
+  laptops a remote session can trigger an idle reset and a live local break can be auto-completed (a
+  running focus is never reset; the timer rows are never modified). A bundle that would change a
+  local running or paused timer is refused whole.
+- A running timer is therefore invisible on the other laptop (it shows no timer until the first
+  stops it). Two laptops can each run a timer at once.
+- A segment's `endedAt` is joined when two versions meet (non-null beats null; the later of two ends
+  wins). Deleting a Pomodoro row does not propagate between laptops yet.
+
+The rules, limits and tests are in
+[Storage and backups](storage-and-backups.md#pomodoro-ai-proposals-objectives-and-results).
+
 ### Next Actions quick start
 
 Each Next Action task card has a Pomodoro button that calls

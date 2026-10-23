@@ -15,7 +15,7 @@ import {
   setOwn,
   splitFieldClockKey,
 } from "./field-clocks";
-import { encodeHlc, maxHlc, parseHlc } from "./hlc";
+import { compareHlc, encodeHlc, maxHlc, maxHlcOf, parseHlc } from "./hlc";
 import {
   type MapEntry,
   mergeJsonMapPerKey,
@@ -75,7 +75,7 @@ export const BASELINE_CLOCK = encodeHlc(0, 0, "baseline");
  * `updated_at` moves on every save (slice-5 decision) and `created_at` differs whenever two devices
  * independently create the same deterministic id.
  */
-const BOOKKEEPING_FIELDS: ReadonlySet<string> = new Set(["created_at", "updated_at"]);
+export const BOOKKEEPING_FIELDS: ReadonlySet<string> = new Set(["created_at", "updated_at"]);
 
 export interface LocalEntityState {
   /** The stored row, or `null` when the entity has no row here. */
@@ -92,6 +92,21 @@ export interface MergeEntityInput {
   notNullColumns: ReadonlySet<string>;
   local: LocalEntityState;
   remote: SyncEntity;
+  /**
+   * Set when the entity's parent row (a declared foreign key) is deleted here. The child must not
+   * survive its parent: if the ordinary merge would keep it alive, it ends as a tombstone instead
+   * (see {@link mergeFieldClockEntity}). `deletedAt` is the parent's tombstone clock.
+   */
+  orphaned?: {
+    deletedAt: string;
+    /**
+     * A clock issued by THIS device (drawn from its clock store after the bundle's clock was
+     * absorbed), used as the forced tombstone's clock when nothing the child already has outranks
+     * its newest edit. The merge never derives a clock from another device's clock: a derived value
+     * could equal one the author issues next and tie with its edit.
+     */
+    freshClock?: string;
+  };
 }
 
 export type RowAction = "none" | "insert" | "update" | "delete";
@@ -132,6 +147,14 @@ export interface EntityMergeOutcome {
   /** A tombstone removed a local row, or was recorded or advanced in the meta. */
   tombstoneApplied: boolean;
   overwritten: OverwrittenField[];
+  /** The ordinary merge would have kept the entity alive; its deleted parent forced a tombstone. */
+  forcedByParent?: true;
+  /**
+   * The forced tombstone could not be dated: no delete the entity already has is later than its
+   * newest edit. The caller must merge again with `orphaned.freshClock`; this outcome is a
+   * placeholder and must not be written.
+   */
+  needsFreshClock?: true;
 }
 
 type Json = Record<string, unknown>;
@@ -535,8 +558,40 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
   );
 
   // --- The latest delete beats every edit: the row goes, the tombstone and clocks stay. --------
-  if (tombstone.deleted) {
-    const deletedAt = tombstone.deletedAt as string;
+  // A child of a deleted parent is deleted too, even when an edit is later than every delete it has
+  // seen: the foreign key forbids the row, and "edit wins over delete" applies to the PARENT (its
+  // own edit resurrects it). The forced tombstone must be STRICTLY later than the newest edit the
+  // entity retains (an equal or older one would read as "alive, but without a row" and an equal
+  // clock keeps the edit). It is the latest delete the child or its parent already has when that is
+  // later than the edit (so a replica that already holds the tombstone derives nothing new and
+  // re-applying is a no-op); otherwise it is a clock issued by this device (`orphaned.freshClock`),
+  // never one derived from another device's clock, which that device could issue itself next.
+  // Known limit (docs): when the parent is deleted only TRANSIENTLY (a later parent edit resurrects
+  // it) the child edit is lost on the replicas that applied it during that window.
+  const forced = !tombstone.deleted && input.orphaned !== undefined;
+  let needsFreshClock = false;
+  if (tombstone.deleted || forced) {
+    let deletedAt: string;
+    if (tombstone.deleted) {
+      deletedAt = tombstone.deletedAt as string;
+    } else {
+      const known = maxHlcOf([localDeletedAt, remote.deletedAt, input.orphaned?.deletedAt]);
+      const edit = tombstone.rowClock;
+      const fresh = input.orphaned?.freshClock ?? null;
+      if (fresh !== null && edit !== null && compareHlc(fresh, edit) <= 0) {
+        throw new Error(
+          "The fresh clock for a forced tombstone must be later than the child's edits",
+        );
+      }
+      if (known !== null && (edit === null || compareHlc(known, edit) > 0)) {
+        deletedAt = known;
+      } else if (fresh !== null) {
+        deletedAt = maxHlcOf([known, fresh]) as string;
+      } else {
+        needsFreshClock = true;
+        deletedAt = known ?? (edit as string); // placeholder, see `needsFreshClock`
+      }
+    }
     const meta: EntityMeta = {
       fieldClocks: mergeClocksByForm(localClocks, remoteClocks, maps),
       rowHlc: deletedAt,
@@ -550,6 +605,8 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
       metaChanged,
       tombstoneApplied: localHasRow || metaChanged,
       overwritten: [],
+      ...(forced ? { forcedByParent: true as const } : {}),
+      ...(needsFreshClock ? { needsFreshClock: true as const } : {}),
     };
   }
 
