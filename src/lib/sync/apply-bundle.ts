@@ -1,6 +1,11 @@
 import type { AppSettings } from "../../domain/types/settings";
 import type { Database } from "../storage/sqlite-db";
+import { financeContextForRound, splitIntoRounds } from "./alias-decode";
+import type { ApplyEntities, ApplyScope } from "./alias-context";
+import { resolveCanonicalIdentity } from "./apply-aliases";
+import { appendTo } from "./collections";
 import { applyFinanceSplits, applyFinanceTransactions, buildFinanceContext } from "./apply-finance";
+import { CONTEXTS, keepLocalNameOnCollision } from "./apply-names";
 import { orderByReferences, type ParentStatus, ReferenceGuard } from "./apply-references";
 import { applyRecurrenceSidecars } from "./apply-recurrence";
 import { applyRowClockTable } from "./apply-rows";
@@ -349,7 +354,20 @@ const applyEntityTable = async (
     }
 
     const outcome = emptyOutcome();
+    const remoteById = new Map(batch.map((entity) => [entity.entityId, entity] as const));
     for (const entry of staged) {
+      // A rename onto a name another context holds keeps the local name (apply-names.ts).
+      if (table === CONTEXTS) {
+        const remote = remoteById.get(entry.entityId);
+        const collision =
+          remote === undefined
+            ? null
+            : await keepLocalNameOnCollision(db, entry, remote, {
+                row: rows.get(entry.entityId) ?? null,
+                meta: metas.get(entry.entityId),
+              });
+        if (collision !== null) entry.conflicts.push(collision);
+      }
       const { entityId, key, outcome: merged } = entry;
       try {
         if (merged.rowAction === "delete" && guard.isCascadeParent(table)) {
@@ -604,15 +622,68 @@ const insertConflicts = async (
 // Entry point
 // ---------------------------------------------------------------------------------------------
 
+interface TableEnv {
+  db: Database;
+  totals: Totals;
+  conflicts: PendingConflict[];
+  guard: ReferenceGuard;
+}
+
+/**
+ * Applies entities of ONE table through that table's merge rules. The single dispatcher for the
+ * bundle's own entities and for the entities the alias engine feeds in on its own
+ * (`alias-sources.ts`), so a row that moved to its canonical id is merged by exactly the rules a
+ * peer's row would be.
+ */
+const applyEntitiesOfTable = async (
+  env: TableEnv,
+  table: string,
+  entities: SyncEntity[],
+  scope: ApplyScope,
+): Promise<void> => {
+  const { db, totals, conflicts, guard } = env;
+  const rowRule = rowClockRuleOf(table);
+  if (rowRule === "finance-transaction") {
+    await applyFinanceTransactions(db, entities, scope.finance, totals, conflicts);
+  } else if (rowRule === "finance-split") {
+    await applyFinanceSplits(entities, scope.finance, totals, conflicts);
+  } else if (strategyForTable(table)?.kind === "row-clock") {
+    await applyRowClockTable(db, table, entities, totals, conflicts, guard, scope.sessionIds);
+  } else {
+    await applyEntityTable(db, table, entities, totals, conflicts, scope.gtd, guard);
+  }
+};
+
+const byEntityId = (a: SyncEntity, b: SyncEntity): number =>
+  a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0;
+
 const mergeAll = async (
   db: Database,
-  changeSet: SyncChangeSet,
+  input: SyncChangeSet,
   context: ApplyContext,
 ): Promise<Omit<SyncApplyResult, "hlcAdvanced">> => {
   const totals: Totals = { applied: 0, skipped: 0, tombstonesApplied: 0 };
   const conflicts: PendingConflict[] = [];
 
-  // The recurrence sidecars merge first: the instance rows and templates are recomputed from them.
+  // Parents before children, derived from the declared foreign keys: a proposal needs its message
+  // (a union table), a result its objective. Otherwise the registry order stands.
+  const guard = await ReferenceGuard.create(db, context.nowMs);
+  const env: TableEnv = { db, totals, conflicts, guard };
+  const applyEntities: ApplyEntities = (table, entities, scope) =>
+    applyEntitiesOfTable(env, table, entities, scope);
+
+  // Canonical identity first (apply-aliases.ts): aliases learned, local rows moved to their
+  // canonical ids, the bundle rewritten so it only names canonical ids.
+  const changeSet = await resolveCanonicalIdentity({
+    db,
+    changeSet: input,
+    guard,
+    totals,
+    conflicts,
+    applyEntities,
+  });
+
+  // The recurrence sidecars merge next: the instance rows and templates are recomputed from them.
   let gtd: GtdApplyState | null = null;
   if (changeSet.domain === "gtd") {
     const sidecars = await applyRecurrenceSidecars(db, changeSet.recurrence);
@@ -622,50 +693,52 @@ const mergeAll = async (
     gtd = await loadGtdApplyState(db, touchedTemplatesOf(changeSet, sidecars.templates));
   }
 
-  const byTable = new Map<string, SyncEntity[]>();
-  for (const entity of changeSet.entities) {
-    byTable.set(entity.table, [...(byTable.get(entity.table) ?? []), entity]);
-  }
-  if (gtd !== null && gtd.touchedTemplates.size > 0) {
-    for (const table of ["gtd_tasks", "recurring_task_templates"]) {
-      if (!byTable.has(table)) byTable.set(table, []);
-    }
-  }
-  // Tasks last: whether a planned task's project is gone is read from the project tombstones, which
-  // must have been applied by then.
-  const rank = (table: string): number => tableOrder(table) + (table === "gtd_tasks" ? 1000 : 0);
-  const entityTables = [...byTable.keys()].sort((a, b) => rank(a) - rank(b));
-  const unionTables = Object.keys(changeSet.unionRows).sort(
-    (a, b) => tableOrder(a) - tableOrder(b),
-  );
-
-  // Parents before children, derived from the declared foreign keys: a proposal needs its message
-  // (a union table), a result its objective. Otherwise the order above stands.
-  const guard = await ReferenceGuard.create(db, context.nowMs);
   const bundleSessionIds = new Set(
     changeSet.entities
       .filter((entity) => entity.table === "pomodoro_sessions" && entity.row !== null)
       .map((entity) => entity.entityId),
   );
-  const financeContext = buildFinanceContext(changeSet.entities);
-  const order = orderByReferences([...entityTables, ...unionTables], guard.edges);
-  for (const table of order) {
-    if (byTable.has(table)) {
-      const entities = (byTable.get(table) as SyncEntity[]).sort((a, b) =>
-        a.entityId < b.entityId ? -1 : a.entityId > b.entityId ? 1 : 0,
-      );
-      const rowRule = rowClockRuleOf(table);
-      if (rowRule === "finance-transaction") {
-        await applyFinanceTransactions(db, entities, financeContext, totals, conflicts);
-      } else if (rowRule === "finance-split") {
-        await applyFinanceSplits(entities, financeContext, totals, conflicts);
-      } else if (strategyForTable(table)?.kind === "row-clock") {
-        await applyRowClockTable(db, table, entities, totals, conflicts, guard, bundleSessionIds);
-      } else {
-        await applyEntityTable(db, table, entities, totals, conflicts, gtd, guard);
+  const scope: ApplyScope = {
+    gtd,
+    finance: buildFinanceContext(changeSet.entities),
+    sessionIds: bundleSessionIds,
+  };
+
+  // After the rewrite two entities can name one id (a tombstone kept for an alias next to the live
+  // canonical row): they are applied in rounds, so the merge rules decide between them.
+  const rounds = splitIntoRounds(changeSet.entities);
+  for (const [roundIndex, round] of (rounds.length === 0 ? [[]] : rounds).entries()) {
+    // Versions of one transaction each get only the splits that named them in the bundle.
+    const roundScope: ApplyScope =
+      rounds.length > 1
+        ? { ...scope, finance: financeContextForRound(round, changeSet.entities) }
+        : scope;
+    const byTable = new Map<string, SyncEntity[]>();
+    for (const entity of round) {
+      appendTo(byTable, entity.table, entity);
+    }
+    if (roundIndex === 0 && gtd !== null && gtd.touchedTemplates.size > 0) {
+      for (const table of ["gtd_tasks", "recurring_task_templates"]) {
+        if (!byTable.has(table)) byTable.set(table, []);
       }
-    } else {
-      await applyUnionTable(db, table, getOwn(changeSet.unionRows, table) as SyncRow[], totals);
+    }
+    // Tasks last: whether a planned task's project is gone is read from the project tombstones, which
+    // must have been applied by then.
+    const rank = (table: string): number => tableOrder(table) + (table === "gtd_tasks" ? 1000 : 0);
+    const entityTables = [...byTable.keys()].sort((a, b) => rank(a) - rank(b));
+    const unionTables =
+      roundIndex === 0
+        ? Object.keys(changeSet.unionRows).sort((a, b) => tableOrder(a) - tableOrder(b))
+        : [];
+
+    const order = orderByReferences([...entityTables, ...unionTables], guard.edges);
+    for (const table of order) {
+      if (byTable.has(table)) {
+        const entities = (byTable.get(table) as SyncEntity[]).sort(byEntityId);
+        await applyEntitiesOfTable(env, table, entities, roundScope);
+      } else {
+        await applyUnionTable(db, table, getOwn(changeSet.unionRows, table) as SyncRow[], totals);
+      }
     }
   }
   // The deletes of parents the bundle removed run last, children first (apply-references.ts).

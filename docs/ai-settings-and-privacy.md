@@ -992,9 +992,13 @@ Generation behavior:
 1. Skip a category already marked processed for this date or a later date.
 2. If an active generated task for that category exists, do not create another and
    mark the date processed.
-3. Randomly select a non-empty configured activity.
+3. Select a non-empty configured activity with a deterministic seeded pick over the
+   list (seed `<category>:<date>`), so the same list, category and date always give the
+   same activity, on every laptop and on every call.
 4. Create a manual Next Action in the Personal context.
-5. Use a deterministic category/date source external ID.
+5. Use a deterministic category/date source external ID and derive the task id from it
+   (`task:relationship-draw:<category>:<date>`). A day that already has a task for that
+   category/date, whatever its status, is marked processed without creating another.
 6. Advance the processed date in settings without moving it backwards.
 
 The settings read, active-task check, task creation, and processed-date update form

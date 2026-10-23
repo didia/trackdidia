@@ -9,6 +9,7 @@ import {
 } from "./recurrence-occurrences";
 import {
   getTableRegistration,
+  isAliasableTable,
   isRegisteredTable,
   isSettingPublishable,
   isSidecarPublishable,
@@ -33,6 +34,14 @@ import { isValidDeviceId } from "./status";
  * entities (no field clocks, no tombstones): they are joins, merged by `recurrence-occurrences.ts`.
  * Rows are keyed by column name like every other row. The key is always present; outside the `gtd`
  * domain both lists must be empty.
+ *
+ * Every domain also carries its ID ALIASES (`aliases`): the rows of `sync_id_aliases` of the entity
+ * types that belong to the domain (canonical identity, see `aliases.ts`). The key is always present;
+ * a domain whose tables are not aliasable (`personal`) has none. Each row is
+ * `{entity_type, alias_id, canonical_id, recorded_hlc}`: `alias_id` is an id the sender also holds or
+ * held, `canonical_id` the smaller id it is merged into (so `canonical_id < alias_id`), and the
+ * clock counts toward `hlcHigh`. Rows are path-compressed by the sender but the receiver does not
+ * rely on it: it merges them into its own alias classes.
  *
  * `validateChangeSet` is the gate every bundle passes before anything touches a database. It is
  * strict about shape and clock canonicality, and it enforces the privacy boundary on the receiving
@@ -97,6 +106,20 @@ export interface SyncRecurrence {
 
 export const emptyRecurrence = (): SyncRecurrence => ({ occurrences: [], clears: [] });
 
+/** One `sync_id_aliases` row: `alias_id` is merged into the smaller `canonical_id`. */
+export interface SyncAlias {
+  /** An aliasable table of the change set's domain (`gtd_tasks`, `finance_transactions`, ...). */
+  entity_type: string;
+  alias_id: string;
+  /** Lexicographically smaller than `alias_id` (plain code-unit order). */
+  canonical_id: string;
+  /** A clock some device issued when the alias was recorded; counted by `hlcHigh`. */
+  recorded_hlc: string;
+}
+
+/** Most alias rows one change set may carry (a first merge of years of statements stays far below). */
+export const MAX_ALIASES = 500_000;
+
 export interface SyncChangeSet {
   formatVersion: typeof SYNC_FORMAT_VERSION;
   deviceId: string;
@@ -111,6 +134,8 @@ export interface SyncChangeSet {
   settings: SyncSettingEntry[];
   /** Recurrence sidecars; empty outside the `gtd` domain. */
   recurrence: SyncRecurrence;
+  /** Id aliases of the domain's aliasable tables (canonical identity). */
+  aliases: SyncAlias[];
 }
 
 export interface SyncApplyResult {
@@ -477,6 +502,77 @@ const validateRecurrence = (raw: unknown, domain: SyncDomain): SyncRecurrence =>
   return { occurrences, clears };
 };
 
+const validateAliases = (raw: unknown, domain: SyncDomain): SyncAlias[] => {
+  if (!Array.isArray(raw)) {
+    return fail("invalid_shape", "aliases", "expected an array");
+  }
+  if (raw.length > MAX_ALIASES) {
+    fail("too_many_aliases", "aliases", `more than ${MAX_ALIASES} alias rows`);
+  }
+  const seen = new Set<string>();
+  return raw.map((item, index) => {
+    const path = `aliases[${index}]`;
+    const entry = expectRecord(item, path, [
+      "entity_type",
+      "alias_id",
+      "canonical_id",
+      "recorded_hlc",
+    ]);
+    const entityType = entry.entity_type;
+    if (typeof entityType !== "string" || !isRegisteredTable(entityType)) {
+      fail(
+        "unknown_table",
+        `${path}.entity_type`,
+        `"${String(entityType)}" is not a registered table`,
+      );
+    }
+    const type = entityType as string;
+    // The row travels in the bundle of its entity type's domain, never in another one.
+    if (!isSidecarPublishable("sync_id_aliases", domain, type)) {
+      fail(
+        "table_not_in_domain",
+        `${path}.entity_type`,
+        `an alias of "${type}" does not belong to a "${domain}" change set`,
+      );
+    }
+    if (!isAliasableTable(type)) {
+      fail("invalid_alias", `${path}.entity_type`, `"${type}" has no natural key that is aliased`);
+    }
+    const ids = (["alias_id", "canonical_id"] as const).map((field) => {
+      const value = entry[field];
+      if (typeof value !== "string" || value.length === 0) {
+        return fail("invalid_alias", `${path}.${field}`, "expected a non-empty string");
+      }
+      if (value.length > MAX_ENTITY_ID_LENGTH) {
+        fail(
+          "entity_id_too_long",
+          `${path}.${field}`,
+          `longer than ${MAX_ENTITY_ID_LENGTH} characters`,
+        );
+      }
+      return value;
+    }) as [string, string];
+    const [aliasId, canonicalId] = ids;
+    if (aliasId === canonicalId) {
+      fail("invalid_alias", path, "an id cannot be its own alias");
+    }
+    if (!(canonicalId < aliasId)) {
+      fail("invalid_alias", path, "the canonical id must be the smaller of the two ids");
+    }
+    const identity = `${type}\u0000${aliasId}`;
+    if (seen.has(identity)) {
+      fail("duplicate_entity", path, `duplicate alias ${type} ${aliasId}`);
+    }
+    seen.add(identity);
+    return {
+      entity_type: type,
+      alias_id: aliasId,
+      canonical_id: canonicalId,
+      recorded_hlc: expectClock(entry.recorded_hlc, `${path}.recorded_hlc`),
+    };
+  });
+};
+
 /** Every clock a change set carries, `hlcHigh` excluded. */
 export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
   const clocks: string[] = [];
@@ -492,6 +588,9 @@ export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
   for (const occurrence of changeSet.recurrence.occurrences) {
     clocks.push(occurrence.outcome_hlc);
   }
+  for (const alias of changeSet.aliases) {
+    clocks.push(alias.recorded_hlc);
+  }
   return clocks;
 };
 
@@ -503,7 +602,10 @@ export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
  * is not a canonical HLC; a `hlcHigh` below a carried clock; a table that is unknown, device-local,
  * a by-entity-type sidecar or outside the declared domain; a non-canonical, empty or oversized
  * entity id; duplicate entities, union rows, settings or recurrence rows; a recurrence row outside
- * the `gtd` domain, with a bad date, outcome, clock or device id; a row whose key columns disagree with its
+ * the `gtd` domain, with a bad date, outcome, clock or device id; an alias row of a table outside the
+ * declared domain, of a table with no aliased natural key, with an empty, equal or mis-ordered id
+ * pair (`canonical_id` must be smaller), a bad clock, a duplicate or beyond {@link MAX_ALIASES};
+ * a row whose key columns disagree with its
  * entity id; a setting that is unknown, device-scoped, secret, or of another domain.
  *
  * Tolerated: extra columns in a row (ignored on apply) and missing columns (the local value is
@@ -520,6 +622,7 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
     "unionRows",
     "settings",
     "recurrence",
+    "aliases",
   ]);
   if (root.formatVersion !== SYNC_FORMAT_VERSION) {
     fail(
@@ -575,6 +678,7 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
     unionRows: validateUnionRows(root.unionRows, domain),
     settings: validateSettings(root.settings, domain),
     recurrence: validateRecurrence(root.recurrence, domain),
+    aliases: validateAliases(root.aliases, domain),
   };
 
   for (const clock of clocksOfChangeSet(changeSet)) {

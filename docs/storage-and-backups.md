@@ -422,7 +422,7 @@ who never use sync see no behavior change.
 | `sync_entity_meta` | `(entity_type, entity_id)` primary key, `field_clocks_json` (default `'{}'`), `row_hlc` (indexed), nullable `deleted_at` tombstone |
 | `sync_identity` | Single row (`id = 1` enforced by `CHECK`): `device_id`, `device_name`, HLC state (`physical_ms`, `counter`), `change_counter`, `last_publish_counter`, and `applying` (the transaction-scoped "merge in progress" switch for later slices) |
 | `sync_peers` | Per-peer last manifest, last sync time, and last applied content hash per domain |
-| `sync_id_aliases` | `(entity_type, alias_id)` to `canonical_id` with `recorded_hlc` |
+| `sync_id_aliases` | `(entity_type, alias_id)` to `canonical_id` (the smallest id of the alias class) with `recorded_hlc`; written by the alias engine (see [Canonical identity](#canonical-identity-natural-keys-and-aliases)) |
 | `sync_recurrence_occurrences` | `(template_id, due_date)` outcome with `outcome_hlc` and the producing `device_id`; written by change capture for recurring instances, joined on apply |
 | `sync_recurrence_clears` | `template_id` to `cleared_through_date` (a maximum); written by change capture, joined on apply |
 | `sync_conflicts` | Detected conflicts and overwritten edits (`local_json`, `remote_json`, resolution) |
@@ -642,6 +642,7 @@ SyncChangeSet = {
     occurrences: [{ template_id, due_date, outcome, outcome_hlc, device_id }],
     clears:      [{ template_id, cleared_through_date }],
   },
+  aliases: [{ entity_type, alias_id, canonical_id, recorded_hlc }],   // always present
 }
 ```
 
@@ -661,7 +662,19 @@ strict: exact keys, a non-empty bounded `template_id`, a real `YYYY-MM-DD` `due_
 `cleared_through_date`, an `outcome` of `active`, `completed`, `cancelled` or `missed`, a canonical
 `outcome_hlc` (counted by `hlcHigh`), a `dev:<uuid>` `device_id`, no duplicate `(template_id, due_date)`
 or `template_id`, and any row in a non-`gtd` change set is rejected (`table_not_in_domain`). The format
-version stays 1 (sync is not shipped, so no change set from before this key exists).
+version stays 1 (sync is not shipped, so no change set from before the `recurrence` and `aliases` keys
+exists).
+
+`aliases` carries the `sync_id_aliases` rows of the entity types that belong to the domain
+([Canonical identity](#canonical-identity-natural-keys-and-aliases)): `gtd_tasks` and `gtd_projects`
+in `gtd`, `finance_accounts`, `finance_import_profiles` and `finance_transactions` in `finance`,
+none in `personal`. Validation is strict: exact keys, a registered table whose alias rows follow the
+bundle's domain (`sidecarPublishDomain`; `table_not_in_domain` otherwise, so a finance alias can never
+ride in a `gtd` bundle) and that has a natural key resolved by alias (`invalid_alias`), non-empty
+bounded ids, `alias_id` different from `canonical_id` and `canonical_id` the smaller of the two
+(plain code-unit order), a canonical `recorded_hlc` (counted by `hlcHigh`), no duplicate
+`(entity_type, alias_id)` and at most 500,000 rows (`too_many_aliases`). The sender publishes its
+classes path-compressed (every alias points at the class root); the receiver does not rely on it.
 
 **What is merged and what is refused.** `src/lib/sync/merge-strategies.ts` is the seam between the
 registry and the engine. This build merges every table of the three bundle domains except the
@@ -680,11 +693,10 @@ travel in `recurrence`, never as entities (an entity of those tables is refused)
 registry `rowFilter` is supported only through a row-clock rule that owns the filter; any table
 without a strategy is not published by `listSyncChanges` and makes `applySyncBundle` throw
 `SyncApplyError("unsupported_merge_class")` naming the table, for the whole bundle. A registry test
-fails if a bundle-domain table is neither supported nor a recurrence sidecar. **Natural-key
-canonicalization is not part of this build**: a declared natural key that two laptops fill with
-different ids (the same statement imported on both, one account `external_key`, one import-profile
-signature, a task `source_external_id`) aborts the bundle with `natural_key_collision`, and the
-bundle stays unapplied until the alias engine ships (known state, tested for the finance keys).
+fails if a bundle-domain table is neither supported nor a recurrence sidecar. A declared natural
+key that two laptops fill with different ids (the same statement imported on both, one account
+`external_key`, one import-profile signature, a task or project `source_external_id`) no longer
+aborts the bundle: the alias engine resolves it first ([Canonical identity](#canonical-identity-natural-keys-and-aliases)).
 
 **Foreign keys.** Production enforces SQL foreign keys, and apply runs with the capture triggers off,
 so a merge that tombstoned a parent would cascade-delete child rows the engine never sees go, and a
@@ -727,8 +739,13 @@ through. Inside the transaction, in order:
 4. `sync_identity.applying = 1`: the capture triggers stay quiet, so merge-applied writes leave no
    `sync_dirty` mark, stamp no local clock and do not touch `change_counter`. The flag is reset to 0
    before COMMIT and is rolled back with everything else on failure.
-5. In the `gtd` domain the recurrence sidecars are joined first (`apply-recurrence.ts`).
-6. Entities and union rows are applied table by table (registry order, entity id order; `gtd_tasks`
+5. Canonical identity runs before anything of the bundle is merged (`apply-aliases.ts`, see
+   [Canonical identity](#canonical-identity-natural-keys-and-aliases)): stale local state is healed,
+   the bundle's aliases are learned, rows that stopped being canonical are moved, the bundle is
+   rewritten to canonical ids, and natural-key collisions between the bundle and the database (or
+   inside the bundle) are turned into aliases.
+6. In the `gtd` domain the recurrence sidecars are joined (`apply-recurrence.ts`).
+7. Entities and union rows are applied table by table (registry order, entity id order; `gtd_tasks`
    last, so the project tombstones it consults are applied), reordered so that every foreign-key
    PARENT comes before its children (`ai_messages` before `ai_proposals`, objectives before results),
    then the deletes of parents the bundle removed run last, children first (`ReferenceGuard.flush`);
@@ -792,10 +809,10 @@ Merge rules (`src/lib/sync/merge-entity.ts`, built from the `merge-primitives.ts
   are untouched. Secrets, device-scoped keys, unknown keys and keys of another domain are rejected by
   validation and re-checked by the apply step (`setting_not_syncable`).
 
-A unique-key violation aborts the whole bundle with a `SyncApplyError` naming the table and the index:
-`natural_key_collision` for a key the registry declares (canonical identity and aliasing come in a
-later slice), `unique_violation` for any other. Any other SQL error is `sql_error`. Nothing is skipped
-silently.
+A unique-key violation that reaches SQL still aborts the whole bundle with a `SyncApplyError` naming
+the table and the index: `natural_key_collision` for a key the registry declares (the alias engine
+runs first and resolves every collision it can see, so this is one it could not resolve),
+`unique_violation` for any other key. Any other SQL error is `sql_error`. Nothing is skipped silently.
 
 **Overwritten-edit log.** When a merge replaces a local value with a remote one, and the sender cannot
 be shown to have seen the local value, a `sync_conflicts` row (`kind = 'overwritten_edit'`) is inserted
@@ -808,6 +825,161 @@ that had synced is told apart. A peer that has overwritten every field of an ent
 evidence and is logged as possibly concurrent. Only the device whose value was replaced logs it; a
 value that merely loses to a newer local one is not an overwrite. Overwritten setting values are not
 logged (a setting entry carries no evidence of what the sender had seen).
+
+#### Canonical identity: natural keys and aliases
+
+Several synced tables have a unique key besides the primary key, so two laptops can mint different
+ids for the SAME thing (two imports of one CSV: two `finance-txn` ids, one `(account_id, dedupe_hash)`).
+Applying the peer's row by id used to hit the unique index and abort the bundle. The registry declares
+every unique key (`naturalKeys`, compared by `registry.test.ts` with the migrated schema) and gives
+each a `resolution`:
+
+| Table | Natural key | Resolution |
+|---|---|---|
+| `finance_transactions` | `(account_id, dedupe_hash)` | `alias` |
+| `finance_accounts` | `external_key` (partial) | `alias` |
+| `finance_import_profiles` | `signature` | `alias` |
+| `gtd_tasks`, `gtd_projects` | `source_external_id` | `alias` |
+| `finance_category_suggestions`, `ai_proposals` | one `pending` per transaction / message and type or goal (partial indexes) | `pending-collision`: the later row clock stays pending, the other is expired (`apply-proposals.ts`) |
+| `gtd_task_events` | `dedupe_key` | `union-dedupe`: the union keeps one row per key |
+| `gtd_contexts` | `name` | `name-prompt`: see below |
+
+**The alias classes** (`src/lib/sync/aliases.ts`, pure). The relation "these ids are one entity" is an
+equivalence relation, not a map: with three laptops the aliases chain (`B -> A`, then `C -> B`). An
+`AliasIndex` keeps the classes (union-find) and gives every class ONE root, the smallest id under plain
+code-unit comparison (a total order, so every replica picks the same root whatever order it met the
+pairs). `sync_id_aliases` stores one row per non-root member, always path-compressed
+(`canonical_id` is the root; learning `B -> A` after `C -> B` moves `C` to `A`). Rows are grow-only
+and only ever move to a smaller canonical id. `recorded_hlc` is informational: when the engine
+records a pair it is the later of the two rows' row clocks (a clock some device issued, so `hlcHigh`
+covers it; a fresh clock of the applying device only when neither row has one), and a class carries the LARGEST clock recorded for any of
+its members. That keeps re-applying idempotent; replicas that learned the same class through
+different histories agree on the value once they have exchanged.
+
+**What runs, in the apply transaction, before any entity of the bundle is merged**
+(`src/lib/sync/apply-aliases.ts`):
+
+0. Stale local state is healed: a row left under an alias id, or a plain reference to one, by a
+   write that was in flight (or a screen that still held the old id) when the alias arrived. One
+   indexed lookup per declared plain reference; what it finds is moved like a new alias.
+1. The bundle's `aliases` are learned (strict validation above) and every local id that stopped
+   being a root is MOVED.
+2. The bundle is rewritten through the classes ("alias on decode", below).
+3. For each aliasable table, in registry order (so an account alias rewrites the bundle's transaction
+   account ids before their keys are compared), the bundle's live rows are looked up by each declared
+   natural key in batches (`alias-lookup.ts`, the key's own columns and `where` from the registry). A
+   local row with a DIFFERENT id denotes the same entity; two rows of the bundle itself that share a key
+   (re-deriving a hash can make two lines of one sender the same line) too. The pair is learned
+   (canonical = smaller id), the local side is moved if it is the larger id, and the bundle is
+   rewritten again.
+4. The classes are written to `sync_id_aliases`.
+
+**Moving local state.** A local row (or its tombstone) under an alias id is moved to its canonical id
+THROUGH THE ORDINARY MERGE PIPELINE (`alias-sources.ts`), so there is no second copy of any merge rule:
+the row, its clocks and its children are captured as an entity of the canonical id with every reference
+rewritten, the old row, meta, snapshot and dirty mark are removed (no tombstone: the entity moved, it
+did not die), and the entity is fed to the table's applier as if a peer had sent it. The applier
+inserts it (a plain rename: same clocks, same row) or merges it into the row that already holds the
+canonical id by the table's normal rule "as if the two had always been one row": field clocks
+(`gtd_tasks`, `gtd_projects`), the lifecycle tuple, whole-row clocks (accounts, profiles), and for
+a transaction the categorization unit with its splits as a SET. The winning unit brings its
+splits; the losing copy's splits are deleted with their meta and snapshot. No clock is issued: a
+captured entity carries the clocks the old row had, and an overwritten edit is logged like for any
+merge. Two rows moving to one id are applied one after the other, in the order of their old ids.
+
+**Reference rewriting coverage.** The places are exactly the registry's declared `references` whose
+target table is aliasable (`reference-rewrite.ts`; `reference-rewrite.test.ts` builds one row per
+declared reference from the registry and fails when a reference, or a new reference kind, has no
+rewrite rule; `registry.test.ts` fails on an undeclared id-looking column). A rewrite of a row that
+is not itself moving issues no clock and marks nothing dirty: the row keeps its clock (the
+transformation is a function of the alias table) and its snapshot is refreshed to what the stamper
+would store (`snapshot-refresh.ts`), so a verifying scan restamps nothing.
+
+| Target | Reference | Kind | How it is rewritten |
+|---|---|---|---|
+| `gtd_tasks` | `gtd_tasks.parent_task_id` | soft | column |
+| | `gtd_task_events.task_id` | soft | column; the union has no meta |
+| | `gtd_task_events.dedupe_key` | derived (`embedded-id`) | the task id inside `weekly_carryover:<date>:<taskId>` is replaced; if the new key equals another event's the smaller event id stays |
+| | `pomodoro_segments.task_id` | soft | column (running segments too) |
+| | `ai_proposals.payload_json` | json-payload `$.taskId` | JSON path |
+| | `ai_proposals.applied_entity_id` | polymorphic | column |
+| | `calendar_sync_links.task_id` | soft (device-local) | `UPDATE OR IGNORE`: a link the canonical task already has for that occurrence wins |
+| `gtd_projects` | `gtd_tasks.project_id` | soft | column; the lifecycle tuple keeps its clock |
+| | `recurring_task_templates.project_id` | soft | column |
+| `finance_accounts` | `finance_transactions.account_id` | soft | column, together with the hash below |
+| | `finance_transactions.dedupe_hash` | derived (`account-dedupe-hash`) | re-derived for the canonical account |
+| | `finance_merchant_memory.account_id`, `finance_account_balance_snapshots.account_id` | soft, part of the primary key | the row is re-keyed through the merge pipeline (two rows that become one key merge by their rule; statement anchors keep one standing anchor) |
+| | `finance_recurring_series.account_id`, `finance_import_profiles.default_account_id`, `finance_import_batches.account_id` | soft | column |
+| | `finance_rules.matcher_json` | json-payload `$.accountIds[]` | JSON path |
+| `finance_import_profiles` | `finance_import_batches.profile_id` | soft | column |
+| `finance_transactions` | `finance_transaction_splits.transaction_id` | soft | the splits travel with the winning categorization unit (above) |
+| | `finance_category_suggestions.transaction_id` | soft | column; two pending suggestions for the canonical transaction keep the later one (`pending_collision`) |
+| | `finance_transactions.transfer_group_id` | derived (`transfer-group`) | `transfer:<idA>:<idB>` is rebuilt from the canonical ids, sorted like the app builds it |
+
+`finance_transactions.dedupe_hash` hashes the ACCOUNT ID together with the statement line, so when an
+account becomes an alias the hash of its transactions is re-derived (the occurrence index, which is
+not stored, is recovered by trying 0 to 256 against the stored hash). Without it the same statement
+imported into two accounts that are one account would never collide on `(account_id, dedupe_hash)`
+and a later re-import would insert duplicates. A hash that matches no index (a manual transaction, an
+edited description) is left as it is. A transaction that, once moved, has the key of another
+transaction becomes a transaction alias like any other pair (the account rewrite starts a nested move).
+
+**Alias on decode.** A peer that has not learned an alias keeps publishing the alias id, in its own
+rows and in the references of others. Before a change set is merged (`alias-decode.ts`), every entity
+id, primary key (a composite key built from a reference is rebuilt), declared reference and union
+row is mapped through the classes, so the merge only ever sees canonical ids. A tombstone for an
+alias id becomes a tombstone for the canonical entity: it deletes it unless a later edit exists (edit
+wins over delete). Rewriting can make two entities of one bundle name one id (the sender wrote a row
+under an alias id after it learned the alias, or kept a tombstone for it): they are applied one after
+the other in the order of their clocks, and a transaction version gets only the splits that named it
+in the bundle as received. (A split id under both versions cannot occur: validation rejects a
+duplicate entity id, and split ids are never rewritten.)
+
+**Context names.** Context ids are already deterministic (`context:<slug>`), so two ids for one
+name only arise from a rename (or a differently slugged creation). The engine does not decide it: the
+local name stays (with the local clock of the `name` field), every other field of the update is
+applied, a context that would have to be inserted under a taken name is not inserted, and an
+unresolved `name_collision` conflict with a deterministic id records who holds the name
+(`apply-names.ts`). The bundle is never aborted for it; the two laptops keep different names until
+the user settles it (conflict resolution is a later slice).
+
+**`resolveAlias(db, entityType, id)`** (`alias-store.ts`) follows the alias table for an id read from a
+payload that predates an alias. Sync code rewrites references eagerly, so it has no consumer of its
+own; product code that reads an id out of an old AI message body (`priorities[].taskId` in an
+immutable `ai_messages.body_json`) can use it.
+
+Limits and open points of this build:
+
+- A tombstone carries no natural key, so a delete made before either laptop knew that two copies
+  were one entity names only the id that was deleted; the other copy survives. Once the alias is
+  known a tombstone of either id is a tombstone of the entity. Once deletes are in play, the order
+  in which bundles are applied can matter for a single pass (a randomized run with deletes saw about
+  3 seeds in 100 differ after one pass); every such case heals once the replicas exchange.
+- Healing of stale local writes covers plain references and rows under alias ids; ids inside JSON
+  documents and derived keys written after the alias are rewritten on the receivers (decode) but not
+  on the writer until the next alias involving them.
+- Which of two events with one `dedupe_key` survives is the union's business (the first a replica
+  holds stays), so replicas can keep different event ids for the same key.
+- Merging two projects does not renumber the Planned queue: tasks of both can share a
+  `planned_order` until the next reorder.
+- A transaction alias is a normal merge: a delete of one copy followed by an edit of the other
+  follows the usual edit-wins rule on the entity's clocks, and an unresolved `terminal_divergence`
+  keeps the deterministic id it was raised with (its `entity_id` is rewritten to the canonical id).
+- The hash re-derivation is best effort (above). It costs about two hashes per row when the stored
+  hash matches an occurrence index, and up to 257 per row when it matches none (2,000 such rows took
+  about 5.7 s); the enable and first-merge slice must chunk it against the 15 s writer watchdog, and a
+  future manual-entry path that stores its own hashes should cap or cache the search.
+- A first merge of years of statements costs about two statements per collision, linear in their
+  number (measured on an in-memory database: 5,000 collisions 11,119 statements and about 1.7 s;
+  20,000 collisions 44,340 statements and about 7.8 s). The later enable slice must chunk it against
+  the writer watchdog. `canonical-identity.scale.test.ts` pins the statements per collision and
+  `collections.test.ts` pins the helpers the path uses as linear.
+- A stale task card saved under an alias id fails with `UNIQUE gtd_tasks.source_external_id` (the
+  edit is rejected with an error, nothing is lost, and the next apply moves nothing because the
+  save never happened); the UI slice should handle that error.
+- `calendar_sync_links.task_id` is rewritten with `UPDATE OR IGNORE`: if a device had links on both
+  copies of a task (calendar sync is off by default), the link of the alias copy keeps pointing at
+  the alias id, and `healStaleLocalState` re-processes it on every apply without changing it.
 
 #### Pomodoro, AI proposals, objectives and results
 
@@ -886,11 +1058,14 @@ the laptop it runs on and never leaves it, and neither do its segments or their 
   deterministic id) records it. It is stored, not dropped, so every replica holds the same rows, and
   because terminal beats pending a replica that still holds the loser as pending converges to
   `expired` whichever order things arrive in. The bundle never aborts for this; any OTHER unique
-  violation still does (`natural_key_collision` / `unique_violation`).
+  violation still does (`natural_key_collision` / `unique_violation`). Pending suggestions compose with
+  canonical identity: a suggestion of an aliased transaction is rewritten to the canonical transaction
+  first, and the pending rule then decides between two pending suggestions for it.
 - `ai_messages` is a grow-only union table applied BEFORE `ai_proposals` in the same bundle. A proposal
   whose message is not here is skipped (nothing written, `orphaned_child` conflict) without aborting the
-  bundle, and a later bundle that brings the message applies it; re-applying is a no-op. JSON payload
-  references (`payload_json.taskId`, `goalId`) are left as they are until the alias slice.
+  bundle, and a later bundle that brings the message applies it; re-applying is a no-op. The task id in
+  `payload_json.taskId` and `applied_entity_id` of an aliased task are rewritten to the canonical id
+  (`goalId` names annual goals, which are never aliased).
 - Within one bundle, decided (terminal) proposals are applied before deletes and before pending ones,
   so a replica that holds P1 pending and receives {P1 accepted, P2 pending} never expires anything
   against a P1 that is about to stop being pending; a replica without P1 ends in the same state.
@@ -968,8 +1143,8 @@ every propagated edit (`created_at` and `updated_at` alone are never a conflict,
 same default categories do not conflict). Consequences worth knowing: counters that change on every
 classification (`finance_rules.applied_count`, merchant-memory hit counts) merge with the whole row,
 so a concurrent edit of the same row on the other laptop can lose one of the two; the rule and memory
-JSON columns (`matcher_json`, `actions_json`) are carried verbatim, the account, person and category
-ids inside them are declared in the registry but not rewritten until canonical identity ships.
+JSON columns (`matcher_json`, `actions_json`) embed account, person and category ids; the ids of an
+aliased account (`matcher_json.accountIds[]`) are rewritten to the canonical account.
 `finance_recurring_series` has no natural key: two laptops that detect the same series independently
 hold two rows after a merge (unconfirmed ones are removed by the next detection run).
 
@@ -1208,8 +1383,7 @@ Other known limits:
   project has no next action"), so a merged project can sit without a next action until the next local
   mutation of that project.
 
-Sync must still not be user-enabled before the remaining slices (the rest of the row-clock tables,
-finance, canonical identity and aliases, engine, transport and UI) land.
+Sync must still not be user-enabled before the remaining slices (engine, transport and UI) land.
 
 Test-only clock: `TauriSqliteRepository` takes an optional third constructor argument, the wall clock
 (epoch milliseconds) behind every sync clock it issues (default `Date.now`). Production never passes it;

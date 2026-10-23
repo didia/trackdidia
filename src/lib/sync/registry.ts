@@ -80,12 +80,44 @@ export type ReferenceKind =
   | "polymorphic"
   | "derived";
 
+/**
+ * How a `derived` reference is built from the ids of its target table. The alias engine rewrites
+ * the embedded ids (`reference-rewrite.ts`):
+ *
+ * - `transfer-group`: `transfer:<idA>:<idB>`, the two transaction ids sorted;
+ * - `embedded-id`: an id inside a longer key (`weekly_carryover:<date>:<taskId>`);
+ * - `account-dedupe-hash`: `finance_transactions.dedupe_hash` is a hash of the account id plus the
+ *   statement line, so it is re-derived when the account id changes.
+ */
+export type ReferenceDerivation = "transfer-group" | "embedded-id" | "account-dedupe-hash";
+
 export interface TableReference {
   column: string;
   table: string;
   kind: ReferenceKind;
+  /**
+   * `json-payload` only: where the id sits inside the column's JSON document, as a restricted
+   * JSONPath: `$.key(.key)*`, optionally ending in `[]` for an array of ids (`$.accountIds[]`).
+   * Machine-readable: the alias engine rewrites exactly these paths.
+   */
+  path?: string;
+  /** `derived` only: how the value is built from the target's ids. */
+  derive?: ReferenceDerivation;
   note?: string;
 }
+
+/**
+ * What the engine does when two peers hold different rows that violate a declared natural key.
+ *
+ * - `alias`: the rows denote ONE entity: canonical id = the smaller id, the other is recorded in
+ *   `sync_id_aliases` and every reference is rewritten (`apply-aliases.ts`);
+ * - `pending-collision`: a partial unique index over `pending` rows; the later pending row stays
+ *   pending and the other is expired (`apply-proposals.ts`);
+ * - `union-dedupe`: a grow-only-union table keyed twice; the insert-if-absent keeps one row;
+ * - `name-prompt`: a rename onto an existing name; the local name stays and an unresolved
+ *   `name_collision` conflict asks the user (`apply-names.ts`).
+ */
+export type NaturalKeyResolution = "alias" | "pending-collision" | "union-dedupe" | "name-prompt";
 
 /**
  * A unique key besides the primary key. Two peers can mint different ids for the same entity;
@@ -100,6 +132,7 @@ export interface NaturalKey {
   index?: string;
   columns: readonly string[];
   where?: string;
+  resolution: NaturalKeyResolution;
   description?: string;
 }
 
@@ -171,6 +204,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       {
         name: "source_external_id",
         columns: ["source_external_id"],
+        resolution: "alias",
         description: "Relationship draws generated on two personal laptops; legacy imports.",
       },
     ],
@@ -193,6 +227,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       {
         name: "source_external_id",
         columns: ["source_external_id"],
+        resolution: "alias",
         description: "Legacy imported projects.",
       },
     ],
@@ -208,6 +243,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       {
         name: "name",
         columns: ["name"],
+        resolution: "name-prompt",
         description: "Ids are deterministic (context:<slug>); a rename onto a name is a prompt.",
       },
     ],
@@ -222,10 +258,20 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       {
         name: "dedupe_key",
         columns: ["dedupe_key"],
+        resolution: "union-dedupe",
         description: "Weekly carryover on two laptops; the union already keys on it.",
       },
     ],
-    references: [{ column: "task_id", table: "gtd_tasks", kind: "soft" }],
+    references: [
+      { column: "task_id", table: "gtd_tasks", kind: "soft" },
+      {
+        column: "dedupe_key",
+        table: "gtd_tasks",
+        kind: "derived",
+        derive: "embedded-id",
+        note: "weekly_carryover:<date>:<taskId> embeds the task id.",
+      },
+    ],
     notes:
       "Union by id / dedupe_key. metadata_json holds only bucket, from, scheduledFor and recurring values, never ids.",
   },
@@ -385,6 +431,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         index: "idx_ai_proposals_message_goal",
         columns: ["message_id", "json_extract(payload_json, '$.goalId')"],
         where: "status = 'pending' AND type = 'goal_evaluation'",
+        resolution: "pending-collision",
         description: "One pending goal evaluation per message and goal.",
       },
       {
@@ -393,6 +440,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         columns: ["message_id", "type"],
         where:
           "status = 'pending' AND type NOT IN ( 'memory', 'review_section_draft', 'weekly_objective', 'gtd_action', 'goal_evaluation' )",
+        resolution: "pending-collision",
         description: "One pending proposal per message and type, except the multi-proposal types.",
       },
     ],
@@ -408,8 +456,8 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       { column: "applied_entity_id", table: "daily_entries", kind: "polymorphic" },
       { column: "applied_entity_id", table: "weekly_reviews", kind: "polymorphic" },
       { column: "applied_entity_id", table: "monthly_reviews", kind: "polymorphic" },
-      { column: "payload_json", table: "gtd_tasks", kind: "json-payload", note: "$.taskId" },
-      { column: "payload_json", table: "annual_goals", kind: "json-payload", note: "$.goalId" },
+      { column: "payload_json", table: "gtd_tasks", kind: "json-payload", path: "$.taskId" },
+      { column: "payload_json", table: "annual_goals", kind: "json-payload", path: "$.goalId" },
     ],
     notes:
       "Terminal state (accepted / dismissed / expired) beats pending whatever the clocks say; two different terminals keep the smaller status and write a terminal_divergence conflict. Two pending proposals for one natural key keep the later row clock pending and expire the other (merge-proposal.ts). gtd_action proposals refer to tasks but live in personal.",
@@ -443,6 +491,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         index: "uniq_finance_account_external_key",
         columns: ["external_key"],
         where: "external_key IS NOT NULL",
+        resolution: "alias",
         description: "Same import label bound to an account on two laptops.",
       },
     ],
@@ -466,6 +515,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         name: "account_dedupe_hash",
         index: "uniq_finance_txn_dedupe",
         columns: ["account_id", "dedupe_hash"],
+        resolution: "alias",
         description: "Same statement imported on two personal laptops.",
       },
     ],
@@ -478,11 +528,19 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         column: "transfer_group_id",
         table: "finance_transactions",
         kind: "derived",
+        derive: "transfer-group",
         note: "Value is transfer:<idA>:<idB>, built from the two transaction ids.",
+      },
+      {
+        column: "dedupe_hash",
+        table: "finance_accounts",
+        kind: "derived",
+        derive: "account-dedupe-hash",
+        note: "A hash of [accountId, postedDate, amountMinor, currency, description, occurrenceIndex].",
       },
     ],
     notes:
-      "Whole-row last-writer-wins, except {category_id, category_source, has_splits} (+ category_confidence and categorized_at, written by the same decision) and the child splits, which form one categorization unit with its own clocks (categorization, categorization_base = base_hlc, categorization_user) in field_clocks_json; see merge-finance.ts. A natural-key collision (the same statement imported on two laptops) still aborts the bundle with natural_key_collision until canonical identity ships.",
+      "Whole-row last-writer-wins, except {category_id, category_source, has_splits} (+ category_confidence and categorized_at, written by the same decision) and the child splits, which form one categorization unit with its own clocks (categorization, categorization_base = base_hlc, categorization_user) in field_clocks_json; see merge-finance.ts. A natural-key collision (the same statement imported on two laptops) resolves through canonical identity: the smaller transaction id wins, the other becomes an alias, the two rows merge by these rules and the splits follow the winning unit (apply-aliases.ts).",
   },
   {
     table: "finance_transaction_splits",
@@ -508,6 +566,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         index: "uniq_finance_suggestion_pending",
         columns: ["transaction_id"],
         where: "status = 'pending'",
+        resolution: "pending-collision",
         description: "One pending suggestion per transaction.",
       },
     ],
@@ -529,19 +588,19 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         column: "matcher_json",
         table: "finance_accounts",
         kind: "json-payload",
-        note: "$.accountIds[]",
+        path: "$.accountIds[]",
       },
-      { column: "matcher_json", table: "finance_people", kind: "json-payload", note: "$.personId" },
+      { column: "matcher_json", table: "finance_people", kind: "json-payload", path: "$.personId" },
       {
         column: "actions_json",
         table: "finance_categories",
         kind: "json-payload",
-        note: "$.categoryId",
+        path: "$.categoryId",
       },
-      { column: "actions_json", table: "finance_people", kind: "json-payload", note: "$.personId" },
+      { column: "actions_json", table: "finance_people", kind: "json-payload", path: "$.personId" },
     ],
     notes:
-      "matcher_json and actions_json embed account, person and category ids; they will be rewritten through the alias table like any declared reference (canonical identity is a later slice), so a rule matching an aliased account keeps matching. Until then the ids are carried verbatim. applied_count and last_applied_at change on every classification that changes a row and merge with the row (whole-row last-writer-wins).",
+      "matcher_json and actions_json embed account, person and category ids; the ids of an aliased entity (an account) are rewritten through the alias table like any declared reference, so a rule matching an aliased account keeps matching. applied_count and last_applied_at change on every classification that changes a row and merge with the row (whole-row last-writer-wins).",
   },
   {
     table: "finance_merchant_memory",
@@ -591,6 +650,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         name: "signature",
         index: "uniq_finance_profile_signature",
         columns: ["signature"],
+        resolution: "alias",
         description: "Header signature: the same CSV layout saved on two laptops.",
       },
     ],
@@ -646,7 +706,8 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
     naturalKeys: noKeys,
     references: noRefs,
     entityTypeColumn: "entity_type",
-    notes: "Grow-only alias -> canonical id map, published in the entity's domain.",
+    notes:
+      "Grow-only alias -> canonical id map, published in the entity's domain (SyncChangeSet.aliases). Rows are kept path-compressed: canonical_id is always the smallest id of the alias class, and recorded_hlc is the largest recorded clock of the class (aliases.ts). Only entity types with a natural key resolved by 'alias' have rows.",
   },
   {
     table: "sync_conflicts",
@@ -820,6 +881,44 @@ export const tablesInDomain = (domain: ClassificationDomain): string[] =>
 /** Every table that can appear in some bundle (everything that is not device-local). */
 export const syncedTables = (): string[] =>
   TABLE_REGISTRY.filter((entry) => entry.domain !== DEVICE_DOMAIN).map((entry) => entry.table);
+
+// ---------------------------------------------------------------------------------------------
+// Canonical identity
+// ---------------------------------------------------------------------------------------------
+
+/** The natural keys of a table that the alias engine resolves (resolution `alias`). */
+export const aliasKeysOf = (table: string): NaturalKey[] =>
+  getTableRegistration(table).naturalKeys.filter((key) => key.resolution === "alias");
+
+/**
+ * True when two peers can mint different ids for one entity of this table and the engine merges
+ * them under one canonical id: some natural key is resolved by `alias`. Such a table has a
+ * single-column primary key (`registry.test.ts` pins it).
+ */
+export const isAliasableTable = (table: string): boolean =>
+  TABLES_BY_NAME.has(table) && aliasKeysOf(table).length > 0;
+
+/** Every aliasable table, in registry order. */
+export const aliasableTables = (): string[] =>
+  TABLE_REGISTRY.filter((entry) => isAliasableTable(entry.table)).map((entry) => entry.table);
+
+/** The aliasable tables of one bundle domain: the entity types whose aliases travel in it. */
+export const aliasableTablesInDomain = (domain: SyncDomain): string[] =>
+  aliasableTables().filter((table) => getTableRegistration(table).domain === domain);
+
+export interface InboundReference {
+  /** The table holding the reference. */
+  table: string;
+  reference: TableReference;
+}
+
+/** Every declared reference TO `target`, from any registered table, in registry order. */
+export const referencesTo = (target: string): InboundReference[] =>
+  TABLE_REGISTRY.flatMap((entry) =>
+    entry.references
+      .filter((reference) => reference.table === target)
+      .map((reference) => ({ table: entry.table, reference })),
+  );
 
 /**
  * True when the table may be written wholesale into a bundle of `domain`. A `by-entity-type`

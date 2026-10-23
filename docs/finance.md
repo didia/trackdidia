@@ -70,7 +70,11 @@ ISO strings from `nowIso()`.
   `category_source` (`user` | `rule` | `memory` | `seed` | `ai` | `default`),
   `is_transfer`/`transfer_group_id`, `excluded_from_budget`/`excluded_from_reports`,
   `has_splits`, `import_batch_id`, and `dedupe_hash`. `UNIQUE(account_id,
-  dedupe_hash)` is what makes re-importing a file a no-op. **`category_source =
+  dedupe_hash)` is what makes re-importing a file a no-op. `dedupe_hash` hashes the account
+  id with the statement line; when multi-device sync merges two accounts into one, the hash of
+  the moved transactions is re-derived for the surviving account (see
+  [Storage and backups](storage-and-backups.md#canonical-identity-natural-keys-and-aliases)).
+  **`category_source =
   'user'` is never touched by any automatic stage** — this is the invariant that
   makes the learning loop trustworthy.
 - **`finance_transaction_splits`** — a transaction's amount split across

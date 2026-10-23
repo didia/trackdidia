@@ -1,10 +1,13 @@
 import type { Database } from "../storage/sqlite-db";
+import { AliasIndex } from "./aliases";
+import { loadAliasRecords } from "./alias-store";
 import { capturedSettingKeys, fetchMeta, parseClocks } from "./capture-stamp";
 import { SyncClockError } from "./clock-store";
 import {
   clocksOfChangeSet,
   emptyRecurrence,
   SYNC_FORMAT_VERSION,
+  type SyncAlias,
   type SyncChangeSet,
   type SyncEntity,
   type SyncRecurrence,
@@ -202,6 +205,23 @@ const readRecurrence = async (db: Database, domain: SyncDomain): Promise<SyncRec
   };
 };
 
+/**
+ * The id aliases of the entity types that belong to `domain`, path-compressed and ordered. The
+ * alias rows follow their entity type's domain (`sidecarPublishDomain`): a `gtd` bundle never carries
+ * a finance alias, whatever else the table holds. Normalizing through the classes keeps the output
+ * independent of how the rows happen to be stored.
+ */
+const readAliases = async (db: Database, domain: SyncDomain): Promise<SyncAlias[]> =>
+  new AliasIndex(await loadAliasRecords(db))
+    .records()
+    .filter((record) => isSidecarPublishable("sync_id_aliases", domain, record.entityType))
+    .map((record) => ({
+      entity_type: record.entityType,
+      alias_id: record.aliasId,
+      canonical_id: record.canonicalId,
+      recorded_hlc: record.recordedHlc,
+    }));
+
 const readSettings = async (
   db: Database,
   domain: SyncDomain,
@@ -253,6 +273,7 @@ export const readChangeSet = async (
     unionRows: await readUnionRows(db, domain),
     settings: await readSettings(db, domain, settings),
     recurrence: await readRecurrence(db, domain),
+    aliases: await readAliases(db, domain),
   };
   // The newest clock included; an empty change set reports the clock the device itself has reached.
   draft.hlcHigh =

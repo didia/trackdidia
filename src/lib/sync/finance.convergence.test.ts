@@ -37,9 +37,9 @@ import {
  * reaches, and each such row is owned by one laptop, which alone creates and decides its suggestion:
  * a pending-key collision that is resolved before one contender is decided or deleted elsewhere
  * converges by exchange, not in one pass (`finance-sync.scenarios.test.ts` covers the collision and
- * that race). Natural
- * keys are never duplicated (imports are unique per laptop, there is one account), because a
- * collision aborts the bundle until canonical identity ships (covered by its own test).
+ * that race). Natural keys are never duplicated here (imports are unique per laptop, there is
+ * one account): colliding natural keys are resolved by canonical identity and have their own
+ * randomized suite (`canonical-identity.convergence.test.ts`).
  */
 
 const prng = (seed: number) => {
