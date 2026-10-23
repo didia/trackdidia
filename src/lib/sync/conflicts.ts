@@ -15,8 +15,14 @@ import { hash128 } from "../finance/hash";
  *   deleted or unknown here, so it was kept deleted or skipped instead of violating the foreign key.
  * - `pending_collision`: informational. Two pending rows claimed one natural key; the earlier one
  *   was expired so the partial unique index holds.
+ * - `name_collision`: a context was renamed (or created) with a name another context already has.
+ *   The local name stays and the conflict stays unresolved until the user settles it.
  */
-export type ExtraConflictKind = "terminal_divergence" | "orphaned_child" | "pending_collision";
+export type ExtraConflictKind =
+  | "terminal_divergence"
+  | "orphaned_child"
+  | "pending_collision"
+  | "name_collision";
 
 export interface ExtraConflict {
   id: string;
@@ -46,3 +52,7 @@ export const orphanedChildId = (entityType: string, entityId: string): string =>
 /** One `pending_collision` conflict per (expired loser, kept winner) pair. */
 export const pendingCollisionId = (entityType: string, loserId: string, winnerId: string): string =>
   `pending-collision:${hash128(JSON.stringify([entityType, loserId, winnerId]))}`;
+
+/** One `name_collision` conflict per (context, contested name): found again it is the same row. */
+export const nameCollisionId = (entityType: string, entityId: string, name: string): string =>
+  `name-collision:${hash128(JSON.stringify([entityType, entityId, name]))}`;

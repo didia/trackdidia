@@ -19,6 +19,9 @@ export type SyncChangeSetErrorCode =
   | "entity_id_too_long"
   | "duplicate_entity"
   | "invalid_row"
+  /** An alias row that is malformed, of a table without aliased natural keys, or mis-ordered. */
+  | "invalid_alias"
+  | "too_many_aliases"
   /** A settings key that is unknown, device-scoped, secret or in another domain. */
   | "setting_not_syncable"
   | "invalid_setting_value";
@@ -48,7 +51,11 @@ export type SyncApplyErrorCode =
   | "capture_disabled"
   /** The sender has migrated further than this device. */
   | "schema_newer_than_local"
-  /** A unique key the registry declares as a natural key collided (canonicalization comes later). */
+  /**
+   * A unique key the registry declares as a natural key collided although the alias engine ran
+   * first: the collision could not be resolved by canonical identity (for example a key that an
+   * edit changes onto a row the bundle did not name).
+   */
   | "natural_key_collision"
   /** A unique key the registry does not declare collided. */
   | "unique_violation"

@@ -9,6 +9,7 @@ import type { SyncApplyResult, SyncChangeSet } from "../change-set";
 import { canonicalJson } from "../field-clocks";
 import {
   getTableRegistration,
+  isSidecarPublishable,
   SETTING_ENTITY_TYPE,
   type SyncDomain,
   settingsKeysInScope,
@@ -167,6 +168,8 @@ export interface DomainDump {
   meta: Record<string, unknown>[];
   /** Current value of every synced setting of the domain. */
   settings: Record<string, unknown>;
+  /** `sync_id_aliases` rows of the domain's entity types (canonical identity). */
+  aliases: Record<string, unknown>[];
   snapshots?: Record<string, unknown>[];
 }
 
@@ -241,7 +244,13 @@ export const dumpDomain = async (
     settings[key] = current[key] ?? null;
   }
 
-  const dump: DomainDump = { tables, meta, settings };
+  const aliases = (
+    await device.db.select<Record<string, unknown>[]>(
+      "SELECT * FROM sync_id_aliases ORDER BY entity_type, alias_id",
+    )
+  ).filter((row) => isSidecarPublishable("sync_id_aliases", domain, String(row.entity_type)));
+
+  const dump: DomainDump = { tables, meta, settings, aliases };
   if (options.snapshots) {
     const snapshots = await device.db.select<Record<string, unknown>[]>(
       `SELECT * FROM sync_entity_snapshot WHERE ${scope} ORDER BY entity_type, entity_id`,

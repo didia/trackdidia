@@ -408,8 +408,26 @@ write operation; the repositories only persist the planned tasks and settings.
 
 Generation is idempotent per category/date through settings markers and deterministic
 source external IDs. If an active task from that category already exists, no new one
-is created and the category is marked processed for the day. A category with no
-configured activities is neither drawn nor marked. Generated tasks carry
+is created and the category is marked processed for the day, and so is a day that
+already has a task of any status for that category/date (for example a completed
+one), so re-drawing a day never creates a second row nor overwrites the first. A
+category with no configured activities is neither drawn nor marked.
+
+A draw is DETERMINISTIC, so that two personal laptops that draw the same day while
+offline create the identical row: the activity is picked from the configured list with
+a seeded pick (`pickRelationshipDrawActivity`, seed `<category>:<date>`: FNV-1a over
+the seed text, then one step of mulberry32, `floor(unit * list length)`), and the task
+id is derived from the source external ID (`task:relationship-draw:<category>:<date>`,
+`buildRelationshipDrawTaskId`) instead of a random UUID. The same list, category and
+date therefore give the same activity and the same row on every laptop. Draws made
+before this change keep their random `task:<uuid>` ids. Two laptops whose lists differed at
+draw time still share the deterministic id, so multi-device sync merges the rows by field
+clocks (the later title wins and the replaced one is logged as an `overwritten_edit`).
+Only a pre-change random-id draw meeting a deterministic one collides on
+`source_external_id` and goes through canonical identity, which merges them under the
+smaller id (see
+[Storage and backups](storage-and-backups.md#canonical-identity-natural-keys-and-aliases)).
+`createdAt` is never a tiebreaker: every draw is stamped `<date>T00:00:00.000Z`. Generated tasks carry
 `createdAt`/`updatedAt` of `<date>T00:00:00.000Z` (UTC midnight of the draw date, not
 local midnight). This is intentional current behavior: lifecycle events take the date
 from `createdAt.slice(0, 10)`, so the creation and Next Action events land on the draw's
