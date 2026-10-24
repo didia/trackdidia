@@ -188,15 +188,23 @@ const byId = (a: RawRow, b: RawRow): number => {
   return left < right ? -1 : left > right ? 1 : 0;
 };
 
+/** A child's columns that make up the decision; `created_at` is bookkeeping and is left out. */
+const signatureRow = (row: RawRow): JsonRecord => {
+  const result = normalizedRow(row);
+  delete result.created_at;
+  return result;
+};
+
 /**
- * The content of the unit: its payload and every child row. Equal signatures mean the unit holds the
+ * The content of the unit: its payload and every child row (without `created_at`: re-saving the
+ * same splits is not a new decision). Equal signatures mean the unit holds the
  * same decision and the same splits, so a stamper that sees the same signature stamps nothing.
  */
 export const unitSignature = (row: RawRow, children: readonly RawRow[]): string =>
   hash128(
     canonicalJson({
       payload: unitPayloadOf(row),
-      splits: [...children].sort(byId).map(normalizedRow),
+      splits: [...children].sort(byId).map(signatureRow),
     }),
   );
 

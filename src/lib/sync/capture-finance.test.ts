@@ -104,6 +104,91 @@ describe("capture of the categorization unit", () => {
     expect(await syncState(a.db)).toEqual(settled); // no meta, no snapshot, no counter, no rule bump
   });
 
+  /** Rewinds a transaction to the shape an earlier capture build left: no unit clocks, a bare hash. */
+  const rewindToPreUnit = async (device: SyncDevice, id: string) => {
+    await device.db.execute(
+      "UPDATE sync_entity_meta SET field_clocks_json = '{}' WHERE entity_type = 'finance_transactions' AND entity_id = $1",
+      [id],
+    );
+    await device.db.execute(
+      "UPDATE sync_entity_snapshot SET snapshot_json = NULL WHERE entity_type = 'finance_transactions' AND entity_id = $1",
+      [id],
+    );
+  };
+
+  it("a note edit of a row stamped before the unit existed keeps the derived unit, only the row clock moves", async () => {
+    const { a, alpha } = await oneLaptop();
+    a.clock.advance(1_000);
+    await a.repo.setFinanceTransactionCategory({
+      transactionId: alpha.id,
+      categoryId: "fincat:logement",
+      scope: "this",
+    });
+    const decided = await unitOf(a, alpha.id);
+    await rewindToPreUnit(a, alpha.id);
+
+    a.clock.advance(60_000);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const current = (await a.repo.getFinanceTransaction(alpha.id)) as NonNullable<
+      Awaited<ReturnType<typeof a.repo.getFinanceTransaction>>
+    >;
+    await a.repo.saveFinanceTransaction({ ...current, notes: "only a note" });
+    const edited = await unitOf(a, alpha.id);
+    // The unit is the one the row had (derived from its old row clock, a user row protects itself) ...
+    expect(edited.clocks).toEqual({
+      categorization: decided.rowHlc,
+      categorization_user: decided.rowHlc,
+    });
+    // ... and the row clock moved with the edit.
+    expect(compareHlc(decided.rowHlc, edited.rowHlc)).toBe(-1);
+  });
+
+  it("a categorization of a row stamped before the unit existed is still a unit write", async () => {
+    const { a, alpha } = await oneLaptop();
+    const created = await unitOf(a, alpha.id);
+    await rewindToPreUnit(a, alpha.id);
+    a.clock.advance(60_000);
+    await a.repo.setFinanceTransactionCategory({
+      transactionId: alpha.id,
+      categoryId: "fincat:logement",
+      scope: "this",
+    });
+    const after = await unitOf(a, alpha.id);
+    expect(after.clocks.categorization).toBe(after.rowHlc);
+    expect(after.clocks.categorization_base).toBe(created.rowHlc);
+    expect(after.clocks.categorization_user).toBe(after.rowHlc);
+  });
+
+  it("saving the same splits again writes nothing: no new clock, children keep created_at", async () => {
+    const { a, alpha } = await oneLaptop();
+    const input = [
+      splitOf(alpha.id, -600, "fincat:alimentation.epicerie", "s-1"),
+      splitOf(alpha.id, -400, "fincat:alimentation.restaurants", "s-2"),
+    ];
+    await a.repo.saveFinanceTransactionSplits(alpha.id, input);
+    const settled = await syncState(a.db);
+    const rows = await a.db.select("SELECT * FROM finance_transaction_splits ORDER BY id");
+    const parent = await a.repo.getFinanceTransaction(alpha.id);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    a.clock.advance(1_000);
+    await a.repo.saveFinanceTransactionSplits(alpha.id, input);
+    expect(await syncState(a.db)).toEqual(settled);
+    expect(await a.db.select("SELECT * FROM finance_transaction_splits ORDER BY id")).toEqual(rows);
+    expect(await a.repo.getFinanceTransaction(alpha.id)).toEqual(parent);
+    // A different amount is a real unit write again.
+    const before = await unitOf(a, alpha.id);
+    a.clock.advance(1_000);
+    await a.repo.saveFinanceTransactionSplits(alpha.id, [
+      splitOf(alpha.id, -700, "fincat:alimentation.epicerie", "s-1"),
+      splitOf(alpha.id, -300, "fincat:alimentation.restaurants", "s-2"),
+    ]);
+    const after = await unitOf(a, alpha.id);
+    expect(
+      compareHlc(before.clocks.categorization as string, after.clocks.categorization as string),
+    ).toBe(-1);
+    expect(after.clocks.categorization_base).toBe(before.clocks.categorization);
+  });
+
   it("an automatic write inherits the protection of the user decision it replaces (a reset by split removal)", async () => {
     const { a, alpha } = await oneLaptop();
     a.clock.advance(1_000);

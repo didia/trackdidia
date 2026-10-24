@@ -424,6 +424,40 @@ describe("import undo against an edit on the other laptop", () => {
     await sim.expectConverged("finance", { snapshots: true, exact: true });
   });
 
+  it("a second undo cannot remove a row a manual categorization brought back, but can remove one any other edit brought back", async () => {
+    const { sim, a, b, batchId } = await setup();
+    a.clock.advance(1_000);
+    expect((await a.repo.undoFinanceImportBatch(batchId)).deleted).toBe(2);
+
+    // B brings both rows back, later than the undo: one by a manual categorization, one by a note.
+    b.clock.advance(120_000);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const alpha = await transactionByAmount(b, -1000);
+    await b.repo.setFinanceTransactionCategory({
+      transactionId: alpha.id,
+      categoryId: "fincat:logement",
+      scope: "this",
+    });
+    const bravo = await transactionByAmount(b, -2000);
+    await b.repo.saveFinanceTransaction({ ...bravo, notes: "touched at B" });
+    await sim.syncAll("finance");
+    for (const device of [a, b]) expect(await ids(device)).toEqual([-1000, -2000]);
+
+    // Undoing the same batch again (the batch is still the latest one and still `completed`):
+    // the user-categorized row is refused and stays; the note-edited row is removed again.
+    a.clock.advance(600_000);
+    const second = await a.repo.undoFinanceImportBatch(batchId);
+    expect(second).toEqual({ deleted: 1, refusedUserCategorized: 1 });
+    await sim.syncAll("finance");
+    for (const device of [a, b]) {
+      expect(await ids(device)).toEqual([-1000]);
+      expect(await unitStateOf(device, alpha.id)).toMatchObject({ source: "user" });
+    }
+    // Nothing else deletes a transaction, so the manually categorized row stays in the ledger.
+    expect((await a.repo.undoFinanceImportBatch(batchId)).deleted).toBe(0);
+    await sim.expectConverged("finance", { snapshots: true, exact: true });
+  });
+
   it("a categorization EARLIER than the undo loses: the delete is strictly later", async () => {
     const { sim, a, b, batchId } = await setup();
     b.clock.advance(1_000);

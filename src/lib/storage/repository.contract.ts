@@ -4362,6 +4362,127 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(splits.map((split) => split.amountMinor)).toEqual([-1000]);
       });
 
+      it("saving the splits that are already stored writes nothing: createdAt and updatedAt stay", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        const input = [
+          buildSplit(txn.id, -600, { id: "split-a" }),
+          buildSplit(txn.id, -400, { id: "split-b", categoryId: "fincat:transport" }),
+        ];
+        const saved = await repository.saveFinanceTransactionSplits(txn.id, input);
+        const children = await repository.listFinanceTransactionSplits(txn.id);
+
+        vi.setSystemTime(new Date("2026-04-09T12:00:00.000Z"));
+        const again = await repository.saveFinanceTransactionSplits(txn.id, input);
+        expect(again).toEqual(saved);
+        expect(await repository.listFinanceTransactionSplits(txn.id)).toEqual(children);
+        expect(await repository.getFinanceTransaction(txn.id)).toEqual(saved);
+
+        // Removing nothing from a transaction that has no splits is a no-op too.
+        const plain = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-plain", amountMinor: -50 }),
+        );
+        vi.setSystemTime(new Date("2026-04-10T12:00:00.000Z"));
+        expect(await repository.saveFinanceTransactionSplits(plain.id, [])).toEqual(plain);
+
+        // Anything different is a real save: new amounts, a new id, another order, a removal.
+        vi.setSystemTime(new Date("2026-04-11T12:00:00.000Z"));
+        const changed = await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -700, { id: "split-a" }),
+          buildSplit(txn.id, -300, { id: "split-b", categoryId: "fincat:transport" }),
+        ]);
+        expect(changed.updatedAt).not.toBe(saved.updatedAt);
+        const rewritten = await repository.listFinanceTransactionSplits(txn.id);
+        expect(rewritten.map((split) => split.amountMinor)).toEqual([-700, -300]);
+        expect(rewritten.every((split) => split.createdAt !== children[0]?.createdAt)).toBe(true);
+        const reordered = await repository.saveFinanceTransactionSplits(txn.id, [
+          buildSplit(txn.id, -300, { id: "split-b", categoryId: "fincat:transport" }),
+          buildSplit(txn.id, -700, { id: "split-a" }),
+        ]);
+        expect(
+          (await repository.listFinanceTransactionSplits(txn.id)).map((split) => split.id),
+        ).toEqual(["split-b", "split-a"]);
+        expect(reordered.hasSplits).toBe(true);
+        const cleared = await repository.saveFinanceTransactionSplits(txn.id, []);
+        expect(cleared.hasSplits).toBe(false);
+        expect(await repository.listFinanceTransactionSplits(txn.id)).toEqual([]);
+      });
+
+      it("a split save that changes only the notes, only the order, the count or an empty id still rewrites the children and bumps the parent", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const txn = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({ id: "txn-split", amountMinor: -1000 }),
+        );
+        const a = (notes: string | null = null) =>
+          buildSplit(txn.id, -600, { id: "split-a", notes });
+        const b = buildSplit(txn.id, -400, { id: "split-b", categoryId: "fincat:transport" });
+        let saved = await repository.saveFinanceTransactionSplits(txn.id, [a(), b]);
+
+        const expectRewrite = async (next: FinanceTransactionSplit[], day: number) => {
+          vi.setSystemTime(new Date(`2026-04-${String(day).padStart(2, "0")}T12:00:00.000Z`));
+          const before = await repository.listFinanceTransactionSplits(txn.id);
+          const result = await repository.saveFinanceTransactionSplits(txn.id, next);
+          const after = await repository.listFinanceTransactionSplits(txn.id);
+          expect(result.updatedAt).not.toBe(saved.updatedAt); // the parent is bumped
+          expect(after.every((split) => split.createdAt !== before[0]?.createdAt)).toBe(true);
+          saved = result;
+          return after;
+        };
+
+        // Only the notes of one split change.
+        const noted = await expectRewrite([a("a note"), b], 9);
+        expect(noted.map((split) => split.notes)).toEqual(["a note", null]);
+        // Only the order of the same splits changes.
+        const swapped = await expectRewrite([b, a("a note")], 10);
+        expect(swapped.map((split) => split.id)).toEqual(["split-b", "split-a"]);
+        // The count changes.
+        const fewer = await expectRewrite(
+          [buildSplit(txn.id, -1000, { id: "split-a", notes: "a note" })],
+          11,
+        );
+        expect(fewer).toHaveLength(1);
+        // An empty id is a new split.
+        const fresh = await expectRewrite(
+          [buildSplit(txn.id, -1000, { id: "", notes: "a note" })],
+          12,
+        );
+        expect(fresh).toHaveLength(1);
+        expect(fresh[0]?.id).not.toBe("");
+      });
+
+      it("removing every split from a parent still flagged as split repairs the parent", async () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date("2026-04-08T12:00:00.000Z"));
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        const flagged = await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-flagged",
+            amountMinor: -1000,
+            hasSplits: true,
+            categoryId: "fincat:split",
+            categorySource: "user",
+          }),
+        );
+        expect(await repository.listFinanceTransactionSplits(flagged.id)).toEqual([]);
+        vi.setSystemTime(new Date("2026-04-09T12:00:00.000Z"));
+        const repaired = await repository.saveFinanceTransactionSplits(flagged.id, []);
+        expect(repaired).toMatchObject({
+          hasSplits: false,
+          categoryId: "fincat:non-categorise",
+          categorySource: "default",
+        });
+        expect(repaired.updatedAt).not.toBe(flagged.updatedAt);
+      });
+
       it("restores an ordinary category when the final split is removed", async () => {
         const repository = await factory();
         await repository.saveFinanceAccount(account({ id: "account-1" }));

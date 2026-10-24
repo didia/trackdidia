@@ -306,6 +306,80 @@ describe("finance categorization unit: concurrent writes", () => {
     await sim.expectConverged("finance", { snapshots: true, exact: true });
   });
 
+  it("opening the split editor and saving the same splits does not replace the other laptop's amounts or note", async () => {
+    const { sim, a, b, alpha } = await twoLaptops();
+    const splits = (first: number, second: number) => [
+      splitOf(alpha.id, first, "fincat:alimentation.epicerie", "s-1"),
+      splitOf(alpha.id, second, "fincat:alimentation.restaurants", "s-2"),
+    ];
+    await a.repo.saveFinanceTransactionSplits(alpha.id, splits(-600, -400));
+    await sim.syncAll("finance");
+
+    // B changes an amount and then edits the note; A, which has not heard of either, saves the
+    // very same splits again (the editor deletes and re-inserts every child).
+    b.clock.advance(60_000);
+    await b.repo.saveFinanceTransactionSplits(alpha.id, splits(-700, -300));
+    b.clock.advance(1_000);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const current = (await b.repo.getFinanceTransaction(alpha.id)) as NonNullable<
+      Awaited<ReturnType<typeof b.repo.getFinanceTransaction>>
+    >;
+    await b.repo.saveFinanceTransaction({ ...current, notes: "noted at B" });
+    a.clock.advance(600_000);
+    await a.repo.saveFinanceTransactionSplits(alpha.id, splits(-600, -400));
+    await sim.syncAll("finance");
+
+    for (const device of [a, b]) {
+      const amounts = await device.db.select<{ id: string; amount_minor: number }[]>(
+        "SELECT id, amount_minor FROM finance_transaction_splits ORDER BY id",
+      );
+      expect(amounts).toEqual([
+        { id: "s-1", amount_minor: -700 },
+        { id: "s-2", amount_minor: -300 },
+      ]);
+      expect((await device.repo.getFinanceTransaction(alpha.id))?.notes).toBe("noted at B");
+    }
+    await sim.expectConverged("finance", { snapshots: true, exact: true });
+  });
+
+  it("a note edit on a laptop whose row predates the unit clocks does not replace the other laptop's categorization", async () => {
+    const { sim, a, b, alpha } = await twoLaptops();
+    b.clock.advance(1_000);
+    await b.repo.saveFinanceTransactionSplits(alpha.id, [
+      splitOf(alpha.id, -600, "fincat:alimentation.epicerie", "s-1"),
+      splitOf(alpha.id, -400, "fincat:alimentation.restaurants", "s-2"),
+    ]);
+    await sim.exchange(b, a, "finance");
+    // A's copy was stamped by an earlier capture build: no unit clocks, a bare content hash.
+    await a.db.execute(
+      "UPDATE sync_entity_meta SET field_clocks_json = '{}' WHERE entity_type = 'finance_transactions' AND entity_id = $1",
+      [alpha.id],
+    );
+    await a.db.execute(
+      "UPDATE sync_entity_snapshot SET snapshot_json = NULL WHERE entity_type = 'finance_transactions' AND entity_id = $1",
+      [alpha.id],
+    );
+    // B re-splits (a newer decision); A, which has not heard of it, edits only the note, later.
+    b.clock.advance(60_000);
+    await b.repo.saveFinanceTransactionSplits(alpha.id, [
+      splitOf(alpha.id, -900, "fincat:transport", "s-3"),
+      splitOf(alpha.id, -100, "fincat:logement", "s-4"),
+    ]);
+    a.clock.advance(600_000);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const current = (await a.repo.getFinanceTransaction(alpha.id)) as NonNullable<
+      Awaited<ReturnType<typeof a.repo.getFinanceTransaction>>
+    >;
+    await a.repo.saveFinanceTransaction({ ...current, notes: "noted at A" });
+    await sim.syncAll("finance");
+
+    for (const device of [a, b]) {
+      expect((await unitStateOf(device, alpha.id)).splitIds).toEqual(["s-3", "s-4"]);
+      expect((await device.repo.getFinanceTransaction(alpha.id))?.notes).toBe("noted at A");
+    }
+    await sim.expectConverged("finance", { snapshots: true, exact: true });
+  });
+
   it("keeps the unit clocks in the transaction's meta: write, base and protection", async () => {
     const { sim, a, b, alpha } = await twoLaptops();
     const created = clocksOf(await readMetaOf(a.db, "finance_transactions", alpha.id));
