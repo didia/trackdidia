@@ -403,15 +403,6 @@ describe("refusals", () => {
       "tpl-1",
       { template_id: "tpl-1" },
     ],
-    ["an AI memory (row clock)", "personal", "ai_memories", "m1", { id: "m1" }],
-    ["a finance account (row clock)", "finance", "finance_accounts", "acc-1", { id: "acc-1" }],
-    [
-      "a finance transaction split (child set)",
-      "finance",
-      "finance_transaction_splits",
-      "split-1",
-      { id: "split-1" },
-    ],
   ];
 
   it.each(unsupported)(

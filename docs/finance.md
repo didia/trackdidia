@@ -149,7 +149,9 @@ Every finance mutation goes through the repository
 writer queue (`writeExclusive`), so a save can never be rolled back by a concurrent
 import. `saveFinanceTransactionSplits` validates that a non-empty allocation sums
 exactly to the parent amount before touching anything and replaces splits in one
-transaction; clearing the last split restores `fincat:non-categorise`. An
+transaction (saving exactly the splits already stored, same ids, amounts, categories, notes and
+order, writes nothing: the children keep their `createdAt` and the parent its `updatedAt`);
+clearing the last split restores `fincat:non-categorise`. An
 `all_matching` category correction marks every changed row `category_source = 'user'`,
 and archiving a category also reassigns split and merchant-memory references.
 Phase 6 added `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,
@@ -1028,7 +1030,8 @@ CRUD for `finance_rules`: name, priority, a single `descriptionContains`
 matcher field (the full matcher shape — `descriptionRegex`, `accountIds`,
 `personId`, amount bounds, `sign` — is supported by the engine and the
 repository but not yet exposed in this form), and a category action. Each rule
-card shows its applied count and enable/disable and delete actions
+card shows its applied count (counted when a rule changes a transaction; a re-run
+that finds nothing new neither rewrites the transaction nor counts) and enable/disable and delete actions
 (`saveFinanceRule`/`deleteFinanceRule`). "Appliquer aux transactions
 existantes" calls the same `reclassifyFinancePending()` as the review page's
 "Réappliquer les règles" — the two buttons are the same action surfaced on two

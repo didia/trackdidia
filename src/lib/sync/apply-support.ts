@@ -82,9 +82,11 @@ export const toSqlApplyError = async (
           .filter((part) => part.length > 0);
     const index =
       named ?? (await findUniqueIndex(db, table, columns)) ?? (columns.join(",") || detail);
+    // SQLite names the index for an expression index and the columns for a plain or partial one;
+    // `index` is whichever the lookup above resolved, so a partial index (external_key) matches too.
     const declared = getTableRegistration(table).naturalKeys.find(
       (key) =>
-        (key.index !== undefined && key.index === named) ||
+        (key.index !== undefined && (key.index === named || key.index === index)) ||
         (columns.length > 0 &&
           key.where === undefined &&
           [...key.columns].sort().join(",") === [...columns].sort().join(",")),

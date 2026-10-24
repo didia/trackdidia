@@ -111,7 +111,7 @@ import {
   type RecurringDetectionExistingSeriesInput,
   type RecurringDetectionTransactionInput,
 } from "../finance/recurring-detection";
-import { validateSplitTotal } from "../finance/splits";
+import { planSplitSave, validateSplitTotal } from "../finance/splits";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { createEntityId, nowIso } from "../gtd/shared";
 
@@ -612,31 +612,31 @@ export class FinanceMemoryStore {
     }
     // Validate everything before mutating so a rejected edit leaves the old allocation intact.
     validateSplitTotal(txn.amountMinor, splits);
-    for (const [splitId, split] of [...this.splits.entries()]) {
-      if (split.transactionId === transactionId) {
-        this.splits.delete(splitId);
+    const plan = planSplitSave(txn, this.listTransactionSplits(transactionId), splits);
+    // Saving what is already stored writes nothing (children keep `createdAt`, the parent keeps
+    // `updatedAt`).
+    if (!plan.rewriteChildren && plan.parentTarget === null) {
+      return txn;
+    }
+    if (plan.rewriteChildren) {
+      for (const [splitId, split] of [...this.splits.entries()]) {
+        if (split.transactionId === transactionId) {
+          this.splits.delete(splitId);
+        }
       }
+      splits.forEach((split, index) => {
+        const id = split.id || createEntityId("finance-split");
+        this.splits.set(id, { ...split, id, transactionId, sortOrder: index, createdAt: now });
+      });
     }
 
-    splits.forEach((split, index) => {
-      const id = split.id || createEntityId("finance-split");
-      this.splits.set(id, { ...split, id, transactionId, sortOrder: index, createdAt: now });
-    });
-
-    const hasSplits = splits.length > 0;
-    const clearedSplitCategory = !hasSplits && txn.categoryId === "fincat:split";
-    const updated: FinanceTransaction = {
-      ...txn,
-      hasSplits,
-      categoryId: hasSplits
-        ? "fincat:split"
-        : clearedSplitCategory
-          ? "fincat:non-categorise"
-          : txn.categoryId,
-      categorySource: hasSplits ? "user" : clearedSplitCategory ? "default" : txn.categorySource,
-      categoryConfidence: hasSplits || clearedSplitCategory ? null : txn.categoryConfidence,
-      updatedAt: now,
+    const target = plan.parentTarget ?? {
+      hasSplits: txn.hasSplits,
+      categoryId: txn.categoryId,
+      categorySource: txn.categorySource,
+      categoryConfidence: txn.categoryConfidence,
     };
+    const updated: FinanceTransaction = { ...txn, ...target, updatedAt: now };
     this.transactions.set(transactionId, updated);
     return updated;
   }
@@ -1101,7 +1101,7 @@ export class FinanceMemoryStore {
       !keepExistingCategory &&
       (withActions.categoryId !== outcome.categoryId ||
         withActions.categorySource !== outcome.categorySource);
-    this.transactions.set(transactionId, {
+    const decided: FinanceTransaction = {
       ...withActions,
       categoryId: keepExistingCategory ? withActions.categoryId : outcome.categoryId,
       categorySource: keepExistingCategory ? withActions.categorySource : outcome.categorySource,
@@ -1111,8 +1111,16 @@ export class FinanceMemoryStore {
       categorizedAt:
         categoryChanged && outcome.categorySource !== "default" ? now : withActions.categorizedAt,
       updatedAt: now,
-    });
-    if (outcome.matchedRule) {
+    };
+    // A pass that decides exactly what the row already says writes nothing (no `updated_at` bump,
+    // no rule counter), like the SQLite store.
+    const rowChanged = (Object.keys(decided) as (keyof FinanceTransaction)[]).some(
+      (key) => key !== "updatedAt" && decided[key] !== txn[key],
+    );
+    if (rowChanged) {
+      this.transactions.set(transactionId, decided);
+    }
+    if (outcome.matchedRule && rowChanged) {
       const rule = this.rules.get(outcome.matchedRule.id);
       if (rule) {
         this.rules.set(rule.id, {

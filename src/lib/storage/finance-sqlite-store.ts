@@ -112,7 +112,7 @@ import {
   type RecurringDetectionTransactionInput,
 } from "../finance/recurring-detection";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
-import { validateSplitTotal } from "../finance/splits";
+import { planSplitSave, validateSplitTotal } from "../finance/splits";
 import { createEntityId, nowIso } from "../gtd/shared";
 
 interface PersonRow {
@@ -1209,39 +1209,50 @@ export class FinanceSqliteStore {
     }
     validateSplitTotal(parent.amountMinor, splits);
 
-    await this.inTransaction(db, async () => {
-      await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
-        transactionId,
-      ]);
+    // Saving what is already stored writes nothing (children keep `created_at`, the parent keeps
+    // `updated_at`); the plan is shared with the memory store.
+    const plan = planSplitSave(parent, await this.listTransactionSplits(transactionId), splits);
+    if (!plan.rewriteChildren && plan.parentTarget === null) {
+      return parent;
+    }
 
-      for (const [index, split] of splits.entries()) {
-        const id = split.id || createEntityId("finance-split");
-        await db.execute(
-          `INSERT INTO finance_transaction_splits (
-            id, transaction_id, amount_minor, category_id, notes, sort_order, created_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [id, transactionId, split.amountMinor, split.categoryId, split.notes, index, now],
-        );
+    await this.inTransaction(db, async () => {
+      if (plan.rewriteChildren) {
+        await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
+          transactionId,
+        ]);
+
+        for (const [index, split] of splits.entries()) {
+          const id = split.id || createEntityId("finance-split");
+          await db.execute(
+            `INSERT INTO finance_transaction_splits (
+              id, transaction_id, amount_minor, category_id, notes, sort_order, created_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [id, transactionId, split.amountMinor, split.categoryId, split.notes, index, now],
+          );
+        }
       }
 
       // Removing the final split must not leave the internal split category behind.
+      const target = plan.parentTarget ?? {
+        hasSplits: parent.hasSplits,
+        categoryId: parent.categoryId,
+        categorySource: parent.categorySource,
+        categoryConfidence: parent.categoryConfidence,
+      };
       await db.execute(
         `UPDATE finance_transactions SET
-          has_splits = $2,
-          category_id = CASE
-            WHEN $2 = 1 THEN 'fincat:split'
-            WHEN category_id = 'fincat:split' THEN 'fincat:non-categorise'
-            ELSE category_id END,
-          category_source = CASE
-            WHEN $2 = 1 THEN 'user'
-            WHEN category_id = 'fincat:split' THEN 'default'
-            ELSE category_source END,
-          category_confidence = CASE
-            WHEN $2 = 1 OR category_id = 'fincat:split' THEN NULL
-            ELSE category_confidence END,
-          updated_at = $3
+          has_splits = $2, category_id = $3, category_source = $4, category_confidence = $5,
+          updated_at = $6
         WHERE id = $1`,
-        [transactionId, splits.length > 0 ? 1 : 0, now],
+        [
+          transactionId,
+          target.hasSplits ? 1 : 0,
+          target.categoryId,
+          target.categorySource,
+          target.categoryConfidence,
+          now,
+        ],
       );
     });
 
@@ -1872,29 +1883,46 @@ export class FinanceSqliteStore {
     const categoryChanged =
       !keepExistingCategory &&
       (row.category_id !== outcome.categoryId || row.category_source !== outcome.categorySource);
-    await db.execute(
-      `UPDATE finance_transactions SET
-        category_id = $2, category_source = $3, category_confidence = $4,
-        categorized_at = CASE WHEN $5 = 1 THEN $6 ELSE categorized_at END,
-        merchant_display = $7, person_id = $8, excluded_from_budget = $9,
-        excluded_from_reports = $10, is_transfer = $11, labels_json = $12, updated_at = $6
-      WHERE id = $1`,
-      [
-        transactionId,
-        finalCategoryId,
-        finalCategorySource,
-        finalCategoryConfidence,
-        categoryChanged && outcome.categorySource !== "default" ? 1 : 0,
-        now,
-        actions.merchantDisplay,
-        actions.personId,
-        actions.excludedFromBudget ? 1 : 0,
-        actions.excludedFromReports ? 1 : 0,
-        actions.isTransfer ? 1 : 0,
-        actions.labelsJson,
-      ],
-    );
-    if (outcome.matchedRule) {
+    const finalCategorizedAt =
+      categoryChanged && outcome.categorySource !== "default" ? now : row.categorized_at;
+    // A pass that decides exactly what the row already says writes nothing: no `updated_at` bump
+    // (which would make a pointless whole-row write for multi-device sync) and no rule counter.
+    const rowChanged =
+      row.category_id !== finalCategoryId ||
+      row.category_source !== finalCategorySource ||
+      row.category_confidence !== finalCategoryConfidence ||
+      row.categorized_at !== finalCategorizedAt ||
+      row.merchant_display !== actions.merchantDisplay ||
+      row.person_id !== actions.personId ||
+      Boolean(row.excluded_from_budget) !== actions.excludedFromBudget ||
+      Boolean(row.excluded_from_reports) !== actions.excludedFromReports ||
+      Boolean(row.is_transfer) !== actions.isTransfer ||
+      row.labels_json !== actions.labelsJson;
+    if (rowChanged) {
+      await db.execute(
+        `UPDATE finance_transactions SET
+          category_id = $2, category_source = $3, category_confidence = $4,
+          categorized_at = $5,
+          merchant_display = $6, person_id = $7, excluded_from_budget = $8,
+          excluded_from_reports = $9, is_transfer = $10, labels_json = $11, updated_at = $12
+        WHERE id = $1`,
+        [
+          transactionId,
+          finalCategoryId,
+          finalCategorySource,
+          finalCategoryConfidence,
+          finalCategorizedAt,
+          actions.merchantDisplay,
+          actions.personId,
+          actions.excludedFromBudget ? 1 : 0,
+          actions.excludedFromReports ? 1 : 0,
+          actions.isTransfer ? 1 : 0,
+          actions.labelsJson,
+          now,
+        ],
+      );
+    }
+    if (outcome.matchedRule && rowChanged) {
       await db.execute(
         "UPDATE finance_rules SET applied_count = applied_count + 1, last_applied_at = $2 WHERE id = $1",
         [outcome.matchedRule.id, now],
