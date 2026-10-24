@@ -525,7 +525,9 @@ entities.
 - `finance_transactions` also stamp their categorization unit (`src/lib/sync/capture-finance.ts`;
   [rules](#finance-tables-the-categorization-unit-and-statement-anchors)): the snapshot keeps
   `{"unit": <signature>}` next to the row's content hash, the signature covering the unit columns AND
-  every split child. A different signature is a unit write: `field_clocks_json` gets
+  every split child (all child columns except `created_at`: re-saving the same splits is not a new
+  decision, and `saveTransactionSplits` is a complete no-op when the stored children already equal
+  the requested ones, so it neither re-creates the children nor bumps the parent's `updated_at`). A different signature is a unit write: `field_clocks_json` gets
   `categorization` (the fresh clock), `categorization_base` (the unit clock this device held; absent
   for a creation) and `categorization_user` (the clock of the latest `user` decision in the history:
   the write's own clock for a `user` write, inherited otherwise), and `row_hlc` moves with it. An
@@ -533,7 +535,19 @@ entities.
   stamper handles the splits first and adds the parent of every changed child), because a bulk
   update of split categories (`archiveCategory`) touches children only; the children keep
   `{"transaction_id": ...}` in their snapshot so a removed child can still name its parent. A row
-  stamped before the unit existed gets its unit clocks derived from its row clock, issuing no clock.
+  stamped before the unit existed (no unit clocks, no recorded signature) gets its unit clocks
+  derived from its row clock, issuing no clock when it is unchanged. When such a row has been
+  edited since, the old unit is not recorded, so `unitWrittenWithRow` decides from the row itself
+  whether the last write also wrote the unit: `categorized_at` equal to `updated_at`, or a child
+  `created_at` equal to it. Those are the stamps left by manual and bulk categorizations, by the
+  classification stages and AI auto-apply when they change a non-default category, and by
+  `saveTransactionSplits`. A note edit keeps the derived unit and only advances the row clock; a
+  categorization is a normal unit write. Known limit: a unit change that sets neither stamp
+  (`setTransfer`, `clearTransfer`, removing the last split, `archiveCategory` reassigning a
+  transaction's own category, `revertCategoryBackfill`, the transfer-partner unlink done by an
+  import undo) on a row left by an earlier build of change capture is read as an edit of another
+  column until the next unit write. Only dev databases that enabled capture before this slice can
+  hold such rows.
 - Deletes write a tombstone (`deleted_at` = `row_hlc` = a fresh clock, field clocks kept) and drop
   the snapshot. An entity that never had a meta row was never published and gets nothing. A row
   that exists again after a tombstone restarts as a creation with clean clocks and clears
@@ -956,8 +970,14 @@ splits and suggestions) and never touches the batch row, so a batch is not marke
 counts stay as the import wrote them on every laptop. The deletes are ordinary tombstones: a
 categorization of the same transaction on the other laptop whose clock is at least as late as the
 undo resurrects the transaction (with its categorization and splits) on both laptops, one with an
-earlier clock loses to the undo. This is the spec's accepted consequence ("partly undone by a
-categorization done on the other laptop; recoverable by undoing again").
+earlier clock loses to the undo. The batch row is still the latest batch and still `completed`, so
+the batch can be undone again, but only a row that is not `user`-categorized can be removed that way:
+a row brought back by a rule, a reclassify, a note or any other edit is deleted by the second undo,
+while a row brought back by a MANUAL categorization stays, because undo deliberately refuses
+`user`-categorized rows (`refusedUserCategorized`) and the finance store has no other transaction
+delete. That is the user's explicit choice (a manual categorization after an undo says "keep this
+one"); the spec's "recoverable by undoing again" holds only for the non-`user` case. Both cases are
+pinned in `finance-sync.scenarios.test.ts`.
 
 **Categorization unit** (`finance_transactions` + `finance_transaction_splits`). The unit is
 `{category_id, category_source, has_splits}`, the two descriptive columns the same decision writes

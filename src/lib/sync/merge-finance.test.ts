@@ -4,6 +4,7 @@ import type { SyncEntity } from "./change-set";
 import { canonicalJson } from "./field-clocks";
 import { encodeHlc } from "./hlc";
 import type { EntityMeta } from "./merge-entity";
+import { unitWrittenWithRow } from "./capture-finance";
 import {
   compareAnchors,
   compareUnits,
@@ -109,6 +110,10 @@ describe("unit versions", () => {
     expect(unitSignature({ ...row, category_id: "y" }, [child])).not.toBe(base);
     expect(unitSignature(row, [{ ...child, amount_minor: -99 }])).not.toBe(base);
     expect(unitSignature(row, [])).not.toBe(base);
+    // Re-saving the same splits only moves the children's created_at: not a new decision.
+    expect(unitSignature(row, [{ ...child, created_at: "2026-10-02T00:00:00.000Z" }])).toBe(
+      unitSignature(row, [{ ...child, created_at: "2026-10-09T00:00:00.000Z" }]),
+    );
     expect(unitSignature(row, [child, { ...child, id: "s0" }])).toBe(
       unitSignature(row, [{ ...child, id: "s0" }, child]),
     );
@@ -866,5 +871,29 @@ describe("statement snapshot rules", () => {
     expect(compareAnchors({ clock: clock(2), asOfDate: "2026-10-31" }, d2)).toBeGreaterThan(0);
     expect(compareAnchors({ clock: null, asOfDate: "2027-01-31" }, d1)).toBeLessThan(0);
     expect(compareAnchors(d1, { ...d1 })).toBe(0);
+  });
+});
+
+describe("unitWrittenWithRow (the evidence for a row stamped before the unit existed)", () => {
+  it("is true when the last write set the categorization or the splits with the same instant", () => {
+    const at = "2026-10-02T10:00:00.000Z";
+    expect(unitWrittenWithRow(txnRow({ updated_at: at, categorized_at: at }), [])).toBe(true);
+    expect(unitWrittenWithRow(txnRow({ updated_at: at }), [{ id: "s", created_at: at }])).toBe(
+      true,
+    );
+  });
+
+  it("is false for an edit of another column, and for a row with no stamps", () => {
+    expect(
+      unitWrittenWithRow(
+        txnRow({
+          updated_at: "2026-10-03T10:00:00.000Z",
+          categorized_at: "2026-10-02T10:00:00.000Z",
+        }),
+        [{ id: "s", created_at: "2026-10-02T10:00:00.000Z" }],
+      ),
+    ).toBe(false);
+    expect(unitWrittenWithRow(txnRow({ updated_at: "", categorized_at: "" }), [])).toBe(false);
+    expect(unitWrittenWithRow(txnRow({ updated_at: null }), [])).toBe(false);
   });
 });

@@ -149,7 +149,9 @@ Every finance mutation goes through the repository
 writer queue (`writeExclusive`), so a save can never be rolled back by a concurrent
 import. `saveFinanceTransactionSplits` validates that a non-empty allocation sums
 exactly to the parent amount before touching anything and replaces splits in one
-transaction; clearing the last split restores `fincat:non-categorise`. An
+transaction (saving exactly the splits already stored, same ids, amounts, categories, notes and
+order, writes nothing: the children keep their `createdAt` and the parent its `updatedAt`);
+clearing the last split restores `fincat:non-categorise`. An
 `all_matching` category correction marks every changed row `category_source = 'user'`,
 and archiving a category also reassigns split and merchant-memory references.
 Phase 6 added `computeFinanceNetWorth`, `listFinanceNetWorthHistory`,

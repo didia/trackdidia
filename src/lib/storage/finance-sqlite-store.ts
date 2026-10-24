@@ -112,7 +112,7 @@ import {
   type RecurringDetectionTransactionInput,
 } from "../finance/recurring-detection";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
-import { validateSplitTotal } from "../finance/splits";
+import { planSplitSave, validateSplitTotal } from "../finance/splits";
 import { createEntityId, nowIso } from "../gtd/shared";
 
 interface PersonRow {
@@ -1209,39 +1209,50 @@ export class FinanceSqliteStore {
     }
     validateSplitTotal(parent.amountMinor, splits);
 
-    await this.inTransaction(db, async () => {
-      await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
-        transactionId,
-      ]);
+    // Saving what is already stored writes nothing (children keep `created_at`, the parent keeps
+    // `updated_at`); the plan is shared with the memory store.
+    const plan = planSplitSave(parent, await this.listTransactionSplits(transactionId), splits);
+    if (!plan.rewriteChildren && plan.parentTarget === null) {
+      return parent;
+    }
 
-      for (const [index, split] of splits.entries()) {
-        const id = split.id || createEntityId("finance-split");
-        await db.execute(
-          `INSERT INTO finance_transaction_splits (
-            id, transaction_id, amount_minor, category_id, notes, sort_order, created_at
-          ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [id, transactionId, split.amountMinor, split.categoryId, split.notes, index, now],
-        );
+    await this.inTransaction(db, async () => {
+      if (plan.rewriteChildren) {
+        await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
+          transactionId,
+        ]);
+
+        for (const [index, split] of splits.entries()) {
+          const id = split.id || createEntityId("finance-split");
+          await db.execute(
+            `INSERT INTO finance_transaction_splits (
+              id, transaction_id, amount_minor, category_id, notes, sort_order, created_at
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [id, transactionId, split.amountMinor, split.categoryId, split.notes, index, now],
+          );
+        }
       }
 
       // Removing the final split must not leave the internal split category behind.
+      const target = plan.parentTarget ?? {
+        hasSplits: parent.hasSplits,
+        categoryId: parent.categoryId,
+        categorySource: parent.categorySource,
+        categoryConfidence: parent.categoryConfidence,
+      };
       await db.execute(
         `UPDATE finance_transactions SET
-          has_splits = $2,
-          category_id = CASE
-            WHEN $2 = 1 THEN 'fincat:split'
-            WHEN category_id = 'fincat:split' THEN 'fincat:non-categorise'
-            ELSE category_id END,
-          category_source = CASE
-            WHEN $2 = 1 THEN 'user'
-            WHEN category_id = 'fincat:split' THEN 'default'
-            ELSE category_source END,
-          category_confidence = CASE
-            WHEN $2 = 1 OR category_id = 'fincat:split' THEN NULL
-            ELSE category_confidence END,
-          updated_at = $3
+          has_splits = $2, category_id = $3, category_source = $4, category_confidence = $5,
+          updated_at = $6
         WHERE id = $1`,
-        [transactionId, splits.length > 0 ? 1 : 0, now],
+        [
+          transactionId,
+          target.hasSplits ? 1 : 0,
+          target.categoryId,
+          target.categorySource,
+          target.categoryConfidence,
+          now,
+        ],
       );
     });
 
