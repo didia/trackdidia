@@ -8,7 +8,8 @@
     "budget": "Budget",
     "reports": "Rapports",
     "review": "Revue",
-    "rules": "Règles"
+    "rules": "Règles",
+    "categories": "Catégories"
   },
   "overview": {
     "hero": {
@@ -348,6 +349,48 @@
     "enable": "Activer",
     "disable": "Désactiver",
     "delete": "Supprimer"
+  },
+  "categories": {
+    "hero": {
+      "eyebrow": "Finances",
+      "title": "Catégories"
+    },
+    "addTitle": "Ajouter une catégorie",
+    "fields": {
+      "name": "Nom",
+      "group": "Groupe",
+      "newGroup": "Nouveau groupe (aucun parent)",
+      "kind": "Type",
+      "rename": "Nouveau nom de {{name}}"
+    },
+    "kind": {
+      "expense": "Dépense",
+      "income": "Revenu",
+      "transfer": "Transfert",
+      "internal": "Interne"
+    },
+    "errors": {
+      "required": "Le nom est requis.",
+      "duplicate": "Une catégorie portant ce nom existe déjà dans ce groupe.",
+      "groupHasChildren": "Archivez d'abord les catégories de ce groupe.",
+      "parentArchived": "Restaurez d'abord le groupe « {{name}} ».",
+      "parentUnavailable": "Ce groupe n'est plus disponible. Choisissez-en un autre.",
+      "noTarget": "Aucune catégorie de même type n'est disponible pour recevoir les transactions. Créez-en une d'abord."
+    },
+    "add": "Ajouter la catégorie",
+    "added": "« {{name}} » a été ajoutée.",
+    "listTitle": "Catégories existantes",
+    "none": "Aucune catégorie pour le moment.",
+    "noChildren": "Ce groupe ne contient aucune catégorie.",
+    "rename": "Renommer",
+    "save": "Enregistrer",
+    "cancel": "Annuler",
+    "archive": "Archiver",
+    "reassignTo": "Déplacer les transactions de « {{name}} » vers",
+    "confirmArchive": "Archiver",
+    "archived": "« {{name}} » est archivée ({{count}} élément(s) déplacé(s)).",
+    "archivedTitle": "Catégories archivées",
+    "restore": "Restaurer"
   },
   "budget": {
     "hero": {

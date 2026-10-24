@@ -3656,6 +3656,165 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ).toBe(true);
       });
 
+      it("archiving a category carries its budget, recurring series and pending suggestions to the target", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.seedFinanceDefaultCategories();
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+        await repository.setFinanceBudgetAssignment(
+          "2026-04",
+          "fincat:alimentation.epicerie",
+          10_000,
+        );
+        await repository.setFinanceBudgetAssignment(
+          "2026-04",
+          "fincat:alimentation.restaurants",
+          2_500,
+        );
+        await repository.saveFinanceRecurringSeries({
+          id: "series-1",
+          merchantKey: "NETFLIX",
+          accountId: "account-1",
+          categoryId: "fincat:alimentation.epicerie",
+          cadence: "monthly",
+          expectedAmountMinor: -1_000,
+          amountToleranceMinor: 100,
+          dayOfMonth: 12,
+          lastSeenDate: "2026-03-12",
+          nextExpectedDate: "2026-04-12",
+          occurrenceCount: 3,
+          status: "active",
+          confirmedByUser: true,
+          createdAt: "2026-03-01T00:00:00.000Z",
+          updatedAt: "2026-03-01T00:00:00.000Z",
+        });
+        const [suggestion] = await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+
+        await repository.archiveFinanceCategory(
+          "fincat:alimentation.epicerie",
+          "fincat:alimentation.restaurants",
+        );
+
+        const state = await repository.computeFinanceBudgetState("2026-04", "CAD");
+        const assigned = (id: string) =>
+          state.categories.find((entry) => entry.categoryId === id)?.assignedMinor ?? 0;
+        expect(assigned("fincat:alimentation.epicerie")).toBe(0);
+        expect(assigned("fincat:alimentation.restaurants")).toBe(12_500);
+        await expect(repository.listFinanceRecurringSeries()).resolves.toEqual([
+          expect.objectContaining({
+            id: "series-1",
+            categoryId: "fincat:alimentation.restaurants",
+          }),
+        ]);
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([
+          expect.objectContaining({
+            id: suggestion.id,
+            suggestedCategoryId: "fincat:alimentation.restaurants",
+          }),
+        ]);
+      });
+
+      it("archiving into Non catégorisé dismisses pending suggestions of that category", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.seedFinanceDefaultCategories();
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+        await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.epicerie",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+
+        await repository.archiveFinanceCategory(
+          "fincat:alimentation.epicerie",
+          "fincat:non-categorise",
+        );
+
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([]);
+      });
+
+      it("refuses to accept a suggestion for an archived category", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.seedFinanceDefaultCategories();
+        const txn = await repository.saveFinanceTransaction(buildFinanceTransaction());
+        const [suggestion] = await repository.saveFinanceCategorySuggestions([
+          {
+            id: "",
+            transactionId: txn.id,
+            merchantKey: txn.merchantKey,
+            suggestedCategoryId: "fincat:alimentation.restaurants",
+            confidence: 0.6,
+            origin: "seed",
+            rationale: null,
+            model: null,
+            promptVersion: null,
+            status: "pending",
+            decidedAt: null,
+            createdAt: "",
+          },
+        ]);
+        await repository.archiveFinanceCategory(
+          "fincat:alimentation.restaurants",
+          "fincat:non-categorise",
+        );
+        // Re-create the pending state a stale screen could still hold.
+        await repository.saveFinanceCategorySuggestions([{ ...suggestion, status: "pending" }]);
+
+        await expect(
+          repository.decideFinanceCategorySuggestion(suggestion.id, { status: "accepted" }),
+        ).rejects.toThrow(/archived/);
+        await expect(repository.getFinanceTransaction(txn.id)).resolves.toMatchObject({
+          categoryId: "fincat:non-categorise",
+        });
+      });
+
+      it("does not seed-suggest an archived category on later imports", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.seedFinanceDefaultCategories();
+        await repository.archiveFinanceCategory(
+          "fincat:alimentation.epicerie",
+          "fincat:non-categorise",
+        );
+
+        await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "metro.csv",
+          fileHash: "hash-metro",
+          rows: [importRow({ descriptionRaw: "METRO PLUS", merchantKey: "METRO PLUS" })],
+        });
+
+        await expect(repository.listFinanceCategorySuggestions("pending")).resolves.toEqual([]);
+      });
+
       it("saves and deletes a rule", async () => {
         const repository = await factory();
         const saved = await repository.saveFinanceRule({

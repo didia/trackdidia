@@ -11,6 +11,7 @@ const financeTabs = [
   { to: "/finances/accounts", labelKey: "tabs.accounts", end: false },
   { to: "/finances/review", labelKey: "tabs.review", end: false },
   { to: "/finances/rules", labelKey: "tabs.rules", end: false },
+  { to: "/finances/categories", labelKey: "tabs.categories", end: false },
 ] as const;
 
 export const FinanceTabs = () => {

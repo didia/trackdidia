@@ -503,11 +503,12 @@ call sites that race harmlessly because the seed is `INSERT OR IGNORE`:
 | `/finances/accounts` | `FinanceAccountsPage` |
 | `/finances/review` | `FinanceReviewPage` (Phase 4) |
 | `/finances/rules` | `FinanceRulesPage` (Phase 4) |
+| `/finances/categories` | `FinanceCategoriesPage` — add, rename, archive and restore categories (see "Category management") |
 
 Every `/finances*` page renders `FinanceTabs`
 (`src/components/finance/FinanceTabs.tsx`), a shared in-page nav bar. It only
 lists tabs for screens that exist today (Overview, Transactions, Budget,
-Reports, Import, Accounts, Review, Rules) — adding a tab that 404s or
+Reports, Import, Accounts, Review, Rules, Categories) — adding a tab that 404s or
 redirects would be worse than omitting it.
 
 `FinanceOverviewPage`'s net worth and cash-flow totals only sum accounts/
@@ -834,6 +835,45 @@ on SQLite, a single pass in memory — never a table scan per account) and
 `repository.contract.ts`. A quiet account that is
 genuinely current but had no activity for a cadence still shows as due until a statement is
 applied — give it a longer cadence if that is the usual rhythm.
+
+### Category management (`/finances/categories`)
+
+`FinanceCategoriesPage` is the only UI over `saveFinanceCategory` and
+`archiveFinanceCategory` (no new repository method, no migration). The taxonomy
+is two levels: a *group* (`parentId = null`) holds *categories*. System
+categories (`isSystem`) are never listed.
+
+- **Add**: a name plus a parent group, or "Nouveau groupe" with a type
+  (`expense` or `income`; transfer/internal stay system-only). A category
+  inherits its group's `kind`. The new row is appended after its siblings
+  (`nextCategorySortOrder`) with a client-generated `fincat:<uuid>` id, so it
+  can never collide with the seeded `fincat:*` slugs. Writes are serialized (a
+  second click while a save is pending is ignored) and the parent group is
+  re-read before saving, so a stale selection can never create a category under an
+  archived group.
+- **Rename** inline. Names must be non-empty and unique among *active* siblings
+  of the same parent, ignoring case and accents (`validateCategoryName`).
+- **Archive** asks where the category's transactions go (same-kind active leaves;
+  expense categories may also go to the system "Non catégorisé", income never —
+  that bucket is an expense envelope and would stop the income counting toward
+  Ready to Assign; `listReassignTargets`) and calls `archiveFinanceCategory`.
+  With no valid target the button is disabled. In one write the repository moves
+  the category's transactions, splits and merchant memory, **adds each month's
+  budget assignment to the target's envelope** (so no funded envelope is left
+  hidden), repoints its **recurring series**, and retargets its **pending
+  suggestions** (dismissed instead when the target is "Non catégorisé"). Enabled
+  rules that pointed at the category are repointed to the same target by the page.
+  A group with active categories cannot be archived until they are. Archived
+  categories are never suggested again: `classifyTransaction` skips memory entries
+  and bundled seeds whose category is archived (`inactiveCategoryIds`), and
+  `decideFinanceCategorySuggestion` throws when asked to accept an archived
+  category. Archived taxonomy seeds stay archived (the seed is `INSERT OR IGNORE`).
+- **Restore** from "Catégories archivées" re-activates a category, refusing when
+  its group is still archived or an active sibling already has that name.
+
+The pure rules live in `src/domain/finance/category-management.ts`. Budget,
+reports, rules and transaction pickers read `listFinanceCategories()` and pick up
+new groups and categories without further changes.
 
 ### FinanceTransactionsPage (`/finances/transactions`)
 

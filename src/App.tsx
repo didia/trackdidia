@@ -5,6 +5,7 @@ import { AnnualGoalsPage } from "./pages/AnnualGoalsPage";
 import { EveningClosurePage } from "./pages/EveningClosurePage";
 import { FinanceAccountsPage } from "./pages/FinanceAccountsPage";
 import { FinanceBudgetPage } from "./pages/FinanceBudgetPage";
+import { FinanceCategoriesPage } from "./pages/FinanceCategoriesPage";
 import { FinanceImportPage } from "./pages/FinanceImportPage";
 import { FinanceOverviewPage } from "./pages/FinanceOverviewPage";
 import { FinanceReportsPage } from "./pages/FinanceReportsPage";
@@ -47,6 +48,7 @@ export const FinanceRoutes = () => {
       <Route path="accounts" element={<FinanceAccountsPage />} />
       <Route path="review" element={<FinanceReviewPage />} />
       <Route path="rules" element={<FinanceRulesPage />} />
+      <Route path="categories" element={<FinanceCategoriesPage />} />
     </Routes>
   );
 };

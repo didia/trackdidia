@@ -713,6 +713,13 @@ export class FinanceSqliteStore {
     return mapCategory(rows[0]);
   }
 
+  private async archivedCategoryIds(): Promise<Set<string>> {
+    const categories = await this.listCategories(true);
+    return new Set(
+      categories.filter((category) => category.archived).map((category) => category.id),
+    );
+  }
+
   async archiveCategory(id: string, reassignToId: string): Promise<number> {
     const db = await this.getDb();
     const now = nowIso();
@@ -730,6 +737,35 @@ export class FinanceSqliteStore {
         "UPDATE finance_merchant_memory SET category_id = $2, updated_at = $3 WHERE category_id = $1",
         [id, reassignToId, now],
       );
+      // The assigned envelope money follows the transactions, so no hidden funded envelope remains.
+      await db.execute(
+        `INSERT INTO finance_budget_entries (
+          month_key, category_id, assigned_minor, overspend_policy, note, updated_at
+        ) SELECT month_key, $2, assigned_minor, overspend_policy, note, $3
+        FROM finance_budget_entries WHERE category_id = $1
+        ON CONFLICT(month_key, category_id) DO UPDATE SET
+          assigned_minor = assigned_minor + excluded.assigned_minor,
+          updated_at = excluded.updated_at`,
+        [id, reassignToId, now],
+      );
+      await db.execute("DELETE FROM finance_budget_entries WHERE category_id = $1", [id]);
+      await db.execute(
+        "UPDATE finance_recurring_series SET category_id = $2, updated_at = $3 WHERE category_id = $1",
+        [id, reassignToId, now],
+      );
+      // A pending suggestion must not offer an archived category: retarget it, or drop it
+      // when the destination is the uncategorized bucket (nothing left to suggest).
+      if (reassignToId === UNCATEGORIZED_CATEGORY_ID) {
+        await db.execute(
+          "UPDATE finance_category_suggestions SET status = 'dismissed', decided_at = $2 WHERE suggested_category_id = $1 AND status = 'pending'",
+          [id, now],
+        );
+      } else {
+        await db.execute(
+          "UPDATE finance_category_suggestions SET suggested_category_id = $2 WHERE suggested_category_id = $1 AND status = 'pending'",
+          [id, reassignToId],
+        );
+      }
       await db.execute(
         "UPDATE finance_categories SET archived = 1, updated_at = $2 WHERE id = $1",
         [id, now],
@@ -1634,6 +1670,7 @@ export class FinanceSqliteStore {
       const classificationRules = await this.listRules();
       const classificationMemory = await this.listMerchantMemory();
       const classificationCategories = await this.listCategories();
+      const inactiveCategoryIds = await this.archivedCategoryIds();
       const categoryHintByDedupe = new Map(
         prepared.map((item) => [
           `${item.row.accountId}\u0000${item.dedupeHash}`,
@@ -1664,6 +1701,7 @@ export class FinanceSqliteStore {
               classificationCategories,
             ),
             dismissed,
+            inactiveCategoryIds,
             today,
           },
         );
@@ -1941,6 +1979,7 @@ export class FinanceSqliteStore {
       const rules = await this.listRules();
       const memory = await this.listMerchantMemory();
       const dismissed = await this.buildDismissedPairsWithDb(db);
+      const inactiveCategoryIds = await this.archivedCategoryIds();
 
       const rows = await db.select<TransactionRow[]>(
         "SELECT * FROM finance_transactions WHERE category_source != 'user' AND is_transfer = 0",
@@ -1959,7 +1998,7 @@ export class FinanceSqliteStore {
             merchantKey: row.merchant_key,
             personId: row.person_id,
           },
-          { rules, memory, dismissed, today },
+          { rules, memory, dismissed, inactiveCategoryIds, today },
         );
         const { suggestionCreated, categoryChanged } = await this.applyClassificationOutcomeWithDb(
           db,
@@ -2392,6 +2431,16 @@ export class FinanceSqliteStore {
     if (before.status !== "pending") {
       // Already decided (e.g. a repeated click): never learn from the same suggestion twice.
       return mapSuggestion(before);
+    }
+    if (decision.status === "accepted" || decision.status === "corrected") {
+      const targetId = decision.categoryId ?? before.suggested_category_id;
+      const target = await db.select<{ archived: number }[]>(
+        "SELECT archived FROM finance_categories WHERE id = $1",
+        [targetId],
+      );
+      if (target[0]?.archived) {
+        throw new Error(`finance category is archived: ${targetId}`);
+      }
     }
     const claimed = await db.execute(
       "UPDATE finance_category_suggestions SET status = $2, decided_at = $3 WHERE id = $1 AND status = 'pending'",
