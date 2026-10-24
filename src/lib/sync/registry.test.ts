@@ -5,6 +5,9 @@ import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database"
 import { runMigrations } from "../storage/migrations";
 import { isTableSyncSupported } from "./merge-strategies";
 import {
+  aliasableTables,
+  aliasableTablesInDomain,
+  aliasKeysOf,
   assertSettingPublishable,
   assertSidecarPublishable,
   assertTablePublishable,
@@ -12,6 +15,7 @@ import {
   CLASSIFICATION_DOMAINS,
   domainOfTable,
   getTableRegistration,
+  isAliasableTable,
   isEntityTypedSidecar,
   isSecretSetting,
   isSettingPublishable,
@@ -19,6 +23,7 @@ import {
   isTablePublishable,
   MERGE_CLASSES,
   publishDomainOfEntityType,
+  referencesTo,
   SETTING_ENTITY_TYPE,
   SETTINGS_REGISTRY,
   sidecarPublishDomain,
@@ -254,6 +259,31 @@ describe("references", () => {
     }
   });
 
+  // Every id-looking column of every synced table is either a declared reference or reviewed here, so
+  // a new column that points at an aliasable entity cannot be forgotten by the alias engine.
+  const reviewedNonReferenceIdColumns2: Record<string, string[]> = {
+    // The metric source name and the principle key, not rows of another table.
+    annual_goals: ["source_id"],
+  };
+
+  it("accounts for every id-looking column on every synced table (catches undeclared references)", () => {
+    for (const entry of TABLE_REGISTRY) {
+      if (!(SYNC_DOMAINS as readonly string[]).includes(entry.domain)) continue;
+      if (entry.mergeClass === "sidecar") continue;
+      const declared = new Set(entry.references.map((reference) => reference.column));
+      const reviewed = new Set([
+        ...entry.primaryKey,
+        ...(reviewedNonReferenceIdColumns[entry.table] ?? []),
+        ...(reviewedNonReferenceIdColumns2[entry.table] ?? []),
+      ]);
+      const idColumns = (schema.get(entry.table)?.columns ?? [])
+        .map((column) => column.name)
+        .filter((name) => /_ids?(_json)?$/.test(name) || name === "id");
+      const unaccounted = idColumns.filter((name) => !declared.has(name) && !reviewed.has(name));
+      expect({ table: entry.table, unaccounted }).toEqual({ table: entry.table, unaccounted: [] });
+    }
+  });
+
   it("allows only the reviewed domain edges between synced tables", () => {
     const allowed = new Set(["gtd>gtd", "personal>personal", "personal>gtd", "finance>finance"]);
     for (const entry of TABLE_REGISTRY) {
@@ -352,6 +382,106 @@ describe("natural keys", () => {
     expect(names("gtd_projects")).toEqual(["source_external_id"]);
     expect(names("gtd_contexts")).toEqual(["name"]);
     expect(names("gtd_task_events")).toEqual(["dedupe_key"]);
+  });
+});
+
+describe("canonical identity metadata", () => {
+  it("resolves every natural key one way", () => {
+    for (const entry of TABLE_REGISTRY) {
+      for (const key of entry.naturalKeys) {
+        expect({ table: entry.table, key: key.name, resolution: key.resolution }).toEqual({
+          table: entry.table,
+          key: key.name,
+          resolution: expect.stringMatching(/^(alias|pending-collision|union-dedupe|name-prompt)$/),
+        });
+      }
+    }
+  });
+
+  it("assigns the resolutions of the spec's natural-key table", () => {
+    const resolutions = (table: string) =>
+      Object.fromEntries(registration(table).naturalKeys.map((key) => [key.name, key.resolution]));
+    expect(resolutions("finance_transactions")).toEqual({ account_dedupe_hash: "alias" });
+    expect(resolutions("finance_accounts")).toEqual({ external_key: "alias" });
+    expect(resolutions("finance_import_profiles")).toEqual({ signature: "alias" });
+    expect(resolutions("gtd_tasks")).toEqual({ source_external_id: "alias" });
+    expect(resolutions("gtd_projects")).toEqual({ source_external_id: "alias" });
+    expect(resolutions("gtd_contexts")).toEqual({ name: "name-prompt" });
+    expect(resolutions("gtd_task_events")).toEqual({ dedupe_key: "union-dedupe" });
+    expect(resolutions("finance_category_suggestions")).toEqual({
+      pending_per_transaction: "pending-collision",
+    });
+    expect(Object.values(resolutions("ai_proposals"))).toEqual([
+      "pending-collision",
+      "pending-collision",
+    ]);
+  });
+
+  it("only aliases bare-column keys of tables with a single-column primary key", () => {
+    expect(aliasableTables().sort()).toEqual(
+      [
+        "finance_accounts",
+        "finance_import_profiles",
+        "finance_transactions",
+        "gtd_projects",
+        "gtd_tasks",
+      ].sort(),
+    );
+    for (const table of aliasableTables()) {
+      expect(registration(table).primaryKey).toHaveLength(1);
+      for (const key of aliasKeysOf(table)) {
+        expect(key.columns.every(isBareIdentifier)).toBe(true);
+      }
+    }
+  });
+
+  it("keeps pending keys partial, union keys on union tables and the name prompt on contexts", () => {
+    for (const entry of TABLE_REGISTRY) {
+      for (const key of entry.naturalKeys) {
+        if (key.resolution === "pending-collision") {
+          expect(key.where, `${entry.table}.${key.name}`).toBeDefined();
+          expect(key.index, `${entry.table}.${key.name}`).toBeDefined();
+          expect(entry.mergeClass).toBe("monotonic-status");
+        }
+        if (key.resolution === "union-dedupe") {
+          expect(entry.mergeClass).toBe("grow-only-union");
+        }
+        if (key.resolution === "name-prompt") {
+          expect(entry.table).toBe("gtd_contexts");
+        }
+      }
+    }
+  });
+
+  it("splits the aliasable tables by domain, so aliases follow their entity type's bundle", () => {
+    expect(aliasableTablesInDomain("gtd").sort()).toEqual(["gtd_projects", "gtd_tasks"]);
+    expect(aliasableTablesInDomain("finance").sort()).toEqual([
+      "finance_accounts",
+      "finance_import_profiles",
+      "finance_transactions",
+    ]);
+    expect(aliasableTablesInDomain("personal")).toEqual([]);
+    for (const table of aliasableTables()) {
+      expect(isAliasableTable(table)).toBe(true);
+      expect(sidecarPublishDomain("sync_id_aliases", table)).toBe(domainOfTable(table));
+    }
+    expect(isAliasableTable("gtd_contexts")).toBe(false);
+    expect(isAliasableTable("not_a_table")).toBe(false);
+  });
+
+  it("finds every declared reference to an aliasable table", () => {
+    const refs = referencesTo("finance_accounts").map(
+      (item) => `${item.table}.${item.reference.column}`,
+    );
+    expect(refs).toEqual(
+      expect.arrayContaining([
+        "finance_transactions.account_id",
+        "finance_transactions.dedupe_hash",
+        "finance_merchant_memory.account_id",
+        "finance_account_balance_snapshots.account_id",
+        "finance_rules.matcher_json",
+      ]),
+    );
   });
 });
 

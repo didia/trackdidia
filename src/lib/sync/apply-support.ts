@@ -53,8 +53,10 @@ const findUniqueIndex = async (
 
 /**
  * Turns a failed statement into a `SyncApplyError` that names the table and, for a unique-key
- * violation, the index. A key the registry declares as a natural key is a `natural_key_collision`
- * (canonical identity is a later slice); any other unique key is an `unique_violation`. Never
+ * violation, the index. A key the registry declares as a natural key is a `natural_key_collision`:
+ * the alias engine (`apply-aliases.ts`) runs first and resolves every collision it can see, so one
+ * that still reaches SQL is a collision it could not resolve. Any other unique key is a
+ * `unique_violation`. Never
  * swallowed: the caller rethrows, which rolls the whole bundle back.
  */
 export const toSqlApplyError = async (

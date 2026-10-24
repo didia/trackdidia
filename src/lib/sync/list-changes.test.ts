@@ -282,6 +282,53 @@ describe("listSyncChanges: shape and consistency", () => {
     expect(parseHlc(empty.hlcHigh)?.deviceId).toBe(a.deviceId);
   });
 
+  it("publishes the id aliases of each domain's entity types, compressed, sorted and nowhere else", async () => {
+    const sim = await createSyncHarness(["A"]);
+    const a = sim.device("A");
+    const hlc = (await a.repo.listSyncChanges("gtd")).hlcHigh;
+    const insert = (entityType: string, aliasId: string, canonicalId: string) =>
+      a.db.execute(
+        "INSERT INTO sync_id_aliases (entity_type, alias_id, canonical_id, recorded_hlc) VALUES ($1, $2, $3, $4)",
+        [entityType, aliasId, canonicalId, hlc],
+      );
+    // A chain that was stored un-compressed, an alias per domain, and rows the engine ignores.
+    await insert("gtd_tasks", "task-c", "task-b");
+    await insert("gtd_tasks", "task-b", "task-a");
+    await insert("gtd_projects", "proj-b", "proj-a");
+    await insert("finance_transactions", "txn-b", "txn-a");
+    await insert("finance_accounts", "acc-b", "acc-a");
+    await insert("gtd_contexts", "ctx-b", "ctx-a"); // not an aliasable table
+    await insert("gtd_tasks", "task-self", "task-self"); // its own alias
+    await a.db.execute(
+      "INSERT INTO sync_id_aliases (entity_type, alias_id, canonical_id, recorded_hlc) VALUES ('gtd_tasks', 'task-bad-clock', 'task-a', 'not a clock')",
+    );
+
+    const gtd = await a.repo.listSyncChanges("gtd");
+    expect(gtd.aliases).toEqual([
+      {
+        entity_type: "gtd_projects",
+        alias_id: "proj-b",
+        canonical_id: "proj-a",
+        recorded_hlc: hlc,
+      },
+      { entity_type: "gtd_tasks", alias_id: "task-b", canonical_id: "task-a", recorded_hlc: hlc },
+      { entity_type: "gtd_tasks", alias_id: "task-c", canonical_id: "task-a", recorded_hlc: hlc },
+    ]);
+    const finance = await a.repo.listSyncChanges("finance");
+    expect(finance.aliases.map((alias) => [alias.entity_type, alias.alias_id])).toEqual([
+      ["finance_accounts", "acc-b"],
+      ["finance_transactions", "txn-b"],
+    ]);
+    expect((await a.repo.listSyncChanges("personal")).aliases).toEqual([]);
+    // What each bundle carries is exactly what its own validation accepts, and the clock counts.
+    for (const domain of SYNC_DOMAINS) {
+      const changeSet = await a.repo.listSyncChanges(domain);
+      expect(validateChangeSet(JSON.parse(JSON.stringify(changeSet)))).toEqual(changeSet);
+    }
+    expect(JSON.stringify(gtd)).not.toContain("txn-b");
+    expect(JSON.stringify(gtd)).not.toContain("acc-b");
+  });
+
   it("publishes a tombstone as an entity with no row", async () => {
     const sim = await createSyncHarness(["A"]);
     const a = sim.device("A");

@@ -21,10 +21,10 @@ import {
  * of a class (the GTD task lifecycle tuple, the Pomodoro tables, AI proposals, the finance
  * categorization unit) is routed through {@link TABLE_STRATEGY_OVERRIDES} instead.
  *
- * Still refused after the finance slice: nothing in the three bundle domains except the gtd
- * recurrence sidecars (they travel in `SyncChangeSet.recurrence`, never as entities). Natural-key
- * canonicalization (`sync_id_aliases`) is a later slice: a declared natural-key collision still
- * aborts the bundle with `natural_key_collision`.
+ * Nothing in the three bundle domains is refused except the gtd recurrence sidecars (they travel in
+ * `SyncChangeSet.recurrence`, never as entities) and the id aliases (`SyncChangeSet.aliases`, handled
+ * by `apply-aliases.ts` before any entity is merged). A declared natural-key collision no longer
+ * aborts a bundle: it is resolved by canonical identity (one id, the smaller; the other an alias).
  */
 
 /**
