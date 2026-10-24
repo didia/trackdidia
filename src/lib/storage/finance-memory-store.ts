@@ -274,6 +274,14 @@ export class FinanceMemoryStore {
     return saved;
   }
 
+  private archivedCategoryIds(): Set<string> {
+    return new Set(
+      this.listCategories(true)
+        .filter((category) => category.archived)
+        .map((category) => category.id),
+    );
+  }
+
   archiveCategory(id: string, reassignToId: string): number {
     let reassigned = 0;
     for (const txn of this.transactions.values()) {
@@ -293,11 +301,55 @@ export class FinanceMemoryStore {
         this.merchantMemory.set(key, { ...entry, categoryId: reassignToId, updatedAt: nowIso() });
       }
     }
+    this.moveBudgetEntries(id, reassignToId);
+    for (const [seriesId, series] of this.recurringSeries.entries()) {
+      if (series.categoryId === id) {
+        this.recurringSeries.set(seriesId, {
+          ...series,
+          categoryId: reassignToId,
+          updatedAt: nowIso(),
+        });
+      }
+    }
+    // A pending suggestion must not offer an archived category: retarget it, or drop it
+    // when the destination is the uncategorized bucket (nothing left to suggest).
+    for (const [suggestionId, suggestion] of this.categorySuggestions.entries()) {
+      if (suggestion.status !== "pending" || suggestion.suggestedCategoryId !== id) {
+        continue;
+      }
+      this.categorySuggestions.set(
+        suggestionId,
+        reassignToId === UNCATEGORIZED_CATEGORY_ID
+          ? { ...suggestion, status: "dismissed", decidedAt: nowIso() }
+          : { ...suggestion, suggestedCategoryId: reassignToId },
+      );
+    }
     const category = this.categories.get(id);
     if (category) {
       this.categories.set(id, { ...category, archived: true, updatedAt: nowIso() });
     }
     return reassigned;
+  }
+
+  /** Moves every month's assigned amount from one category's envelope into another's. */
+  private moveBudgetEntries(fromId: string, toId: string): void {
+    const now = nowIso();
+    for (const entry of [...this.budgetEntries.values()]) {
+      if (entry.categoryId !== fromId) {
+        continue;
+      }
+      this.budgetEntries.delete(this.budgetEntryKey(entry.monthKey, fromId));
+      const targetKey = this.budgetEntryKey(entry.monthKey, toId);
+      const target = this.budgetEntries.get(targetKey);
+      this.budgetEntries.set(targetKey, {
+        monthKey: entry.monthKey,
+        categoryId: toId,
+        assignedMinor: (target?.assignedMinor ?? 0) + entry.assignedMinor,
+        overspendPolicy: target?.overspendPolicy ?? entry.overspendPolicy,
+        note: target?.note ?? entry.note,
+        updatedAt: now,
+      });
+    }
   }
 
   seedDefaultCategories(): number {
@@ -910,6 +962,7 @@ export class FinanceMemoryStore {
     const classificationRules = [...this.rules.values()];
     const classificationMemory = [...this.merchantMemory.values()];
     const classificationCategories = this.listCategories();
+    const inactiveCategoryIds = this.archivedCategoryIds();
     const dismissed = this.buildDismissedPairs();
     const today = getTodayDate();
     for (const id of insertedIds) {
@@ -931,6 +984,7 @@ export class FinanceMemoryStore {
           memory: classificationMemory,
           categoryHintId: resolveCategoryHint(categoryHintById.get(id), classificationCategories),
           dismissed,
+          inactiveCategoryIds,
           today,
         },
       );
@@ -1150,6 +1204,7 @@ export class FinanceMemoryStore {
     const rules = [...this.rules.values()];
     const memory = [...this.merchantMemory.values()];
     const dismissed = this.buildDismissedPairs();
+    const inactiveCategoryIds = this.archivedCategoryIds();
 
     let reclassified = 0;
     let suggestionsCreated = 0;
@@ -1167,7 +1222,7 @@ export class FinanceMemoryStore {
           merchantKey: txn.merchantKey,
           personId: txn.personId,
         },
-        { rules, memory, dismissed, today },
+        { rules, memory, dismissed, inactiveCategoryIds, today },
       );
       const { suggestionCreated, categoryChanged } = this.applyClassificationOutcome(
         txn.id,
@@ -1323,6 +1378,12 @@ export class FinanceMemoryStore {
     if (suggestion.status !== "pending") {
       // Already decided (e.g. a repeated click): never learn from the same suggestion twice.
       return suggestion;
+    }
+    if (decision.status === "accepted" || decision.status === "corrected") {
+      const targetId = decision.categoryId ?? suggestion.suggestedCategoryId;
+      if (this.categories.get(targetId)?.archived) {
+        throw new Error(`finance category is archived: ${targetId}`);
+      }
     }
     const updated: FinanceCategorySuggestion = {
       ...suggestion,

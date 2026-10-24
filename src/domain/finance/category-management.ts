@@ -80,7 +80,7 @@ export const nextCategorySortOrder = (
 
 /**
  * Where an archived category's transactions can go: any active, non-group-with-children
- * category of the same kind, plus the system "Non catégorisé" bucket.
+ * category of the same kind, plus the system "Non catégorisé" bucket for expenses.
  */
 export const listReassignTargets = (
   category: FinanceCategory,
@@ -97,7 +97,9 @@ export const listReassignTargets = (
         candidate.id !== category.id &&
         !candidate.archived &&
         !parentsWithChildren.has(candidate.id) &&
-        (candidate.id === NON_CATEGORISE_ID ||
+        // "Non catégorisé" is an expense envelope: income must move to another income category,
+        // or the income would stop counting toward Ready to Assign.
+        ((candidate.id === NON_CATEGORISE_ID && category.kind === "expense") ||
           (!candidate.isSystem && candidate.kind === category.kind)),
     )
     .sort(bySortOrder);

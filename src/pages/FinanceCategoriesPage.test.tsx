@@ -5,10 +5,11 @@ import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
 import { FinanceCategoriesPage } from "./FinanceCategoriesPage";
 
-const setup = async () => {
+const setup = async (prepare?: (repository: MemoryRepository) => Promise<void>) => {
   const repository = new MemoryRepository();
   await repository.initialize();
   await repository.seedFinanceDefaultCategories();
+  await prepare?.(repository);
   const user = userEvent.setup();
   await renderWithApp(<FinanceCategoriesPage />, {
     repository,
@@ -106,6 +107,91 @@ describe("FinanceCategoriesPage", () => {
     await expect(repository.listFinanceCategories()).resolves.toEqual(
       expect.arrayContaining([expect.objectContaining({ id: "fincat:alimentation.epicerie" })]),
     );
+  });
+
+  it("never offers Non catégorisé for an income category, and blocks archiving without a target", async () => {
+    const { repository, user } = await setup();
+    await user.click(screen.getByRole("button", { name: "Archiver Salaire" }));
+    const select = screen.getByLabelText(/Déplacer les transactions de « Salaire » vers/);
+    expect(within(select).getByRole("option", { name: "Autre revenu" })).toBeInTheDocument();
+    expect(within(select).queryByRole("option", { name: "Non catégorisé" })).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: "Annuler" }));
+    await user.click(screen.getByRole("button", { name: "Archiver Autre revenu" }));
+    await user.click(screen.getByRole("button", { name: "Archiver" }));
+    await screen.findByText("Catégories archivées");
+
+    await user.click(screen.getByRole("button", { name: "Archiver Salaire" }));
+    expect(screen.getByText(/Aucune catégorie de même type/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archiver" })).toBeDisabled();
+    const salary = (await repository.listFinanceCategories()).find(
+      (c) => c.id === "fincat:revenu.salaire",
+    );
+    expect(salary?.archived).toBe(false);
+  });
+
+  it("never creates a child under a group archived after it was selected", async () => {
+    const emptyGroup = {
+      id: "fincat:vide",
+      name: "Vide",
+      parentId: null,
+      kind: "expense" as const,
+      archived: false,
+      isSystem: false,
+      defersToNextMonth: false,
+      sortOrder: 99,
+      createdAt: "",
+      updatedAt: "",
+    };
+    const { repository, user } = await setup(async (repo) => {
+      await repo.saveFinanceCategory(emptyGroup);
+      await repo.saveFinanceCategory({ ...emptyGroup, id: "fincat:vide2", name: "Vide 2" });
+    });
+
+    // Archived from this screen: the stale selection is cleared on reload.
+    await user.selectOptions(screen.getByLabelText("Groupe"), "fincat:vide");
+    await user.click(screen.getByRole("button", { name: "Archiver Vide" }));
+    await user.click(screen.getByRole("button", { name: "Archiver" }));
+    await screen.findByText("Catégories archivées");
+    expect(screen.getByLabelText("Groupe")).toHaveValue("");
+
+    // Archived behind the screen's back: the save re-checks the parent.
+    await user.selectOptions(screen.getByLabelText("Groupe"), "fincat:vide2");
+    await repository.saveFinanceCategory({
+      ...emptyGroup,
+      id: "fincat:vide2",
+      name: "Vide 2",
+      archived: true,
+    });
+    await user.type(screen.getByLabelText("Nom"), "Orphelin");
+    await user.click(screen.getByText("Ajouter la catégorie"));
+
+    expect(await screen.findByText(/n'est plus disponible/)).toBeInTheDocument();
+    const all = await repository.listFinanceCategories(true);
+    expect(all.find((c) => c.name === "Orphelin")).toBeUndefined();
+  });
+
+  it("ignores a second Add click while the first save is pending", async () => {
+    const { repository, user } = await setup();
+    const save = repository.saveFinanceCategory.bind(repository);
+    let calls = 0;
+    repository.saveFinanceCategory = async (category) => {
+      calls += 1;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      return save(category);
+    };
+
+    await user.type(screen.getByLabelText("Nom"), "Boulangerie");
+    await user.selectOptions(screen.getByLabelText("Groupe"), "fincat:alimentation");
+    const button = screen.getByText("Ajouter la catégorie");
+    await user.dblClick(button);
+
+    await screen.findByText("Boulangerie");
+    expect(calls).toBe(1);
+    const matches = (await repository.listFinanceCategories()).filter(
+      (c) => c.name === "Boulangerie",
+    );
+    expect(matches).toHaveLength(1);
   });
 
   it("blocks archiving a group that still has active categories", async () => {

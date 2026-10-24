@@ -373,7 +373,9 @@
       "required": "Le nom est requis.",
       "duplicate": "Une catégorie portant ce nom existe déjà dans ce groupe.",
       "groupHasChildren": "Archivez d'abord les catégories de ce groupe.",
-      "parentArchived": "Restaurez d'abord le groupe « {{name}} »."
+      "parentArchived": "Restaurez d'abord le groupe « {{name}} ».",
+      "parentUnavailable": "Ce groupe n'est plus disponible. Choisissez-en un autre.",
+      "noTarget": "Aucune catégorie de même type n'est disponible pour recevoir les transactions. Créez-en une d'abord."
     },
     "add": "Ajouter la catégorie",
     "added": "« {{name}} » a été ajoutée.",

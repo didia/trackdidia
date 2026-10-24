@@ -69,6 +69,11 @@ export interface ClassificationContext {
    */
   categoryHintId?: string | null;
   dismissed?: DismissedSuggestionPair[];
+  /**
+   * Archived category ids. A memory entry or bundled seed that points at one is skipped,
+   * so an archived category is never suggested or auto-applied again.
+   */
+  inactiveCategoryIds?: ReadonlySet<string>;
   thresholds?: Partial<ClassificationThresholds>;
   /** Injectable "today" (local YYYY-MM-DD) for the dismissed-pair window. */
   today?: string;
@@ -307,7 +312,15 @@ export const classifyTransaction = (
   // Stage 4: learned merchant memory. Outranks seeds whenever any entry
   // exists, even below the auto-apply threshold.
   const sign = signOfAmount(txn.amountMinor);
-  const memoryEntry = findMemoryEntry(context.memory ?? [], txn.merchantKey, txn.accountId, sign);
+  const inactive = context.inactiveCategoryIds;
+  const foundMemoryEntry = findMemoryEntry(
+    context.memory ?? [],
+    txn.merchantKey,
+    txn.accountId,
+    sign,
+  );
+  const memoryEntry =
+    foundMemoryEntry && !inactive?.has(foundMemoryEntry.categoryId) ? foundMemoryEntry : null;
   if (memoryEntry) {
     const autoApply =
       memoryEntry.confidence >= thresholds.memoryAutoApplyConfidence &&
@@ -346,7 +359,7 @@ export const classifyTransaction = (
   // exists at any lookup level.
   const seeds = context.seeds ?? SEED_HEURISTICS;
   for (const seed of seeds) {
-    if (!seed.pattern.test(txn.merchantKey)) {
+    if (!seed.pattern.test(txn.merchantKey) || inactive?.has(seed.categoryId)) {
       continue;
     }
     const suppressed = isSuggestionDismissed(dismissed, txn.merchantKey, seed.categoryId, today);

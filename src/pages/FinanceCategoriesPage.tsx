@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useAppContext } from "../app/app-context";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
@@ -10,7 +10,6 @@ import {
   groupHasActiveChildren,
   listReassignTargets,
   nextCategorySortOrder,
-  NON_CATEGORISE_ID,
   USER_CATEGORY_KINDS,
   validateCategoryName,
   type CategoryNameError,
@@ -30,13 +29,38 @@ export const FinanceCategoriesPage = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [archivingId, setArchivingId] = useState<string | null>(null);
-  const [reassignId, setReassignId] = useState(NON_CATEGORISE_ID);
+  const [reassignId, setReassignId] = useState("");
   const [rowError, setRowError] = useState("");
   const [notice, setNotice] = useState("");
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
 
   const load = useCallback(async () => {
-    setCategories(await repository.listFinanceCategories(true));
+    const next = await repository.listFinanceCategories(true);
+    setCategories(next);
+    // A group that was archived (here or elsewhere) must not stay selected in the Add form.
+    setParentId((current) =>
+      current !== NEW_GROUP &&
+      next.some((c) => c.id === current && !c.archived && c.parentId === null)
+        ? current
+        : NEW_GROUP,
+    );
   }, [repository]);
+
+  /** One write at a time: a second click while a save is pending is ignored. */
+  const guarded = async (work: () => Promise<void>) => {
+    if (busyRef.current) {
+      return;
+    }
+    busyRef.current = true;
+    setBusy(true);
+    try {
+      await work();
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
+  };
 
   useEffect(() => {
     void load();
@@ -51,32 +75,44 @@ export const FinanceCategoriesPage = () => {
 
   const nameError = (code: CategoryNameError) => t(`categories.errors.${code}`);
 
-  const add = async () => {
-    const parent = parentId === NEW_GROUP ? null : parentId;
-    const problem = validateCategoryName(name, parent, categories);
-    if (problem) {
-      setError(nameError(problem));
-      return;
-    }
-    const parentCategory = parent ? categories.find((category) => category.id === parent) : null;
-    const timestamp = nowIso();
-    await repository.saveFinanceCategory({
-      id: createEntityId("fincat"),
-      name: name.trim(),
-      parentId: parent,
-      kind: parentCategory ? parentCategory.kind : kind,
-      archived: false,
-      isSystem: false,
-      defersToNextMonth: false,
-      sortOrder: nextCategorySortOrder(parent, categories),
-      createdAt: timestamp,
-      updatedAt: timestamp,
+  const add = () =>
+    guarded(async () => {
+      // Re-read so a stale selection or list can never create a child under an archived group.
+      const fresh = await repository.listFinanceCategories(true);
+      const parent = parentId === NEW_GROUP ? null : parentId;
+      const parentCategory = parent ? fresh.find((category) => category.id === parent) : null;
+      if (
+        parent &&
+        (!parentCategory || parentCategory.archived || parentCategory.parentId !== null)
+      ) {
+        setError(t("categories.errors.parentUnavailable"));
+        setCategories(fresh);
+        setParentId(NEW_GROUP);
+        return;
+      }
+      const problem = validateCategoryName(name, parent, fresh);
+      if (problem) {
+        setError(nameError(problem));
+        return;
+      }
+      const timestamp = nowIso();
+      await repository.saveFinanceCategory({
+        id: createEntityId("fincat"),
+        name: name.trim(),
+        parentId: parent,
+        kind: parentCategory ? parentCategory.kind : kind,
+        archived: false,
+        isSystem: false,
+        defersToNextMonth: false,
+        sortOrder: nextCategorySortOrder(parent, fresh),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+      setError("");
+      setName("");
+      setNotice(t("categories.added", { name: name.trim() }));
+      await load();
     });
-    setError("");
-    setName("");
-    setNotice(t("categories.added", { name: name.trim() }));
-    await load();
-  };
 
   const startEdit = (category: FinanceCategory) => {
     setEditingId(category.id);
@@ -85,58 +121,73 @@ export const FinanceCategoriesPage = () => {
     setRowError("");
   };
 
-  const saveEdit = async (category: FinanceCategory) => {
-    const problem = validateCategoryName(editName, category.parentId, categories, category.id);
-    if (problem) {
-      setRowError(nameError(problem));
-      return;
-    }
-    await repository.saveFinanceCategory({ ...category, name: editName.trim() });
-    setEditingId(null);
-    setRowError("");
-    await load();
-  };
+  const saveEdit = (category: FinanceCategory) =>
+    guarded(async () => {
+      const problem = validateCategoryName(editName, category.parentId, categories, category.id);
+      if (problem) {
+        setRowError(nameError(problem));
+        return;
+      }
+      await repository.saveFinanceCategory({ ...category, name: editName.trim() });
+      setEditingId(null);
+      setRowError("");
+      await load();
+    });
 
   const startArchive = (category: FinanceCategory) => {
     setArchivingId(category.id);
-    setReassignId(NON_CATEGORISE_ID);
+    setReassignId(listReassignTargets(category, categories)[0]?.id ?? "");
     setEditingId(null);
     setRowError("");
   };
 
-  const confirmArchive = async (category: FinanceCategory) => {
-    // Rules aimed at the category would keep assigning an archived one: repoint them first.
-    const rules = await repository.listFinanceRules();
-    for (const rule of rules.filter((candidate) => candidate.actions.categoryId === category.id)) {
-      await repository.saveFinanceRule({
-        ...rule,
-        actions: { ...rule.actions, categoryId: reassignId },
-        updatedAt: nowIso(),
-      });
-    }
-    const moved = await repository.archiveFinanceCategory(category.id, reassignId);
-    setArchivingId(null);
-    setNotice(t("categories.archived", { name: category.name, count: moved }));
-    await load();
-  };
+  const confirmArchive = (category: FinanceCategory) =>
+    guarded(async () => {
+      const target = listReassignTargets(category, categories).find((c) => c.id === reassignId);
+      if (!target) {
+        setRowError(t("categories.errors.noTarget"));
+        return;
+      }
+      // Rules aimed at the category would keep assigning an archived one: repoint them first.
+      const rules = await repository.listFinanceRules();
+      for (const rule of rules.filter(
+        (candidate) => candidate.actions.categoryId === category.id,
+      )) {
+        await repository.saveFinanceRule({
+          ...rule,
+          actions: { ...rule.actions, categoryId: target.id },
+          updatedAt: nowIso(),
+        });
+      }
+      const moved = await repository.archiveFinanceCategory(category.id, target.id);
+      setArchivingId(null);
+      setNotice(t("categories.archived", { name: category.name, count: moved }));
+      await load();
+    });
 
-  const restore = async (category: FinanceCategory) => {
-    const parent = category.parentId
-      ? categories.find((candidate) => candidate.id === category.parentId)
-      : null;
-    if (parent?.archived) {
-      setRowError(t("categories.errors.parentArchived", { name: parent.name }));
-      return;
-    }
-    const problem = validateCategoryName(category.name, category.parentId, categories, category.id);
-    if (problem) {
-      setRowError(nameError(problem));
-      return;
-    }
-    await repository.saveFinanceCategory({ ...category, archived: false });
-    setRowError("");
-    await load();
-  };
+  const restore = (category: FinanceCategory) =>
+    guarded(async () => {
+      const parent = category.parentId
+        ? categories.find((candidate) => candidate.id === category.parentId)
+        : null;
+      if (parent?.archived) {
+        setRowError(t("categories.errors.parentArchived", { name: parent.name }));
+        return;
+      }
+      const problem = validateCategoryName(
+        category.name,
+        category.parentId,
+        categories,
+        category.id,
+      );
+      if (problem) {
+        setRowError(nameError(problem));
+        return;
+      }
+      await repository.saveFinanceCategory({ ...category, archived: false });
+      setRowError("");
+      await load();
+    });
 
   const renderRow = (category: FinanceCategory, isGroup: boolean) => {
     const targets = listReassignTargets(category, categories);
@@ -152,6 +203,7 @@ export const FinanceCategoriesPage = () => {
           <button
             type="button"
             className="button button--primary"
+            disabled={busy}
             onClick={() => void saveEdit(category)}
           >
             {t("categories.save")}
@@ -175,9 +227,13 @@ export const FinanceCategoriesPage = () => {
               ))}
             </select>
           </label>
+          {targets.length === 0 ? (
+            <p className="field-error">{t("categories.errors.noTarget")}</p>
+          ) : null}
           <button
             type="button"
             className="button button--primary"
+            disabled={busy || targets.length === 0}
             onClick={() => void confirmArchive(category)}
           >
             {t("categories.confirmArchive")}
@@ -252,7 +308,12 @@ export const FinanceCategoriesPage = () => {
         </div>
         {error ? <p className="field-error">{error}</p> : null}
         <div className="form-actions">
-          <button type="button" className="button button--primary" onClick={() => void add()}>
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={busy}
+            onClick={() => void add()}
+          >
             {t("categories.add")}
           </button>
         </div>
@@ -295,6 +356,7 @@ export const FinanceCategoriesPage = () => {
                       type="button"
                       className="button"
                       aria-label={`${t("categories.restore")} ${group.name}`}
+                      disabled={busy}
                       onClick={() => void restore(group)}
                     >
                       {t("categories.restore")}
@@ -310,6 +372,7 @@ export const FinanceCategoriesPage = () => {
                           type="button"
                           className="button"
                           aria-label={`${t("categories.restore")} ${child.name}`}
+                          disabled={busy}
                           onClick={() => void restore(child)}
                         >
                           {t("categories.restore")}

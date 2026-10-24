@@ -83,6 +83,22 @@ describe("listReassignTargets", () => {
   });
 });
 
+describe("listReassignTargets for income", () => {
+  it("never offers Non catégorisé (an expense envelope) for an income category", () => {
+    const ids = listReassignTargets(fixtures[6], fixtures).map((target) => target.id);
+    expect(ids).not.toContain("fincat:non-categorise");
+    expect(ids).toEqual([]);
+  });
+
+  it("offers another income category when one exists", () => {
+    const withSecond = [
+      ...fixtures,
+      category({ id: "c5", name: "Primes", parentId: "g2", kind: "income" }),
+    ];
+    expect(listReassignTargets(fixtures[6], withSecond).map((target) => target.id)).toEqual(["c5"]);
+  });
+});
+
 describe("groupHasActiveChildren", () => {
   it("ignores archived children", () => {
     expect(groupHasActiveChildren(fixtures[1], fixtures)).toBe(true);
