@@ -482,7 +482,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       },
     ],
     notes:
-      "Whole-row last-writer-wins, except {category_id, category_source, has_splits} and the child splits, which form one categorization unit with its own clock and base_hlc.",
+      "Whole-row last-writer-wins, except {category_id, category_source, has_splits} (+ category_confidence and categorized_at, written by the same decision) and the child splits, which form one categorization unit with its own clocks (categorization, categorization_base = base_hlc, categorization_user) in field_clocks_json; see merge-finance.ts. A natural-key collision (the same statement imported on two laptops) still aborts the bundle with natural_key_collision until canonical identity ships.",
   },
   {
     table: "finance_transaction_splits",
@@ -495,7 +495,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       { column: "category_id", table: "finance_categories", kind: "soft" },
     ],
     notes:
-      "Part of the parent transaction's categorization unit; replaced as a set with whichever categorization wins.",
+      "Part of the parent transaction's categorization unit; replaced as a set with whichever categorization wins (apply-finance.ts). Children leave no tombstone: the unit carries the set. A split of a transaction the bundle does not name is skipped (orphaned_child), never an abort.",
   },
   {
     table: "finance_category_suggestions",
@@ -515,7 +515,8 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       { column: "transaction_id", table: "finance_transactions", kind: "soft" },
       { column: "suggested_category_id", table: "finance_categories", kind: "soft" },
     ],
-    notes: "A resolved suggestion beats a pending one.",
+    notes:
+      "A decided suggestion (accepted, corrected, dismissed, or expired by a collision) beats a pending one and any tombstone; two different decisions keep the smaller status and write a terminal_divergence conflict unless one is expired; two pending suggestions for one transaction keep the later row clock pending and expire the other (pending_collision), as for AI proposals (merge-finance.ts, apply-proposals.ts). A suggestion may arrive before its transaction (no foreign key): it is stored.",
   },
   {
     table: "finance_rules",
@@ -540,7 +541,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       { column: "actions_json", table: "finance_people", kind: "json-payload", note: "$.personId" },
     ],
     notes:
-      "matcher_json and actions_json embed account, person and category ids; they are rewritten through the alias table like any declared reference, so a rule matching an aliased account keeps matching.",
+      "matcher_json and actions_json embed account, person and category ids; they will be rewritten through the alias table like any declared reference (canonical identity is a later slice), so a rule matching an aliased account keeps matching. Until then the ids are carried verbatim. applied_count and last_applied_at change on every classification that changes a row and merge with the row (whole-row last-writer-wins).",
   },
   {
     table: "finance_merchant_memory",
@@ -619,7 +620,7 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
         "source = 'derived' rows are rebuilt by the daily job on each machine and never leave it.",
     },
     notes:
-      "Statement snapshots are user data (written by statement import, which also re-bases the opening balance).",
+      "Statement snapshots are user data (written by statement import, which also re-bases the opening balance); only they are published, and a bundle row with source other than statement is refused (row_filter_violation). No tombstones are published or kept: the statement import replaces the previous anchor, and apply keeps one standing anchor per account (the later row clock, then date). A statement row beats a derived one at the same key.",
   },
 
   // ----- by-entity-type sidecars: each row travels in its entity's domain ------------------

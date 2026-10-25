@@ -18,6 +18,7 @@ import {
   syncState,
 } from "../sync/capture-test-utils";
 import { compareHlc } from "../sync/hlc";
+import { UNIT_CLOCK_KEYS } from "../sync/merge-finance";
 import type { Database } from "./sqlite-db";
 import { TauriSqliteRepository } from "./tauri-sqlite-repository";
 
@@ -658,7 +659,14 @@ describe("end to end through the repository methods", () => {
     });
     const after = await metaFor(database, "finance_transactions", first.id);
     expect(compareHlc(before?.row_hlc as string, after?.row_hlc as string)).toBe(-1);
-    expect(after?.field_clocks_json).toBe("{}");
+    // A categorization is a unit write: fresh unit clock, the previous one as its base, and a
+    // `user` decision protects itself.
+    const unitBefore = clocksOf(before);
+    const unitAfter = clocksOf(after);
+    expect(unitAfter.categorization).toBe(after?.row_hlc);
+    expect(unitAfter.categorization_base).toBe(unitBefore.categorization);
+    expect(unitAfter.categorization_user).toBe(unitAfter.categorization);
+    expect(unitBefore.categorization_user).toBeUndefined();
 
     const second = byAmount(-4200);
     await repository.saveFinanceTransactionSplits(second.id, [
@@ -984,6 +992,8 @@ describe("two independent repositories never capture what must not be captured",
       const live = schema.get(row.entity_type);
       const keyColumns = new Set(live?.primaryKey);
       for (const key of Object.keys(clocksOf(row))) {
+        // A transaction also carries the clocks of its categorization unit.
+        if (row.entity_type === "finance_transactions" && UNIT_CLOCK_KEYS.includes(key)) continue;
         const field = key.split(".")[0] as string;
         expect(live?.columns.includes(field) && !keyColumns.has(field)).toBe(true);
       }
@@ -1128,5 +1138,10 @@ describe("performance: a 1000-row finance import", () => {
       `[sync-capture perf] 1000-row finance import: ${plain.ms.toFixed(0)} ms without capture, ${captured.ms.toFixed(0)} ms with capture`,
     );
     expect(captured.ms).toBeLessThan(15_000);
+    // The categorization unit adds one batched read of the splits and one hash per transaction:
+    // capture stays a small multiple of the plain import, not a per-row cost.
+    expect(captured.ms).toBeLessThan(plain.ms * 4 + 1_500);
+    const unitClocks = await readMeta(captured.opened.database, "finance_transactions");
+    expect(unitClocks.every((meta) => clocksOf(meta).categorization === meta.row_hlc)).toBe(true);
   });
 });

@@ -10,6 +10,13 @@ import {
   SETTINGS_TABLE,
 } from "./capture-install";
 import { buildEntityCodec, contentHash, type RawRow } from "./capture-decode";
+import {
+  deleteBehavior,
+  fetchSplitsOf,
+  parentOfSplitSnapshot,
+  splitSnapshotJson,
+  stampTransaction,
+} from "./capture-finance";
 import { captureRecurringInstance, ensureInstanceOccurrences } from "./capture-recurrence";
 import { createHlcBatch, type HlcBatch, SyncClockError } from "./clock-store";
 import { entityIdOf, parseEntityId, type PrimaryKeyValue } from "./entity-id";
@@ -26,6 +33,7 @@ import {
   splitFieldClockKey,
 } from "./field-clocks";
 import { encodeHlc } from "./hlc";
+import { FINANCE_SPLITS, FINANCE_TRANSACTIONS } from "./merge-finance";
 import { getTableRegistration, SETTING_ENTITY_TYPE, settingKeys, settingRule } from "./registry";
 
 /**
@@ -55,9 +63,10 @@ import { getTableRegistration, SETTING_ENTITY_TYPE, settingKeys, settingRule } f
  *   type `setting`. The baseline of a key with no snapshot is its default value, so a database that
  *   never changed a key never stamps it, and joining with defaults can never beat a peer's value.
  *
- * TODO(finance-unit slice): `finance_transaction_splits` are stamped as row-clock entities of their
- * own. They are not yet reflected in the parent transaction's categorization-unit clock / base_hlc
- * (the causal rule of the spec's "Finance categorization unit"), which needs the merge design.
+ * The finance categorization unit (`capture-finance.ts`): a `finance_transactions` row also stamps
+ * the unit clocks of `{category_id, category_source, has_splits}` + its split children in its
+ * `field_clocks_json`, derived from the same snapshot diff in the same transaction. A child mark
+ * re-evaluates its parent; children and statement snapshots leave no tombstone (`deleteBehavior`).
  */
 
 const CHUNK = 100;
@@ -102,12 +111,15 @@ export interface Outcome {
   metaWrites: MetaWrite[];
   snapshotWrites: SnapshotWrite[];
   snapshotDeletes: string[];
+  /** Entities whose meta row is dropped outright (a delete that leaves no tombstone). */
+  metaDeletes: string[];
 }
 
 export const emptyOutcome = (): Outcome => ({
   metaWrites: [],
   snapshotWrites: [],
   snapshotDeletes: [],
+  metaDeletes: [],
 });
 
 export const chunked = <T>(items: readonly T[], size = CHUNK): T[][] => {
@@ -357,6 +369,12 @@ export const writeOutcome = async (
       [entityType, ...batch],
     );
   }
+  for (const batch of chunked(outcome.metaDeletes)) {
+    await db.execute(
+      `DELETE FROM sync_entity_meta WHERE entity_type = $1 AND entity_id IN (${placeholders(batch.length, 2)})`,
+      [entityType, ...batch],
+    );
+  }
 };
 
 // ---------------------------------------------------------------------------------------------
@@ -369,6 +387,10 @@ const stampTableMarks = async (
   marks: readonly DirtyMark[],
   live: LiveTableSchema,
   issuer: HlcBatch,
+  /** Collects the transactions whose splits changed (only for the splits table). */
+  parents?: Set<string>,
+  /** The transactions whose splits changed in this pass (only for the transactions table). */
+  changedChildren?: ReadonlySet<string>,
 ): Promise<number> => {
   const { primaryKey } = getTableRegistration(table);
   const codec = buildEntityCodec(table, live.columns);
@@ -410,6 +432,8 @@ const stampTableMarks = async (
     const metas = await fetchMeta(db, table, ids);
     const snapshots = await fetchSnapshots(db, table, ids);
     const outcome = emptyOutcome();
+    // The splits of the transactions of this batch (their unit signature covers them).
+    const splitsOf = table === FINANCE_TRANSACTIONS ? await fetchSplitsOf(db, ids) : null;
 
     for (const id of ids) {
       const row = rows.get(id);
@@ -418,11 +442,18 @@ const stampTableMarks = async (
 
       if (row === undefined) {
         if (snapshot) outcome.snapshotDeletes.push(id);
-        if (meta && meta.deleted_at === null) {
+        if (table === FINANCE_SPLITS && parents) {
+          const parent = parentOfSplitSnapshot(snapshot);
+          if (parent !== null) parents.add(parent);
+        }
+        const behavior = deleteBehavior(table);
+        if (behavior === "drop") {
+          if (meta) outcome.metaDeletes.push(id);
+        } else if (meta && meta.deleted_at === null) {
           const hlc = await issuer.next();
           outcome.metaWrites.push({
             entityId: id,
-            fieldClocksJson: meta.field_clocks_json,
+            fieldClocksJson: behavior === "tombstone-clear" ? "{}" : meta.field_clocks_json,
             rowHlc: hlc,
             deletedAt: hlc,
           });
@@ -470,7 +501,25 @@ const stampTableMarks = async (
       }
 
       const hash = contentHash(record);
+      if (splitsOf !== null) {
+        const stamp = await stampTransaction({
+          row,
+          children: splitsOf.get(id) ?? [],
+          childChanged: changedChildren?.has(id) === true,
+          rowHash: hash,
+          meta: liveMeta,
+          snapshot,
+          issue: () => issuer.next(),
+          parseClocks,
+        });
+        if (stamp !== null) {
+          outcome.metaWrites.push({ entityId: id, ...stamp.meta });
+          outcome.snapshotWrites.push({ entityId: id, ...stamp.snapshot });
+        }
+        continue;
+      }
       if (liveMeta && snapshot?.content_hash === hash) continue;
+      if (table === FINANCE_SPLITS) parents?.add(String(row.transaction_id));
       const hlc = await issuer.next();
       outcome.metaWrites.push({
         entityId: id,
@@ -478,7 +527,12 @@ const stampTableMarks = async (
         rowHlc: hlc,
         deletedAt: null,
       });
-      outcome.snapshotWrites.push({ entityId: id, snapshotJson: null, contentHash: hash });
+      outcome.snapshotWrites.push({
+        entityId: id,
+        snapshotJson:
+          table === FINANCE_SPLITS ? splitSnapshotJson(String(row.transaction_id)) : null,
+        contentHash: hash,
+      });
     }
 
     await writeOutcome(db, table, outcome);
@@ -587,12 +641,38 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
       if (bucket) bucket.push(mark);
       else byType.set(mark.entity_type, [mark]);
     }
-    const tables = [...byType.keys()].filter((type) => isCapturedTable(type));
-    const missing = tables.filter((table) => !schemaCache.has(table));
+    // The splits go first: a changed (or removed) child re-evaluates the unit of its transaction,
+    // which is then stamped in this same pass with the children it now has.
+    const parents = new Set<string>();
+    const hasSplitMarks = byType.has(FINANCE_SPLITS);
+    const tables = [...byType.keys(), ...(hasSplitMarks ? [FINANCE_TRANSACTIONS] : [])].filter(
+      (type) => isCapturedTable(type),
+    );
+    const missing = [...new Set(tables)].filter((table) => !schemaCache.has(table));
     if (missing.length > 0) {
       for (const [table, live] of await readLiveSchema(db, missing)) {
         schemaCache.set(table, live);
       }
+    }
+    if (hasSplitMarks && isCapturedTable(FINANCE_SPLITS)) {
+      stamped += await stampTableMarks(
+        db,
+        FINANCE_SPLITS,
+        byType.get(FINANCE_SPLITS) as DirtyMark[],
+        assertRegistryMatchesSchema(FINANCE_SPLITS, schemaCache.get(FINANCE_SPLITS)),
+        issuer,
+        parents,
+      );
+      byType.delete(FINANCE_SPLITS);
+    }
+    if (parents.size > 0) {
+      const bucket = byType.get(FINANCE_TRANSACTIONS) ?? [];
+      const present = new Set(bucket.map((mark) => mark.entity_id));
+      for (const id of parents) {
+        if (!present.has(id))
+          bucket.push({ rid: -1, entity_type: FINANCE_TRANSACTIONS, entity_id: id, op: "upsert" });
+      }
+      byType.set(FINANCE_TRANSACTIONS, bucket);
     }
     for (const [type, typeMarks] of byType) {
       if (type === SETTINGS_TABLE) {
@@ -604,6 +684,8 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
           typeMarks,
           assertRegistryMatchesSchema(type, schemaCache.get(type)),
           issuer,
+          undefined,
+          type === FINANCE_TRANSACTIONS ? parents : undefined,
         );
       }
       // Any other entity type is not captured here; the mark is dropped below.

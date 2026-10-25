@@ -518,17 +518,54 @@ entities.
   sets identical values, or only reorders an id list, writes nothing and moves no counter.
 - Row-clock, monotonic-status, child-set and Pomodoro tables: a content hash (128-bit,
   `src/lib/finance/hash.ts`; `src/lib/hash.ts` is only 32-bit) is compared; when it differs the
-  row clock is set to a fresh clock. `finance_transaction_splits` are stamped as row-clock entities
-  of their own: they are not yet reflected in the parent transaction's categorization-unit clock,
-  which belongs to the merge slice. Rows excluded from publishing by a registry `rowFilter`
+  row clock is set to a fresh clock. Rows excluded from publishing by a registry `rowFilter`
   (non-terminal Pomodoro sessions, derived balance snapshots) are still captured and stamped;
   `listSyncChanges` filters them out when it publishes (see below), so a session becomes publishable
   the moment its state changes, with no capture change.
+- `finance_transactions` also stamp their categorization unit (`src/lib/sync/capture-finance.ts`;
+  [rules](#finance-tables-the-categorization-unit-and-statement-anchors)): the snapshot keeps
+  `{"unit": <signature>}` next to the row's content hash, the signature covering the unit columns AND
+  every split child (all child columns except `created_at`: re-saving the same splits is not a new
+  decision, and `saveTransactionSplits` is a complete no-op when the stored children already equal
+  the requested ones, so it neither re-creates the children nor bumps the parent's `updated_at`). A different signature is a unit write: `field_clocks_json` gets
+  `categorization` (the fresh clock), `categorization_base` (the unit clock this device held; absent
+  for a creation) and `categorization_user` (the clock of the latest `user` decision in the history:
+  the write's own clock for a `user` write, inherited otherwise), and `row_hlc` moves with it. An
+  edit of any other column moves only `row_hlc`. A child mark re-evaluates its transaction (the
+  stamper handles the splits first and adds the parent of every changed child), because a bulk
+  update of split categories (`archiveCategory`) touches children only; the children keep
+  `{"transaction_id": ...}` in their snapshot so a removed child can still name its parent. A row
+  stamped before the unit existed (no unit clocks, no recorded signature) gets its unit clocks
+  derived from its row clock, issuing no clock when it is unchanged. When such a row has been
+  edited since, the old unit is not recorded, so `unitWrittenWithRow` decides from the row itself
+  whether the last write also wrote the unit: `categorized_at` equal to `updated_at`, or a child
+  `created_at` equal to it. Those are the stamps left by manual and bulk categorizations, by the
+  classification stages and AI auto-apply when they change a non-default category, and by
+  `saveTransactionSplits`. A note edit keeps the derived unit and only advances the row clock; a
+  categorization is a normal unit write. A change of the splits alone is a unit write too: the
+  stamper adds the parent of every child whose content changed
+  (`TransactionStampInput.childChanged`), and for a row with no recorded signature the new children
+  are never stored under the old derived clocks. The only writer that changes a split without
+  touching the parent is `archiveCategory` (a category that exists only on a split);
+  `saveTransactionSplits` also rewrites the parent and an import undo deletes both. Known limit: a
+  unit change that sets neither stamp
+  (`setTransfer`, `clearTransfer`, `archiveCategory` reassigning a transaction's own category,
+  `revertCategoryBackfill`, the transfer-partner unlink done by an import undo) on a row left by an
+  earlier build of change capture is read as an edit of another column until the next unit write.
+  Removing the last split is handled whenever the child snapshots name their parent
+  (`transaction_id`, recorded since this slice): the deleted child marks its parent as changed. It
+  is only missed when the children's snapshots come from an older build that recorded no
+  `transaction_id`. Only dev databases that enabled capture before this slice can hold such rows.
 - Deletes write a tombstone (`deleted_at` = `row_hlc` = a fresh clock, field clocks kept) and drop
   the snapshot. An entity that never had a meta row was never published and gets nothing. A row
   that exists again after a tombstone restarts as a creation with clean clocks and clears
   `deleted_at`; every map key or OR-set element of the previous life that the new row no longer
   holds is stamped as a removal at the recreation clock, so an older peer add of it cannot win.
+  Three tables deviate on purpose (`deleteBehavior`): a deleted transaction keeps a tombstone with
+  EMPTY field clocks (unit clocks mean nothing without the row); a deleted split leaves no tombstone
+  and its meta and snapshot are dropped (children live and die with their transaction's unit, which
+  carries the whole set); a deleted statement balance snapshot leaves none either (filtered tables
+  publish no tombstones, and apply keeps one standing anchor per account).
 - `app_settings`: one `setting` entity per synced key; device-scope keys and secrets never get a
   meta row or a snapshot. A key with no snapshot is compared with its default value, so keys left
   at their defaults are never stamped.
@@ -558,9 +595,9 @@ until `ensureSyncCapture` runs).
 **Decision record (trigger spike).** Triggers that record marks plus pure TypeScript stamping held
 up:
 
-- *Finance import bulk path.* A 1000-row import takes about 290 ms without capture and about
-  390 ms with it (in-memory SQLite in the test), including one extra transaction that stamps the
-  1000 rows in batched statements. The finance store does not use `runSqliteTransaction`, so the
+- *Finance import bulk path.* A 1000-row import takes about 300 ms without capture and about
+  420 ms with it (in-memory SQLite in the test, categorization unit included), including one extra
+  transaction that stamps the 1000 rows in batched statements. The finance store does not use `runSqliteTransaction`, so the
   "stamp right before COMMIT" premise only holds for `writeTransaction`; the post-operation flush in
   `writeExclusive` covers the rest without touching the finance store.
 - *Cascades and hard deletes.* `DELETE` triggers fire for every explicit delete (task collapse,
@@ -627,18 +664,27 @@ or `template_id`, and any row in a non-`gtd` change set is rejected (`table_not_
 version stays 1 (sync is not shipped, so no change set from before this key exists).
 
 **What is merged and what is refused.** `src/lib/sync/merge-strategies.ts` is the seam between the
-registry and the engine. This build merges the `field-clock` tables (the `gtd` ones and the `personal`
-ones, including `weekly_objectives` and `weekly_objective_results`), the `grow-only-union` tables
-(`gtd_task_events`, `ai_messages`) and, through their own rules, three whole-row (`row_hlc`) tables:
-`pomodoro_sessions`, `pomodoro_segments` and `ai_proposals`
-(`TABLE_STRATEGY_OVERRIDES`; [Pomodoro, AI proposals, objectives and results](#pomodoro-ai-proposals-objectives-and-results)).
-`gtd_tasks` and `recurring_task_templates` are field-clock tables with their own rules on top
-([below](#gtd-task-and-recurring-template-rules)). The recurrence sidecars travel in `recurrence`,
-never as entities (an entity of those tables is refused). Every other class (the rest of row-clock,
-child-set, all of `finance`) and every table with a registry `rowFilter` that has no rule of its
-own (the finance statement snapshots) is not published by `listSyncChanges` and makes
-`applySyncBundle` throw `SyncApplyError("unsupported_merge_class")` naming the table, for the whole
-bundle. A `finance` change set therefore carries only finance settings today.
+registry and the engine. This build merges every table of the three bundle domains except the
+recurrence sidecars: the `field-clock` tables (the `gtd` ones and the `personal` ones, including
+`weekly_objectives` and `weekly_objective_results`), the `grow-only-union` tables (`gtd_task_events`,
+`ai_messages`) and all the whole-row (`row_hlc`) tables, each through a rule in
+`TABLE_STRATEGY_OVERRIDES` or the generic `generic-row` rule of its merge class: `pomodoro_sessions`,
+`pomodoro_segments` and `ai_proposals`
+([Pomodoro, AI proposals, objectives and results](#pomodoro-ai-proposals-objectives-and-results)),
+`finance_transactions` with their `finance_transaction_splits`, `finance_category_suggestions` and
+`finance_account_balance_snapshots` ([Finance tables](#finance-tables-the-categorization-unit-and-statement-anchors)),
+and every other row-clock table (the remaining `finance_*` tables and `ai_memories`) as plain
+whole-row last-writer-wins. `gtd_tasks` and `recurring_task_templates` are field-clock tables with
+their own rules on top ([below](#gtd-task-and-recurring-template-rules)). The recurrence sidecars
+travel in `recurrence`, never as entities (an entity of those tables is refused). A table with a
+registry `rowFilter` is supported only through a row-clock rule that owns the filter; any table
+without a strategy is not published by `listSyncChanges` and makes `applySyncBundle` throw
+`SyncApplyError("unsupported_merge_class")` naming the table, for the whole bundle. A registry test
+fails if a bundle-domain table is neither supported nor a recurrence sidecar. **Natural-key
+canonicalization is not part of this build**: a declared natural key that two laptops fill with
+different ids (the same statement imported on both, one account `external_key`, one import-profile
+signature, a task `source_external_id`) aborts the bundle with `natural_key_collision`, and the
+bundle stays unapplied until the alias engine ships (known state, tested for the finance keys).
 
 **Foreign keys.** Production enforces SQL foreign keys, and apply runs with the capture triggers off,
 so a merge that tombstoned a parent would cascade-delete child rows the engine never sees go, and a
@@ -740,7 +786,7 @@ Merge rules (`src/lib/sync/merge-entity.ts`, built from the `merge-primitives.ts
   local meta), which would make resurrection a join too;
 - grow-only-union tables: `INSERT ... ON CONFLICT DO NOTHING`, never an update, so a collision on
   `dedupe_key` keeps the first row;
-- whole-row (`row_hlc`) tables: see [Pomodoro, AI proposals, objectives and results](#pomodoro-ai-proposals-objectives-and-results);
+- whole-row (`row_hlc`) tables: see [Pomodoro, AI proposals, objectives and results](#pomodoro-ai-proposals-objectives-and-results) and [Finance tables](#finance-tables-the-categorization-unit-and-statement-anchors);
 - settings: per key by the settings registry rule (`lww` by key clock, `monotonic-max`,
   `non-empty-wins` by value), written through the same settings writer as `updateSettings` so device keys
   are untouched. Secrets, device-scoped keys, unknown keys and keys of another domain are rejected by
@@ -808,7 +854,9 @@ the laptop it runs on and never leaves it, and neither do its segments or their 
   sessions.
 - Two versions of one terminal session or segment (only a hand edit or a bug produces them): whole-row
   last-writer-wins; the loser's device logs an `overwritten_edit` with `field = "(row)"` (the whole
-  row). A segment's `ended_at` is joined across both versions instead: non-null beats null, and two
+  row) when the replaced version carried a clock issued by that device (a version that had itself
+  arrived from the peer and is replaced by that peer's later edit is ordinary propagation and is not
+  logged; this holds for every whole-row rule, see the next section). A segment's `ended_at` is joined across both versions instead: non-null beats null, and two
   different ends keep the later timestamp, so the result does not depend on which version is newer.
   Delete against edit follows the clocks; because deletes are not published, a delete on one laptop
   never reaches the other: if the delete is later the session stays deleted only on the laptop that
@@ -899,6 +947,152 @@ the laptop it runs on and never leaves it, and neither do its segments or their 
   child whose parent is gone, so such a child cannot stay. The real flaw was a duplicate clock: the
   invented tombstone could equal a clock the child's author issues itself next, and an equal clock ties
   with that edit. The tombstone is now drawn from the applying device's own clock store.
+
+#### Finance tables, the categorization unit and statement anchors
+
+All finance tables and `ai_memories` are merged now (they were refused until this slice). Sync is
+still not user-enabled. Pure rules: `src/lib/sync/merge-finance.ts`; glue: `apply-finance.ts`
+(transactions, splits, anchors), `apply-rows.ts` (everything else) and `apply-proposals.ts`
+(pending suggestions); capture: `capture-finance.ts`.
+
+**Plain rows** (`finance_people`, `_accounts`, `_categories`, `_rules`, `_merchant_memory`,
+`_budget_entries`, `_budget_months`, `_recurring_series`, `_import_profiles`, `_import_batches`,
+`ai_memories`; rule `generic-row`): whole-row last-writer-wins by row clock, the row's clock then its
+smaller canonical JSON; edit wins over delete (a delete wins only with a strictly later clock); the
+replica whose OWN value was replaced logs an `overwritten_edit` with `field = "(row)"`; the one that
+keeps its value, and a receiver whose replaced version had itself come from a peer (a rename, a rule
+counter bump, any ordinary propagated edit), log nothing: `merge-row.ts` reports an overwrite only
+when the replaced row clock was issued by the applying device (the device id of the HLC against
+`sync_identity`), otherwise whole-row last-writer-wins plus the flag would add a conflict row for
+every propagated edit (`created_at` and `updated_at` alone are never a conflict, so two laptops that seeded the
+same default categories do not conflict). Consequences worth knowing: counters that change on every
+classification (`finance_rules.applied_count`, merchant-memory hit counts) merge with the whole row,
+so a concurrent edit of the same row on the other laptop can lose one of the two; the rule and memory
+JSON columns (`matcher_json`, `actions_json`) are carried verbatim, the account, person and category
+ids inside them are declared in the registry but not rewritten until canonical identity ships.
+`finance_recurring_series` has no natural key: two laptops that detect the same series independently
+hold two rows after a merge (unconfirmed ones are removed by the next detection run).
+
+**Import undo.** `undoFinanceImportBatch` hard-deletes the batch's non-`user` transactions (with their
+splits and suggestions) and never touches the batch row, so a batch is not marked undone and its
+counts stay as the import wrote them on every laptop. The deletes are ordinary tombstones: a
+categorization of the same transaction on the other laptop whose clock is at least as late as the
+undo resurrects the transaction (with its categorization and splits) on both laptops, one with an
+earlier clock loses to the undo. The batch row is still the latest batch and still `completed`, so
+the batch can be undone again, but only a row that is not `user`-categorized can be removed that way:
+a row brought back by a rule, a reclassify, a note or any other edit is deleted by the second undo,
+while a row brought back by a MANUAL categorization stays, because undo deliberately refuses
+`user`-categorized rows (`refusedUserCategorized`) and the finance store has no other transaction
+delete. That is the user's explicit choice (a manual categorization after an undo says "keep this
+one"); the spec's "recoverable by undoing again" holds only for the non-`user` case. Both cases are
+pinned in `finance-sync.scenarios.test.ts`.
+
+**Categorization unit** (`finance_transactions` + `finance_transaction_splits`). The unit is
+`{category_id, category_source, has_splits}`, the two descriptive columns the same decision writes
+(`category_confidence`, `categorized_at`; a deliberate extension of the spec so a row never shows the
+confidence of another decision) and every split child. Encoding, in the transaction's
+`sync_entity_meta.field_clocks_json`: `categorization` (the clock `c` of the write),
+`categorization_base` (`base_hlc`: the unit clock the capturing device held, absent for a creation)
+and `categorization_user` (`p`: the clock of the latest `user` decision in the write's history).
+Every other column keeps the row clock.
+
+- *Order.* Units compare by `(p, c)`, then by the smaller canonical payload JSON: a total order, so the
+  merge is a max and replicas converge in any arrival order (a randomized 3-replica test applies every
+  permutation, grouping and repetition). A `user` write has `p = c`; an automatic write (`rule`,
+  `memory`, `seed`, `ai`, `default`) inherits the `p` of the unit it replaced. Hence: a write that saw
+  another (the device holds the maximum of everything it merged) wins even when it is automatic, which
+  is the spec's example (B categorizes with splits as `user`; A receives it and removes the last
+  split, which resets the parent to `default`; A's reset inherits B's `p` and has a later `c`, so it
+  wins and B's old children are not restored when B republishes an unrelated edit); a peer
+  republishing an unchanged row carries its old unit clocks and loses to any later write; of two
+  concurrent writes a `user` one beats an automatic one whatever the clocks, and of two concurrent
+  `user` writes the later HLC wins. The spec's pairwise wording ("if one write's `base_hlc` is at or
+  after the other's clock it saw it and wins, otherwise compare sources") is not used as the order
+  itself because it is not transitive: with a `user` write Y, an automatic X that saw Y and a later
+  automatic Z that saw neither, X beats Y, Y beats Z and Z beats X, so the result would depend on the
+  order the writes arrive in. `categorization_user` carries the same intent transitively. It differs
+  from the pairwise rule only when `base >= c` numerically without the writer having seen the other
+  write (a laggy laptop's older `user` decision still beats a newer automatic stage that never saw
+  it).
+- *Row versus unit.* The row winner (row clock) brings the non-unit columns; the unit winner brings
+  the five unit columns and its clocks; the two may differ (an unrelated edit on one laptop and a
+  categorization on the other both survive). The stored meta keeps the row winner's `row_hlc` and the
+  unit winner's unit clocks.
+- *Children travel with the unit as a set.* After the transaction merge, the unit winner decides the
+  children: a remote winner (or a freshly inserted transaction) replaces the local set by the bundle's
+  live children of that transaction (rows, meta with the child's own `row_hlc`, snapshot; local
+  children the bundle does not carry are deleted with their meta, no tombstone); a local winner or the
+  same write keeps the local set and ignores the bundle's children; a deleted transaction keeps none.
+  Two sets are never mixed. A split whose transaction the bundle does not name is skipped with an
+  informational `orphaned_child` conflict and never aborts the bundle (the bundle that brings its
+  transaction brings it again). A split tombstone from a bundle is ignored.
+- *Conflict log.* When a remote unit replaces a local `user` decision that the remote write had not
+  seen (`categorization_base` before the local clock), the content differs and the local decision was
+  issued by this device, the replaced replica logs an `overwritten_edit` with `field = "categorization"` (the payload and the splits of each
+  side). An ordinary later edit by a peer that had synced, and an automatic value that lost, are not
+  logged.
+- *Re-categorization by the app keeps working*: the import pipeline (rules, memory, seeds, transfers),
+  `reclassifyFinancePending`, AI results and `saveTransactionSplits` all write through the same
+  columns and are stamped by the diff. One store change makes that cheap and safe: a classification
+  pass that decides exactly what a row already says no longer writes it (no `updated_at` bump) and no
+  longer bumps the matching rule's `applied_count` / `last_applied_at` (both stores, same behavior),
+  so a re-run of the rules with nothing new stamps nothing and cannot win over a concurrent edit of
+  another column on the other laptop. A pass that does change a row still rewrites it whole.
+- *Not a join across a tombstone that is later resurrected*, like every row-clock merge: replicas
+  converge once they exchange.
+
+**Category suggestions** (`finance_category_suggestions`, monotonic status; same machinery as AI
+proposals). A decided suggestion (`accepted`, `corrected`, `dismissed`, or `expired` by a collision)
+beats `pending` whatever the clocks and beats any tombstone (the app only deletes pending
+suggestions when a transaction is categorized, so a delete racing a decision means the deleter had not
+seen it; the suggestions of a transaction removed by an import undo can therefore survive on a laptop
+that decided them, harmlessly: decided suggestions are only read as dismissal memory by merchant and
+category, never joined to their transaction). Two different decisions keep the smaller status
+(`accepted` < `corrected` < `dismissed` < `expired`) and write an unresolved `terminal_divergence`
+conflict, except that a user decision silently beats an engine `expired`. Two pending suggestions for
+one transaction (the partial unique index `uniq_finance_suggestion_pending`) are resolved without the
+alias engine: the later row clock (then the greater id) stays `pending`, the other is stored as
+`expired` (a status the app itself never writes and the TypeScript type does not list; consumers read
+`pending` and `dismissed` only) with an informational `pending_collision` conflict; the bundle never
+aborts for it. Decided suggestions are applied before pending ones within a bundle. Known limit:
+the expiry is sticky, so if the contender that took the slot is later decided or deleted on another
+laptop, a replica that resolved the collision first holds `expired` where one that heard of the
+decision first holds `pending`; they agree as soon as they exchange (the terminal status spreads). A
+suggestion whose transaction has not arrived is stored (there is no foreign key) and fills in later.
+Two more consequences of the sticky `expired`: it survives every delete (it is a decided status), and
+rows can accumulate when several laptops each create a memory or rule suggestion for the same
+transaction during a reclassify (one stays `pending`, each other one becomes an `expired` row that
+is never removed). The randomized convergence tests (`classes.convergence.test.ts`,
+`finance.convergence.test.ts`) are deterministic only for their committed seeds: ids are random UUIDs
+and finance timestamps use the real clock, and the order dependence of a sticky `expired` makes
+roughly 1-2% of other seeds fail a one-pass comparison (always healed by an exchange).
+
+**Statement balance snapshots** (`finance_account_balance_snapshots`, `rowFilter` `source =
+'statement'`). Only statement snapshots are published or accepted; `derived` rows (rebuilt by the daily
+job) and their metadata never leave the machine, and a bundle row with another `source` aborts the
+bundle (`row_filter_violation`, checked before a writer slot is taken; `manual` is declared by the
+TypeScript type but nothing writes it). No tombstones are published or kept for this table. A
+statement row beats a `derived` row at the same key whatever the clocks (the daily job never
+overwrites a statement either). The statement import keeps ONE standing anchor per account (it deletes
+the previous one) and re-bases `finance_accounts.opening_balance_minor`; because that delete is never
+published, apply keeps, per account, the anchor with the later row clock (then the later statement
+date): an incoming anchor that a local one beats is not stored, one that beats the local ones replaces
+them with their meta and snapshot. Interplay with the account row: the re-based opening balance
+travels in the `finance_accounts` row (whole-row last-writer-wins) and the anchor in its own row; the
+merge does not recompute the opening balance, so after a merge that brings transactions dated before
+the statement date from the other laptop the displayed balance on that date is off by their sum until
+the next transaction write, import, undo or statement on either laptop re-anchors with the merged
+set (`reanchorStatementAccounts`); this is the same "merge runs no domain side effect" rule as the
+Planned-queue repair for tasks.
+
+**Settings.** The finance-domain keys merge through the settings path (`updateSettings` stamps them
+under `entity_type = 'setting'`) and travel only in the finance bundle.
+
+**Privacy.** Finance and personal tables never appear in a `gtd` change set and are refused when a
+`gtd` change set names them (`table_not_in_domain`, also for a finance bundle relabeled `gtd`);
+`finance_alert_notifications`, derived snapshots and every secret never leave the machine; the tests in
+`finance-privacy.test.ts` replay all of this with a gtd-only replica whose database ends with no
+finance or personal row and no sidecar row of such an entity.
 
 #### GTD task and recurring template rules
 
@@ -1068,6 +1262,9 @@ storage-layer summary.
 - `finance_import_profiles`, `finance_import_batches`: saved column-mapping profiles
   (unique by header signature) and one row per import run, used by
   `undoFinanceImportBatch`.
+
+Multi-device sync of these tables (not user-enabled yet) is described in
+[Finance tables, the categorization unit and statement anchors](#finance-tables-the-categorization-unit-and-statement-anchors).
 
 The three system categories (`fincat:non-categorise`, `fincat:transfert`,
 `fincat:split`) are inserted by migration 37 itself, because engine code
