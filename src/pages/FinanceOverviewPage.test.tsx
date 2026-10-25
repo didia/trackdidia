@@ -204,6 +204,79 @@ describe("FinanceOverviewPage", () => {
     );
   });
 
+  it("shows the next due date and minimum payment on credit accounts only", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    const baseAccount = {
+      institution: null,
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual" as const,
+      onBudget: true,
+      closed: false,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const dueInThreeDays = Number(addDays(today, 3).slice(8, 10));
+    const visa = await repository.saveFinanceAccount({
+      ...baseAccount,
+      id: "",
+      name: "Visa",
+      type: "credit_card",
+      openingBalanceMinor: -150_000,
+      paymentDueDay: dueInThreeDays,
+    });
+    const marge = await repository.saveFinanceAccount({
+      ...baseAccount,
+      id: "",
+      name: "Marge",
+      type: "line_of_credit",
+      openingBalanceMinor: -200_000,
+      paymentDueDay: dueInThreeDays,
+      minimumPaymentMinor: 7_500,
+    });
+    const paidOff = await repository.saveFinanceAccount({
+      ...baseAccount,
+      id: "",
+      name: "Mastercard",
+      type: "credit_card",
+      openingBalanceMinor: 0,
+      paymentDueDay: dueInThreeDays,
+    });
+    const checking = await repository.saveFinanceAccount({
+      ...baseAccount,
+      id: "",
+      name: "Chèques",
+      type: "checking",
+      openingBalanceMinor: 10_000,
+      paymentDueDay: dueInThreeDays,
+    });
+
+    await renderWithApp(<FinanceOverviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeBaseCurrency: "CAD" },
+      },
+    });
+
+    const dueText = `Échéance le ${dateModule.formatDateMedium(addDays(today, 3))} (dans 3 jours)`;
+    const visaLine = await screen.findByTestId(`finance-account-payment-${visa.id}`);
+    expect(visaLine).toHaveTextContent(`${dueText} · Minimum estimé : 45,00 $`);
+    expect(screen.getByTestId(`finance-account-payment-${marge.id}`)).toHaveTextContent(
+      `${dueText} · Minimum : 75,00 $`,
+    );
+    expect(screen.getByTestId(`finance-account-payment-${paidOff.id}`)).toHaveTextContent(
+      `${dueText} · Aucun solde à payer`,
+    );
+    expect(screen.queryByTestId(`finance-account-payment-${checking.id}`)).not.toBeInTheDocument();
+  });
+
   it("keeps the new day's update badges when an older freshness response arrives late", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

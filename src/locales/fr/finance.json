@@ -82,7 +82,11 @@
       "manualBalancePlaceholder": "Optionnel",
       "updateCadence": "Fréquence de mise à jour (jours)",
       "updateCadencePlaceholderWeekly": "Par défaut : 7 (compte budgété)",
-      "updateCadencePlaceholderMonthly": "Par défaut : 30"
+      "updateCadencePlaceholderMonthly": "Par défaut : 30",
+      "paymentDueDay": "Jour d'échéance du paiement (1–31)",
+      "paymentDueDayPlaceholder": "Ex. : 15",
+      "minimumPayment": "Paiement minimum",
+      "minimumPaymentPlaceholder": "Vide : estimé automatiquement"
     },
     "types": {
       "checking": "Chèques",
@@ -105,7 +109,9 @@
       "invalidOpeningBalance": "Solde d'ouverture invalide.",
       "invalidCurrency": "Devise invalide (code à trois lettres, ex. CAD).",
       "invalidManualBalance": "Solde manuel invalide.",
-      "invalidCadence": "Fréquence invalide (nombre entier de jours, de 1 à 365)."
+      "invalidCadence": "Fréquence invalide (nombre entier de jours, de 1 à 365).",
+      "invalidPaymentDueDay": "Jour d'échéance invalide (nombre entier de 1 à 31).",
+      "invalidMinimumPayment": "Paiement minimum invalide (montant supérieur à zéro)."
     },
     "addAccount": "Ajouter le compte",
     "listTitle": "Comptes existants",
@@ -542,6 +548,15 @@
       "accountLast4": "Derniers chiffres du compte : lecture locale {{parser}}, IA {{ai}}.",
       "useAi": "Utiliser la valeur de l'IA"
     }
+  },
+  "creditPayment": {
+    "dueOn": "Échéance le {{date}}",
+    "today": "aujourd'hui",
+    "inDays_one": "dans {{count}} jour",
+    "inDays_other": "dans {{count}} jours",
+    "minimum": "Minimum : {{amount}}",
+    "minimumEstimated": "Minimum estimé : {{amount}}",
+    "nothingOwed": "Aucun solde à payer"
   },
   "freshness": {
     "title": "Comptes à mettre à jour",

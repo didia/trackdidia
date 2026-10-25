@@ -76,10 +76,10 @@ const snapshot = async (db: Database, tables: string[]) => {
 };
 
 describe("migration 43 add_sync_capture_state", () => {
-  it("is the next id after 42, appended last, and uses only CREATE TABLE IF NOT EXISTS", () => {
+  it("is the next id after 42, appended directly after it, and uses only CREATE TABLE IF NOT EXISTS", () => {
     expect(migration.name).toBe("add_sync_capture_state");
-    expect(migrations.at(-1)?.id).toBe(43);
-    expect(migrations.at(-2)?.id).toBe(42);
+    const index = migrations.indexOf(migration);
+    expect(migrations[index - 1]?.id).toBe(42);
     expect(migration.guards).toBeUndefined();
     const statements = migration.sql
       .split(";")

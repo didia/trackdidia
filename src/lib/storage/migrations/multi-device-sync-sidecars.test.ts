@@ -224,7 +224,10 @@ describe("migration 42 add_multi_device_sync_sidecars", () => {
       });
     }
 
-    await runMigrations(db);
+    // Only the sidecar migrations (42, 43): later migrations may add columns to existing tables.
+    for (const item of migrations.filter((candidate) => candidate.id > 41 && candidate.id <= 43)) {
+      await applyOnly(db, item);
+    }
 
     const after = await snapshot(db, existing);
     // Rows, column definitions, index lists and every pre-existing object's SQL are unchanged.
@@ -237,15 +240,19 @@ describe("migration 42 add_multi_device_sync_sidecars", () => {
     for (const [name, sql] of Object.entries(before.objectSql)) {
       expect({ name, sql: after.objectSql[name] }).toEqual({ name, sql });
     }
-    // The ledger gained exactly the migrations after 41 (42 and the ones appended since).
+    // The ledger gained exactly 42 and 43.
     expect(
       (await db.select<{ id: number }[]>("SELECT id FROM schema_migrations ORDER BY id")).map(
         (row) => row.id,
       ),
-    ).toEqual(migrations.slice(1).map((item) => item.id));
+    ).toEqual(
+      migrations
+        .slice(1)
+        .filter((item) => item.id <= 43)
+        .map((item) => item.id),
+    );
     expect(after.rows.schema_migrations).toHaveLength(
-      (before.rows.schema_migrations?.length ?? 0) +
-        migrations.filter((item) => item.id > 41).length,
+      (before.rows.schema_migrations?.length ?? 0) + 2,
     );
   });
 

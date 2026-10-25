@@ -19,6 +19,13 @@ import {
   FINANCE_MAX_CADENCE_DAYS,
   FINANCE_MIN_CADENCE_DAYS,
 } from "../domain/finance/account-freshness";
+import {
+  FINANCE_MAX_PAYMENT_DUE_DAY,
+  FINANCE_MIN_PAYMENT_DUE_DAY,
+  computeFinanceCreditPaymentDue,
+  isFinanceCreditPaymentAccount,
+} from "../domain/finance/credit-payment";
+import { FinanceCreditPaymentLine } from "../components/finance/FinanceCreditPaymentLine";
 import { createEntityId, nowIso } from "../lib/gtd/shared";
 import {
   currencyExponent,
@@ -52,6 +59,8 @@ interface AccountDraft {
   ownership: FinanceAccountOwnership;
   onBudget: boolean;
   updateCadenceText: string;
+  paymentDueDayText: string;
+  minimumPaymentText: string;
   openingBalanceText: string;
   balanceAsOf: string;
   manualBalanceText: string;
@@ -71,6 +80,11 @@ const draftFromAccount = (account: FinanceAccount): AccountDraft => ({
   ownership: account.ownership,
   onBudget: account.onBudget,
   updateCadenceText: account.updateCadenceDays == null ? "" : String(account.updateCadenceDays),
+  paymentDueDayText: account.paymentDueDay == null ? "" : String(account.paymentDueDay),
+  minimumPaymentText:
+    account.minimumPaymentMinor == null
+      ? ""
+      : minorToText(account.minimumPaymentMinor, account.currency),
   openingBalanceText: minorToText(account.openingBalanceMinor, account.currency),
   balanceAsOf: account.balanceAsOf ?? "",
   manualBalanceText:
@@ -88,6 +102,8 @@ const emptyDraft = (currency: string): AccountDraft => ({
   ownership: "individual",
   onBudget: true,
   updateCadenceText: "",
+  paymentDueDayText: "",
+  minimumPaymentText: "",
   openingBalanceText: "0",
   balanceAsOf: getTodayDate(),
   manualBalanceText: "",
@@ -194,6 +210,34 @@ export const FinanceAccountsPage = () => {
       updateCadenceDays = parsedCadence;
     }
 
+    // Due day and minimum only exist for credit accounts; switching an account to another type
+    // clears them rather than leaving values nobody can see or edit.
+    let paymentDueDay: number | null = null;
+    let minimumPaymentMinor: number | null = null;
+    if (isFinanceCreditPaymentAccount(accountDraft.type)) {
+      const dueDayText = accountDraft.paymentDueDayText.trim();
+      if (dueDayText.length > 0) {
+        const parsedDueDay = Number(dueDayText);
+        if (
+          !Number.isInteger(parsedDueDay) ||
+          parsedDueDay < FINANCE_MIN_PAYMENT_DUE_DAY ||
+          parsedDueDay > FINANCE_MAX_PAYMENT_DUE_DAY
+        ) {
+          setAccountError(t("accounts.errors.invalidPaymentDueDay"));
+          return;
+        }
+        paymentDueDay = parsedDueDay;
+      }
+      if (accountDraft.minimumPaymentText.trim().length > 0) {
+        const minimumParsed = parseAmountToMinor(accountDraft.minimumPaymentText, { exponent });
+        if (!minimumParsed.ok || minimumParsed.amountMinor <= 0) {
+          setAccountError(t("accounts.errors.invalidMinimumPayment"));
+          return;
+        }
+        minimumPaymentMinor = minimumParsed.amountMinor;
+      }
+    }
+
     let manualBalanceMinor: number | null = null;
     if (accountDraft.manualBalanceText.trim().length > 0) {
       const manualParsed = parseAmountToMinor(accountDraft.manualBalanceText, { exponent });
@@ -223,6 +267,8 @@ export const FinanceAccountsPage = () => {
       balanceAsOf: accountDraft.balanceAsOf || null,
       externalKey: editingAccount?.externalKey ?? null,
       updateCadenceDays,
+      paymentDueDay,
+      minimumPaymentMinor,
       notes: editingAccount?.notes ?? null,
       sortOrder: editingAccount?.sortOrder ?? accounts.length,
       createdAt: editingAccount?.createdAt ?? timestamp,
@@ -264,6 +310,8 @@ export const FinanceAccountsPage = () => {
   };
 
   const isAssetLike = accountDraft.type === "asset" || accountDraft.type === "investment";
+  const isCreditLike = isFinanceCreditPaymentAccount(accountDraft.type);
+  const today = getTodayDate();
 
   return (
     <div className="page finance-page">
@@ -413,6 +461,40 @@ export const FinanceAccountsPage = () => {
               }
             />
           </label>
+          {isCreditLike ? (
+            <>
+              <label>
+                <span>{t("accounts.fields.paymentDueDay")}</span>
+                <input
+                  type="number"
+                  min={FINANCE_MIN_PAYMENT_DUE_DAY}
+                  max={FINANCE_MAX_PAYMENT_DUE_DAY}
+                  step={1}
+                  value={accountDraft.paymentDueDayText}
+                  placeholder={t("accounts.fields.paymentDueDayPlaceholder")}
+                  onChange={(event) =>
+                    setAccountDraft((current) => ({
+                      ...current,
+                      paymentDueDayText: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <label>
+                <span>{t("accounts.fields.minimumPayment")}</span>
+                <input
+                  value={accountDraft.minimumPaymentText}
+                  placeholder={t("accounts.fields.minimumPaymentPlaceholder")}
+                  onChange={(event) =>
+                    setAccountDraft((current) => ({
+                      ...current,
+                      minimumPaymentText: event.target.value,
+                    }))
+                  }
+                />
+              </label>
+            </>
+          ) : null}
           <label>
             <span>{t("accounts.fields.openingBalance")}</span>
             <input
@@ -475,6 +557,11 @@ export const FinanceAccountsPage = () => {
             const transactions = transactionsByAccount[account.id] ?? [];
             const derivedBalanceMinor = computeDerivedBalanceMinor(account, transactions);
             const discrepancy = computeReconciliationDiscrepancy(account, transactions);
+            const creditPayment = computeFinanceCreditPaymentDue(
+              account,
+              derivedBalanceMinor,
+              today,
+            );
             return (
               <article key={account.id} className="list-card">
                 <h3>
@@ -491,6 +578,15 @@ export const FinanceAccountsPage = () => {
                   {t("accounts.derivedBalance")}:{" "}
                   {formatMoney({ amountMinor: derivedBalanceMinor, currency: account.currency })}
                 </p>
+                {creditPayment ? (
+                  <p>
+                    <FinanceCreditPaymentLine
+                      due={creditPayment}
+                      currency={account.currency}
+                      testId={`finance-account-payment-${account.id}`}
+                    />
+                  </p>
+                ) : null}
                 {discrepancy ? (
                   <p className="banner">
                     {t("accounts.discrepancy", {

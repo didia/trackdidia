@@ -235,6 +235,14 @@ export class FinanceMemoryStore {
         account.updateCadenceDays === undefined
           ? (existing?.updateCadenceDays ?? null)
           : account.updateCadenceDays,
+      paymentDueDay:
+        account.paymentDueDay === undefined
+          ? (existing?.paymentDueDay ?? null)
+          : account.paymentDueDay,
+      minimumPaymentMinor:
+        account.minimumPaymentMinor === undefined
+          ? (existing?.minimumPaymentMinor ?? null)
+          : account.minimumPaymentMinor,
       createdAt: account.createdAt || now,
       updatedAt: now,
     };

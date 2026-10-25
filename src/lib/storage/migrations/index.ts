@@ -1180,6 +1180,30 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 44,
+    name: "add_finance_account_payment_due",
+    // Preserve-first: two nullable columns, no backfill. Existing accounts keep NULL (no due day,
+    // minimum inferred), so nothing about them changes until the user opts in.
+    sql: `
+      ALTER TABLE finance_accounts ADD COLUMN payment_due_day INTEGER;
+      ALTER TABLE finance_accounts ADD COLUMN minimum_payment_minor INTEGER;
+    `,
+    guards: {
+      skipIfColumnExists: [
+        {
+          table: "finance_accounts",
+          column: "payment_due_day",
+          statement: "ALTER TABLE finance_accounts ADD COLUMN payment_due_day INTEGER;",
+        },
+        {
+          table: "finance_accounts",
+          column: "minimum_payment_minor",
+          statement: "ALTER TABLE finance_accounts ADD COLUMN minimum_payment_minor INTEGER;",
+        },
+      ],
+    },
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */
