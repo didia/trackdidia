@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertDomainAllowed,
   clocksOfChangeSet,
+  MAX_ALIASES,
   MAX_ENTITY_ID_LENGTH,
   SYNC_FORMAT_VERSION,
   type SyncChangeSet,
@@ -34,6 +35,7 @@ const base = (): SyncChangeSet =>
     unionRows: {},
     settings: [],
     recurrence: { occurrences: [], clears: [] },
+    aliases: [],
   }) as SyncChangeSet;
 
 /** Builds a change set from the valid base with `mutate` applied to a deep copy. */
@@ -112,7 +114,7 @@ describe("validateChangeSet accepts", () => {
 
   it("an own __proto__ key from JSON without polluting anything", () => {
     const parsed = JSON.parse(
-      `{"formatVersion":1,"deviceId":"${DEVICE}","domain":"gtd","schemaVersion":43,"hlcHigh":"${hlc(2000)}","entities":[{"table":"gtd_contexts","entityId":"c","row":{"id":"c","__proto__":"x"},"fieldClocks":{"__proto__":"${hlc(1000)}"},"rowHlc":"${hlc(1000)}","deletedAt":null}],"unionRows":{},"settings":[],"recurrence":{"occurrences":[],"clears":[]}}`,
+      `{"formatVersion":1,"deviceId":"${DEVICE}","domain":"gtd","schemaVersion":43,"hlcHigh":"${hlc(2000)}","entities":[{"table":"gtd_contexts","entityId":"c","row":{"id":"c","__proto__":"x"},"fieldClocks":{"__proto__":"${hlc(1000)}"},"rowHlc":"${hlc(1000)}","deletedAt":null}],"unionRows":{},"settings":[],"recurrence":{"occurrences":[],"clears":[]},"aliases":[]}`,
     );
     const result = validateChangeSet(parsed);
     expect(Object.hasOwn(result.entities[0]?.fieldClocks ?? {}, "__proto__")).toBe(true);
@@ -507,6 +509,134 @@ describe("the recurrence sidecars", () => {
       ),
     ).toBe("table_not_in_domain");
     expect(codeOf(withRecurrence({ occurrences: [], clears: [] }, "personal"))).toBe("no error");
+  });
+});
+
+describe("validateChangeSet: id aliases", () => {
+  const alias = (overrides: Record<string, unknown> = {}) => ({
+    entity_type: "gtd_tasks",
+    alias_id: "task:z",
+    canonical_id: "task:a",
+    recorded_hlc: hlc(1000),
+    ...overrides,
+  });
+  const withAliases = (aliases: unknown, domain = "gtd") =>
+    variant((d) => {
+      d.domain = domain;
+      d.entities = [];
+      d.aliases = aliases;
+    });
+
+  it("accepts well formed rows of the domain's aliasable tables", () => {
+    expect(codeOf(withAliases([alias(), alias({ entity_type: "gtd_projects" })]))).toBe("no error");
+    expect(
+      codeOf(
+        withAliases(
+          [
+            alias({
+              entity_type: "finance_transactions",
+              alias_id: "finance-txn:b",
+              canonical_id: "finance-txn:a",
+            }),
+            alias({ entity_type: "finance_accounts", alias_id: "acc-2", canonical_id: "acc-1" }),
+            alias({ entity_type: "finance_import_profiles", alias_id: "p-2", canonical_id: "p-1" }),
+          ],
+          "finance",
+        ),
+      ),
+    ).toBe("no error");
+    expect(codeOf(withAliases([], "personal"))).toBe("no error");
+  });
+
+  it("requires the key, and an array", () => {
+    expect(codeOf(variant((d) => delete d.aliases))).toBe("invalid_shape");
+    expect(codeOf(withAliases({}))).toBe("invalid_shape");
+    expect(codeOf(withAliases("nope"))).toBe("invalid_shape");
+  });
+
+  it("counts the recorded clock toward hlcHigh", () => {
+    const set = validateChangeSet(withAliases([alias({ recorded_hlc: hlc(1500) })]));
+    expect(clocksOfChangeSet(set)).toContain(hlc(1500));
+    expect(
+      codeOf(
+        variant((d) => {
+          d.entities = [];
+          d.hlcHigh = hlc(1000);
+          d.aliases = [alias({ recorded_hlc: hlc(5000) })];
+        }),
+      ),
+    ).toBe("hlc_high_too_low");
+  });
+
+  it.each([
+    ["an unknown extra key", [alias({ extra: 1 })], "invalid_shape"],
+    [
+      "a missing key",
+      [{ entity_type: "gtd_tasks", alias_id: "b", canonical_id: "a" }],
+      "invalid_shape",
+    ],
+    ["a row that is not an object", ["nope"], "invalid_shape"],
+    ["an unregistered entity type", [alias({ entity_type: "nope" })], "unknown_table"],
+    ["a non-string entity type", [alias({ entity_type: 7 })], "unknown_table"],
+    [
+      "a table of another domain (a finance alias in a gtd bundle)",
+      [alias({ entity_type: "finance_transactions" })],
+      "table_not_in_domain",
+    ],
+    [
+      "a personal table in a gtd bundle",
+      [alias({ entity_type: "ai_proposals" })],
+      "table_not_in_domain",
+    ],
+    [
+      "a table with no aliased natural key",
+      [alias({ entity_type: "gtd_contexts" })],
+      "invalid_alias",
+    ],
+    ["a device-local table", [alias({ entity_type: "sync_peers" })], "table_not_in_domain"],
+    ["an empty alias id", [alias({ alias_id: "" })], "invalid_alias"],
+    ["an empty canonical id", [alias({ canonical_id: "" })], "invalid_alias"],
+    ["a non-string id", [alias({ alias_id: 3 })], "invalid_alias"],
+    [
+      "an id that is its own alias",
+      [alias({ alias_id: "task:a", canonical_id: "task:a" })],
+      "invalid_alias",
+    ],
+    [
+      "a canonical id that is not the smaller one",
+      [alias({ alias_id: "task:a", canonical_id: "task:z" })],
+      "invalid_alias",
+    ],
+    [
+      "an oversized id",
+      [alias({ alias_id: "z".repeat(MAX_ENTITY_ID_LENGTH + 1) })],
+      "entity_id_too_long",
+    ],
+    ["a malformed clock", [alias({ recorded_hlc: "yesterday" })], "invalid_clock"],
+    ["a duplicate alias id", [alias(), alias({ canonical_id: "task:b" })], "duplicate_entity"],
+  ])("rejects %s", (_name, aliases, code) => {
+    expect(codeOf(withAliases(aliases))).toBe(code);
+  });
+
+  it("allows the same alias id under two entity types", () => {
+    expect(
+      codeOf(
+        withAliases([
+          alias({ alias_id: "x2", canonical_id: "x1" }),
+          alias({ entity_type: "gtd_projects", alias_id: "x2", canonical_id: "x1" }),
+        ]),
+      ),
+    ).toBe("no error");
+  });
+
+  it("bounds the number of rows", () => {
+    const many = Array.from({ length: MAX_ALIASES + 1 }, (_, index) =>
+      alias({
+        alias_id: `task:${String(index).padStart(7, "0")}z`,
+        canonical_id: `task:${String(index).padStart(7, "0")}a`,
+      }),
+    );
+    expect(codeOf(withAliases(many))).toBe("too_many_aliases");
   });
 });
 

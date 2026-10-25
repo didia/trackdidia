@@ -35,6 +35,41 @@ export const financeAccount = (overrides: Partial<FinanceAccount> = {}): Finance
   ...overrides,
 });
 
+/** A transaction with an explicit id and dedupe hash, for tests that control which id is canonical. */
+export const financeTransaction = (
+  id: string,
+  overrides: Partial<FinanceTransaction> = {},
+): FinanceTransaction => ({
+  id,
+  accountId: "account-1",
+  postedDate: "2026-04-01",
+  amountMinor: -1000,
+  currency: "CAD",
+  descriptionRaw: "ALPHA 1",
+  descriptionOriginal: null,
+  merchantKey: "ALPHA",
+  merchantDisplay: null,
+  categoryId: "fincat:non-categorise",
+  categorySource: "default",
+  categoryConfidence: null,
+  categorizedAt: null,
+  personId: null,
+  notes: null,
+  labelsJson: null,
+  pending: false,
+  isTransfer: false,
+  transferGroupId: null,
+  excludedFromBudget: false,
+  excludedFromReports: false,
+  hasSplits: false,
+  importBatchId: null,
+  dedupeHash: "line-alpha",
+  sourceRowJson: null,
+  createdAt: "2026-04-01T00:00:00.000Z",
+  updatedAt: "2026-04-01T00:00:00.000Z",
+  ...overrides,
+});
+
 export const importRow = (overrides: Partial<FinanceImportRow> = {}): FinanceImportRow => ({
   accountId: "account-1",
   postedDate: "2026-04-01",

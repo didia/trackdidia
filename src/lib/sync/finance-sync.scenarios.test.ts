@@ -281,7 +281,7 @@ describe("plain finance rows converge through the real methods", () => {
     await sim.expectConverged("finance", { snapshots: true, exact: true });
   });
 
-  it("carries the ids a rule embeds verbatim (no rewriting until canonical identity)", async () => {
+  it("carries the ids a rule embeds verbatim when nothing is aliased", async () => {
     const { sim, a, b } = await twoLaptops();
     await a.repo.saveFinanceRule(
       financeRule("rule-1", {
@@ -301,11 +301,12 @@ describe("plain finance rows converge through the real methods", () => {
       accountIds: ["account-1", "account-2"],
       personId: "person-9",
     });
-    // The references are declared in the registry (the alias slice rewrites exactly these).
+    // The references are declared in the registry, with machine-readable paths (the alias engine
+    // rewrites exactly these).
     const { getTableRegistration } = await import("./registry");
     const columns = getTableRegistration("finance_rules")
       .references.filter((reference) => reference.kind === "json-payload")
-      .map((reference) => `${reference.column}:${reference.note}`);
+      .map((reference) => `${reference.column}:${reference.path}`);
     expect(columns).toEqual([
       "matcher_json:$.accountIds[]",
       "matcher_json:$.personId",
@@ -323,55 +324,6 @@ describe("plain finance rows converge through the real methods", () => {
     expect(await overwrittenRows(a, "finance_categories")).toEqual([]);
     expect(await overwrittenRows(b, "finance_categories")).toEqual([]);
     await sim.expectConverged("finance", { snapshots: true, exact: true });
-  });
-});
-
-describe("natural keys: a collision still aborts the bundle (canonical identity is the next slice)", () => {
-  const expectCollision = async (
-    from: SyncDevice,
-    to: SyncDevice,
-    table: string,
-    index: string,
-  ) => {
-    const changeSet = await from.repo.listSyncChanges("finance");
-    const before = await syncState(to.db);
-    const failure = await to.repo
-      .applySyncBundle("finance", jsonRoundTrip(changeSet))
-      .catch((error: unknown) => error);
-    expect(failure).toMatchObject({ name: "SyncApplyError", code: "natural_key_collision", table });
-    expect(String((failure as Error).message)).toContain(index);
-    // The whole bundle rolled back: nothing of it is left, not even rows applied before the clash.
-    expect(await syncState(to.db)).toEqual(before);
-  };
-
-  it("the same statement imported independently on two laptops (account_id, dedupe_hash)", async () => {
-    const { sim, a, b } = await twoLaptops();
-    await a.repo.saveFinanceAccount(financeAccount());
-    await sim.syncAll("finance");
-    const rows = [
-      importRow({ amountMinor: -1000, descriptionRaw: "ALPHA 1", merchantKey: "ALPHA" }),
-    ];
-    await a.repo.importFinanceTransactions(importRequest(rows));
-    b.clock.advance(10_000);
-    await b.repo.importFinanceTransactions(importRequest(rows));
-    await expectCollision(a, b, "finance_transactions", "uniq_finance_txn_dedupe");
-    await expectCollision(b, a, "finance_transactions", "uniq_finance_txn_dedupe");
-  });
-
-  it("the same import label bound to two accounts (external_key)", async () => {
-    const { a, b } = await twoLaptops();
-    await a.repo.saveFinanceAccount(financeAccount({ id: "account-a", externalKey: "VISA-1234" }));
-    b.clock.advance(10_000);
-    await b.repo.saveFinanceAccount(financeAccount({ id: "account-b", externalKey: "VISA-1234" }));
-    await expectCollision(a, b, "finance_accounts", "uniq_finance_account_external_key");
-  });
-
-  it("the same CSV layout saved on two laptops (signature)", async () => {
-    const { a, b } = await twoLaptops();
-    await a.repo.saveFinanceImportProfile(importProfile("profile-a", "same-signature"));
-    b.clock.advance(10_000);
-    await b.repo.saveFinanceImportProfile(importProfile("profile-b", "same-signature"));
-    await expectCollision(a, b, "finance_import_profiles", "uniq_finance_profile_signature");
   });
 });
 

@@ -594,26 +594,33 @@ describe("settings can never smuggle a secret or a device key", () => {
 });
 
 describe("unique keys", () => {
-  it("aborts the whole bundle on a declared natural key collision, with a distinct code", async () => {
+  it("does not abort on a context rename onto a taken name: keeps the local name and asks", async () => {
     const { a, b } = await twoDevices();
     await a.repo.saveContext({ id: "ctx-a", name: "Maison", createdAt: "", updatedAt: "" });
     await b.repo.saveContext({ id: "ctx-b", name: "Maison", createdAt: "", updatedAt: "" });
     await b.repo.createTask({ id: "t-from-b", title: "Rides along", bucket: "inbox" });
-    const before = await syncState(a.db);
 
-    const failure = await a.repo
-      .applySyncBundle("gtd", await b.repo.listSyncChanges("gtd"))
-      .catch((error: unknown) => error);
+    const result = await a.repo.applySyncBundle("gtd", await b.repo.listSyncChanges("gtd"));
 
-    expect(failure).toBeInstanceOf(SyncApplyError);
-    expect(failure).toMatchObject({ code: "natural_key_collision", table: "gtd_contexts" });
-    expect((failure as SyncApplyError).index).toBeTruthy();
-    expect((failure as SyncApplyError).message).toContain("gtd_contexts");
-    expect(await syncState(a.db)).toEqual(before);
-    expect((await a.repo.listTasks({})).map((task) => task.id)).toEqual([]);
+    expect(result.conflictsLogged).toBe(1);
+    expect((await a.repo.listTasks({})).map((task) => task.id)).toEqual(["t-from-b"]);
+    expect((await a.repo.listContexts()).map((context) => [context.id, context.name])).toEqual([
+      ["ctx-a", "Maison"],
+    ]);
+    const conflicts = await readConflicts(a);
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0]).toMatchObject({
+      kind: "name_collision",
+      entity_type: "gtd_contexts",
+      entity_id: "ctx-b",
+      resolved_at: null,
+    });
+    // Found again, it is the same row.
+    await a.repo.applySyncBundle("gtd", await b.repo.listSyncChanges("gtd"));
+    expect(await readConflicts(a)).toHaveLength(1);
   });
 
-  it("aborts on a task natural key (source_external_id) too", async () => {
+  it("merges two tasks with one source_external_id into the smaller id instead of aborting", async () => {
     const { a, b } = await twoDevices();
     await a.repo.createTask({
       id: "t-a",
@@ -627,9 +634,11 @@ describe("unique keys", () => {
       bucket: "inbox",
       sourceExternalId: "draw:2026-10-04",
     });
-    await expect(
-      a.repo.applySyncBundle("gtd", await b.repo.listSyncChanges("gtd")),
-    ).rejects.toMatchObject({ code: "natural_key_collision", table: "gtd_tasks" });
+    await a.repo.applySyncBundle("gtd", await b.repo.listSyncChanges("gtd"));
+    expect((await a.repo.listTasks({})).map((task) => task.id)).toEqual(["t-a"]);
+    expect(
+      await a.db.select("SELECT entity_type, alias_id, canonical_id FROM sync_id_aliases"),
+    ).toEqual([{ entity_type: "gtd_tasks", alias_id: "t-b", canonical_id: "t-a" }]);
   });
 
   it("aborts with a different code, naming the index, on a unique key the registry does not declare", async () => {
