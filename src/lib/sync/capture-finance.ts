@@ -121,16 +121,19 @@ export const fetchSplitsOf = async (
 
 /**
  * Whether the write that last touched a transaction also wrote its categorization unit, judged from
- * the row alone (for a row that has no recorded unit to compare with). The writes that decide a
+ * the row alone (for a row that has no recorded unit to compare with; a change of the splits alone
+ * is told by `TransactionStampInput.childChanged` instead). The writes that decide a
  * category and set `categorized_at` to the same `now` as `updated_at` are the manual and bulk
  * categorizations, the classification stages when they change a non-default category, and AI
  * auto-apply; `saveTransactionSplits` sets the children's `created_at` and the parent's `updated_at`
  * to the same `now`. A write of any other column leaves them behind. Known limit: a unit change that
  * sets neither stamp is read as an edit of another column until the next unit write. Those are
- * `setTransfer`, `clearTransfer`, removing the last split, `archiveCategory` reassigning a
- * transaction's own category, `revertCategoryBackfill` (it restores the earlier `categorized_at`)
- * and the transfer-partner unlink done by an import undo. It only concerns rows stamped by an
- * earlier build of change capture, which no released build enables.
+ * `setTransfer`, `clearTransfer`, `archiveCategory` reassigning a transaction's own category,
+ * `revertCategoryBackfill` (it restores the earlier `categorized_at`) and the transfer-partner
+ * unlink done by an import undo. Removing the last split is caught through `childChanged` (the
+ * deleted child's snapshot names its parent) unless the children's snapshots come from an older
+ * build that recorded no `transaction_id`. It only concerns rows stamped by an earlier build of
+ * change capture, which no released build enables.
  */
 export const unitWrittenWithRow = (row: RawRow, children: readonly RawRow[]): boolean => {
   const stamp = row.updated_at;
@@ -146,6 +149,13 @@ export interface TransactionStampInput {
   /** The live meta row, or `undefined` for a creation (never stamped, or tombstoned). */
   meta: MetaRow | undefined;
   snapshot: SnapshotRow | undefined;
+  /**
+   * The stamp was reached because a split of this transaction changed (the stamper adds the parent
+   * of every child whose content hash moved). A row with no recorded signature cannot compare old
+   * and new children, so this is the evidence that its unit changed even when the parent row itself
+   * did not (`archiveCategory` on a category that exists only on a split).
+   */
+  childChanged?: boolean;
   /** Issues the next clock of the stamp batch. */
   issue: () => Promise<string>;
   parseClocks: (json: string | null | undefined) => Record<string, string>;
@@ -165,6 +175,7 @@ export const stampTransaction = async (
   input: TransactionStampInput,
 ): Promise<TransactionStamp | null> => {
   const { row, children, rowHash, meta, snapshot, issue, parseClocks } = input;
+  const childChanged = input.childChanged === true;
   const signature = unitSignature(row, children);
   const clocks = meta ? parseClocks(meta.field_clocks_json) : {};
   const previous: UnitVersion | null = meta ? unitVersionOf(clocks, meta.row_hlc, row) : null;
@@ -180,8 +191,10 @@ export const stampTransaction = async (
   };
 
   // The row and the unit are unchanged since the last stamp, but the unit clocks were never written
-  // (a stamp from before the unit existed): derive them, issue nothing.
-  if (meta !== undefined && rowSame && (unitSame || recorded === undefined)) {
+  // (a stamp from before the unit existed): derive them, issue nothing. Not when a split changed
+  // under a row with no recorded signature: the new children must not be stored under the old
+  // clocks, that is a unit write (below).
+  if (meta !== undefined && rowSame && (unitSame || (recorded === undefined && !childChanged))) {
     return {
       meta: {
         fieldClocksJson: canonicalJson(unitClocksOf(previous as UnitVersion)),
@@ -198,7 +211,7 @@ export const stampTransaction = async (
   // (`unitWrittenWithRow`): a pure edit of another column keeps the derived unit clocks.
   const preUnit = meta !== undefined && recorded === undefined && !hasUnitClock(clocks);
   const unitChanged =
-    meta === undefined || (preUnit ? unitWrittenWithRow(row, children) : !unitSame);
+    meta === undefined || (preUnit ? childChanged || unitWrittenWithRow(row, children) : !unitSame);
   const version = unitChanged ? nextUnitVersion(previous, row.category_source, hlc) : previous;
   return {
     meta: {

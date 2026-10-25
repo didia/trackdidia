@@ -542,12 +542,20 @@ entities.
   `created_at` equal to it. Those are the stamps left by manual and bulk categorizations, by the
   classification stages and AI auto-apply when they change a non-default category, and by
   `saveTransactionSplits`. A note edit keeps the derived unit and only advances the row clock; a
-  categorization is a normal unit write. Known limit: a unit change that sets neither stamp
-  (`setTransfer`, `clearTransfer`, removing the last split, `archiveCategory` reassigning a
-  transaction's own category, `revertCategoryBackfill`, the transfer-partner unlink done by an
-  import undo) on a row left by an earlier build of change capture is read as an edit of another
-  column until the next unit write. Only dev databases that enabled capture before this slice can
-  hold such rows.
+  categorization is a normal unit write. A change of the splits alone is a unit write too: the
+  stamper adds the parent of every child whose content changed
+  (`TransactionStampInput.childChanged`), and for a row with no recorded signature the new children
+  are never stored under the old derived clocks. The only writer that changes a split without
+  touching the parent is `archiveCategory` (a category that exists only on a split);
+  `saveTransactionSplits` also rewrites the parent and an import undo deletes both. Known limit: a
+  unit change that sets neither stamp
+  (`setTransfer`, `clearTransfer`, `archiveCategory` reassigning a transaction's own category,
+  `revertCategoryBackfill`, the transfer-partner unlink done by an import undo) on a row left by an
+  earlier build of change capture is read as an edit of another column until the next unit write.
+  Removing the last split is handled whenever the child snapshots name their parent
+  (`transaction_id`, recorded since this slice): the deleted child marks its parent as changed. It
+  is only missed when the children's snapshots come from an older build that recorded no
+  `transaction_id`. Only dev databases that enabled capture before this slice can hold such rows.
 - Deletes write a tombstone (`deleted_at` = `row_hlc` = a fresh clock, field clocks kept) and drop
   the snapshot. An entity that never had a meta row was never published and gets nothing. A row
   that exists again after a tombstone restarts as a creation with clean clocks and clears

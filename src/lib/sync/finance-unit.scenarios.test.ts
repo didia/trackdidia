@@ -380,6 +380,148 @@ describe("finance categorization unit: concurrent writes", () => {
     await sim.expectConverged("finance", { snapshots: true, exact: true });
   });
 
+  it("archiving a category that exists only on a split of a pre-unit transaction reaches the other laptop", async () => {
+    const { sim, a, b, alpha } = await twoLaptops();
+    await a.repo.saveFinanceCategory({
+      id: "fincat:temp",
+      name: "Temp",
+      parentId: null,
+      kind: "expense",
+      archived: false,
+      isSystem: false,
+      defersToNextMonth: false,
+      sortOrder: 1,
+      createdAt: "",
+      updatedAt: "",
+    });
+    await a.repo.saveFinanceTransactionSplits(alpha.id, [
+      splitOf(alpha.id, -600, "fincat:temp", "s-1"),
+      splitOf(alpha.id, -400, "fincat:alimentation.restaurants", "s-2"),
+    ]);
+    await sim.syncAll("finance");
+    // Both copies were stamped by an earlier capture build: same row clock, no unit clocks.
+    for (const device of [a, b]) {
+      await device.db.execute(
+        "UPDATE sync_entity_meta SET field_clocks_json = '{}' WHERE entity_type = 'finance_transactions' AND entity_id = $1",
+        [alpha.id],
+      );
+      await device.db.execute(
+        "UPDATE sync_entity_snapshot SET snapshot_json = NULL WHERE entity_type = 'finance_transactions' AND entity_id = $1",
+        [alpha.id],
+      );
+    }
+    const splitCategories = async (device: SyncDevice) =>
+      (
+        await device.db.select<{ id: string; category_id: string }[]>(
+          "SELECT id, category_id FROM finance_transaction_splits ORDER BY id",
+        )
+      ).map((row) => `${row.id}:${row.category_id}`);
+
+    a.clock.advance(60_000);
+    await a.repo.archiveFinanceCategory("fincat:temp", "fincat:alimentation.epicerie");
+    await sim.syncAll("finance");
+    for (const device of [a, b]) {
+      expect(await splitCategories(device)).toEqual([
+        "s-1:fincat:alimentation.epicerie",
+        "s-2:fincat:alimentation.restaurants",
+      ]);
+    }
+
+    // B's later edits of other columns do not put the old categories back, and a repeat exchange
+    // changes nothing.
+    b.clock.advance(60_000);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const current = (await b.repo.getFinanceTransaction(alpha.id)) as NonNullable<
+      Awaited<ReturnType<typeof b.repo.getFinanceTransaction>>
+    >;
+    await b.repo.saveFinanceTransaction({ ...current, notes: "noted at B" });
+    await sim.syncAll("finance");
+    for (const device of [a, b]) {
+      expect(await splitCategories(device)).toEqual([
+        "s-1:fincat:alimentation.epicerie",
+        "s-2:fincat:alimentation.restaurants",
+      ]);
+      expect((await device.repo.getFinanceTransaction(alpha.id))?.notes).toBe("noted at B");
+    }
+    for (const result of await sim.syncAll("finance")) {
+      expect(result).toMatchObject({ applied: 0, tombstonesApplied: 0 });
+    }
+    await sim.expectConverged("finance", { snapshots: true, exact: true });
+  });
+
+  // The parent's updated_at has moved on after the split save (a note edit), so the row carries no
+  // trace that its splits were written with it: only the changed child tells the stamper that the
+  // archive is a unit write.
+  it.each([
+    ["A's bundle first", "a-first"],
+    ["B's bundle first", "b-first"],
+  ] as const)(
+    "archiving a split-only category reaches the other laptop when the parent was edited after the split save (%s)",
+    async (_label, order) => {
+      const { sim, a, b, alpha } = await twoLaptops();
+      await a.repo.saveFinanceCategory({
+        id: "fincat:temp",
+        name: "Temp",
+        parentId: null,
+        kind: "expense",
+        archived: false,
+        isSystem: false,
+        defersToNextMonth: false,
+        sortOrder: 1,
+        createdAt: "",
+        updatedAt: "",
+      });
+      await a.repo.saveFinanceTransactionSplits(alpha.id, [
+        splitOf(alpha.id, -600, "fincat:temp", "s-1"),
+        splitOf(alpha.id, -400, "fincat:alimentation.restaurants", "s-2"),
+      ]);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      a.clock.advance(1_000);
+      const current = (await a.repo.getFinanceTransaction(alpha.id)) as NonNullable<
+        Awaited<ReturnType<typeof a.repo.getFinanceTransaction>>
+      >;
+      await a.repo.saveFinanceTransaction({ ...current, notes: "noted after the splits" });
+      await sim.syncAll("finance");
+      for (const device of [a, b]) {
+        await device.db.execute(
+          "UPDATE sync_entity_meta SET field_clocks_json = '{}' WHERE entity_type = 'finance_transactions' AND entity_id = $1",
+          [alpha.id],
+        );
+        await device.db.execute(
+          "UPDATE sync_entity_snapshot SET snapshot_json = NULL WHERE entity_type = 'finance_transactions' AND entity_id = $1",
+          [alpha.id],
+        );
+      }
+      const splitCategories = async (device: SyncDevice) =>
+        (
+          await device.db.select<{ id: string; category_id: string }[]>(
+            "SELECT id, category_id FROM finance_transaction_splits ORDER BY id",
+          )
+        ).map((row) => `${row.id}:${row.category_id}`);
+
+      a.clock.advance(60_000);
+      await a.repo.archiveFinanceCategory("fincat:temp", "fincat:alimentation.epicerie");
+      if (order === "a-first") {
+        await sim.exchange(a, b, "finance");
+        await sim.exchange(b, a, "finance");
+      } else {
+        await sim.exchange(b, a, "finance");
+        await sim.exchange(a, b, "finance");
+      }
+      await sim.syncAll("finance");
+      for (const device of [a, b]) {
+        expect(await splitCategories(device)).toEqual([
+          "s-1:fincat:alimentation.epicerie",
+          "s-2:fincat:alimentation.restaurants",
+        ]);
+        expect((await device.repo.getFinanceTransaction(alpha.id))?.notes).toBe(
+          "noted after the splits",
+        );
+      }
+      await sim.expectConverged("finance", { snapshots: true, exact: true });
+    },
+  );
+
   it("keeps the unit clocks in the transaction's meta: write, base and protection", async () => {
     const { sim, a, b, alpha } = await twoLaptops();
     const created = clocksOf(await readMetaOf(a.db, "finance_transactions", alpha.id));

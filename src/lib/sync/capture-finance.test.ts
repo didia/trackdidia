@@ -143,6 +143,89 @@ describe("capture of the categorization unit", () => {
     expect(compareHlc(decided.rowHlc, edited.rowHlc)).toBe(-1);
   });
 
+  const tempCategory = {
+    id: "fincat:temp",
+    name: "Temp",
+    parentId: null,
+    kind: "expense" as const,
+    archived: false,
+    isSystem: false,
+    defersToNextMonth: false,
+    sortOrder: 1,
+    createdAt: "",
+    updatedAt: "",
+  };
+
+  it("archiving a category that exists only on a split of a pre-unit row is a unit write, not the old unit with new children", async () => {
+    const { a, alpha } = await oneLaptop();
+    await a.repo.saveFinanceCategory(tempCategory);
+    await a.repo.saveFinanceTransactionSplits(alpha.id, [
+      splitOf(alpha.id, -600, "fincat:temp", "s-1"),
+      splitOf(alpha.id, -400, "fincat:alimentation.restaurants", "s-2"),
+    ]);
+    const split = await unitOf(a, alpha.id);
+    await rewindToPreUnit(a, alpha.id);
+
+    a.clock.advance(60_000);
+    await a.repo.archiveFinanceCategory("fincat:temp", "fincat:alimentation.epicerie");
+    // The parent row did not change (its category is the internal split category) ...
+    expect((await a.repo.getFinanceTransaction(alpha.id))?.categoryId).toBe("fincat:split");
+    // ... but the children did, and the old unit cannot stand for them: a fresh unit clock whose base
+    // is the one derived from the row clock.
+    const after = await unitOf(a, alpha.id);
+    expect(after.clocks.categorization).toBe(after.rowHlc);
+    expect(compareHlc(split.rowHlc, after.rowHlc)).toBe(-1);
+    expect(after.clocks.categorization_base).toBe(split.rowHlc);
+    // The row is a `user` row, so like every unit write of one it protects itself.
+    expect(after.clocks.categorization_user).toBe(after.clocks.categorization);
+    // And the next scan finds nothing to do.
+    const settled = await syncState(a.db);
+    await a.stamp();
+    expect(await syncState(a.db)).toEqual(settled);
+  });
+
+  it("the archive is a unit write even when the parent was edited after the split save (only the changed child tells)", async () => {
+    const { a, alpha } = await oneLaptop();
+    await a.repo.saveFinanceCategory(tempCategory);
+    await a.repo.saveFinanceTransactionSplits(alpha.id, [
+      splitOf(alpha.id, -600, "fincat:temp", "s-1"),
+      splitOf(alpha.id, -400, "fincat:alimentation.restaurants", "s-2"),
+    ]);
+    // The parent's updated_at moves on after the split save: no stamp ties it to the children now.
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    a.clock.advance(1_000);
+    const current = (await a.repo.getFinanceTransaction(alpha.id)) as NonNullable<
+      Awaited<ReturnType<typeof a.repo.getFinanceTransaction>>
+    >;
+    await a.repo.saveFinanceTransaction({ ...current, notes: "noted after the splits" });
+    const before = await unitOf(a, alpha.id);
+    await rewindToPreUnit(a, alpha.id);
+
+    a.clock.advance(60_000);
+    await a.repo.archiveFinanceCategory("fincat:temp", "fincat:alimentation.epicerie");
+    const after = await unitOf(a, alpha.id);
+    expect(after.clocks.categorization).toBe(after.rowHlc);
+    expect(compareHlc(before.rowHlc, after.rowHlc)).toBe(-1);
+    expect(after.clocks.categorization_base).toBe(before.rowHlc);
+  });
+
+  it("a verifying scan of an unchanged pre-unit row with splits still only derives the clocks", async () => {
+    const { a, alpha } = await oneLaptop();
+    await a.repo.saveFinanceTransactionSplits(alpha.id, [
+      splitOf(alpha.id, -600, "fincat:alimentation.epicerie", "s-1"),
+      splitOf(alpha.id, -400, "fincat:alimentation.restaurants", "s-2"),
+    ]);
+    const split = await unitOf(a, alpha.id);
+    await rewindToPreUnit(a, alpha.id);
+    await a.repo.enableSyncCapture();
+    const derived = await unitOf(a, alpha.id);
+    expect(derived.rowHlc).toBe(split.rowHlc);
+    expect(derived.clocks).toEqual({
+      categorization: split.rowHlc,
+      categorization_user: split.rowHlc,
+    });
+  });
+
   it("a categorization of a row stamped before the unit existed is still a unit write", async () => {
     const { a, alpha } = await oneLaptop();
     const created = await unitOf(a, alpha.id);

@@ -389,6 +389,8 @@ const stampTableMarks = async (
   issuer: HlcBatch,
   /** Collects the transactions whose splits changed (only for the splits table). */
   parents?: Set<string>,
+  /** The transactions whose splits changed in this pass (only for the transactions table). */
+  changedChildren?: ReadonlySet<string>,
 ): Promise<number> => {
   const { primaryKey } = getTableRegistration(table);
   const codec = buildEntityCodec(table, live.columns);
@@ -503,6 +505,7 @@ const stampTableMarks = async (
         const stamp = await stampTransaction({
           row,
           children: splitsOf.get(id) ?? [],
+          childChanged: changedChildren?.has(id) === true,
           rowHash: hash,
           meta: liveMeta,
           snapshot,
@@ -681,6 +684,8 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
           typeMarks,
           assertRegistryMatchesSchema(type, schemaCache.get(type)),
           issuer,
+          undefined,
+          type === FINANCE_TRANSACTIONS ? parents : undefined,
         );
       }
       // Any other entity type is not captured here; the mark is dropped below.
