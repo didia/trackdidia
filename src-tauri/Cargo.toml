@@ -34,6 +34,10 @@ sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runti
 keyring = "3"
 # Device id generation (src-tauri/src/device_id.rs); already in the lockfile transitively.
 uuid = { version = "1", features = ["v4"] }
+# Folder sync (src-tauri/src/sync_folder.rs): SHA-256 of published bundles and base64 transfer of
+# bundle bytes over IPC. Both are already in the lockfile transitively at these versions.
+sha2 = "0.10"
+base64 = "0.22"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }

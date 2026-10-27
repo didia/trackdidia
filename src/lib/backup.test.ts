@@ -2,6 +2,7 @@ import { defaultAppSettings } from "../domain/daily-entry";
 import {
   BACKUP_RETENTION_COUNT,
   buildBackupFileName,
+  deviceBackupTag,
   isAutoBackupDue,
   isBackupDestinationConfigured,
   isBackupDestinationMissing,
@@ -24,6 +25,31 @@ describe("backup helpers", () => {
     expect(buildBackupFileName("2026-03-31T10:15:22.456Z", "manual")).toBe(
       "trackdidia-manual-backup-2026-03-31T10-15-22-456Z.db",
     );
+  });
+
+  it("adds the device tag to the filename only when a device id is passed", () => {
+    const deviceId = "dev:3f1c0b9c-6a3f-4b8e-9d2a-1f2e3d4c5b6a";
+    expect(deviceBackupTag(deviceId)).toBe("3f1c0b9c");
+    expect(buildBackupFileName("2026-03-31T10:15:22.456Z", "auto", deviceId)).toBe(
+      "trackdidia-auto-backup-3f1c0b9c-2026-03-31T10-15-22-456Z.db",
+    );
+    expect(buildBackupFileName("2026-03-31T10:15:22.456Z", "auto", undefined)).toBe(
+      buildBackupFileName("2026-03-31T10:15:22.456Z", "auto"),
+    );
+  });
+
+  it("refuses a device id that is not a device id, so a name can never traverse", () => {
+    for (const bad of [
+      "",
+      "../../etc/passwd",
+      "dev:../../../x",
+      "dev:3f1c0b9c/../-6a3f-4b8e-9d2a-1f2e3d4c5b6a",
+      "dev:3f1c0b9c-6a3f-1b8e-9d2a-1f2e3d4c5b6a",
+      "DEV:3f1c0b9c-6a3f-4b8e-9d2a-1f2e3d4c5b6a",
+    ]) {
+      expect(() => buildBackupFileName("2026-03-31T10:15:22.456Z", "manual", bad)).toThrow();
+      expect(() => deviceBackupTag(bad)).toThrow();
+    }
   });
 
   it("keeps a 30-file retention cap", () => {

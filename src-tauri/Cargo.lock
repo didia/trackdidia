@@ -4934,6 +4934,7 @@ dependencies = [
 name = "trackdidia"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "futures-util",
  "keyring",
  "objc2",
@@ -4941,6 +4942,7 @@ dependencies = [
  "reqwest 0.12.28",
  "serde",
  "serde_json",
+ "sha2",
  "sqlx",
  "tauri",
  "tauri-build",

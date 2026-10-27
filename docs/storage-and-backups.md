@@ -1405,9 +1405,10 @@ the harness gives each simulated laptop its own.
 
 `src/lib/sync/sync-engine.ts` is the orchestration layer of multi-laptop sync: pull, then merge and
 apply through `applySyncBundle`, then publish through `readSyncSnapshot` (`listSyncChanges` plus the covered counter). **Sync is still not
-user-enabled and no transport exists yet.** There is no folder transport, bundle file format, Rust
-command, setting, UI or startup step: the engine is constructed only by tests, against the
-in-memory folders of `src/lib/sync/test-support/memory-transport.ts`. The `work` device profile is
+user-enabled and no transport exists yet.** There is no folder transport, bundle file format,
+setting, UI or startup step: the engine is constructed only by tests, against the in-memory folders
+of `src/lib/sync/test-support/memory-transport.ts`. The native folder commands it will use exist
+([Sync folder commands](#sync-folder-commands)) but nothing calls them. The `work` device profile is
 enforced by the engine but is not selectable anywhere.
 
 **Modules.** `sync-engine.ts` (the `SyncEngine` class and `createSyncEngine`), `engine-pull.ts`,
@@ -1594,6 +1595,157 @@ function of the seed; ids the repository mints itself (finance transactions, imp
 sessions) and real-clock timestamps are not, so a failure reproduces in shape, with the printed seed and
 operation log.
 
+### Sync folder commands
+
+`src-tauri/src/sync_folder.rs` (with `sync_folder/folder.rs`, `publish.rs`, `peers.rs`) is the native
+half of the folder protocol: four commands registered in `main.rs` and wrapped by
+`src/lib/sync/folder-api.ts`. **Nothing calls them yet**: there is no folder transport, setting, UI
+or startup step, so sync still reads and writes no folder. They are in-app commands, so like
+`ensure_backup_dir` they need no Tauri capability entry.
+
+**Path discipline (mirrors `backup.rs`).** Every command takes the user-chosen folder root, a
+`role` (`gtd` or `personal`), an `environment` (`development` or `production`) and, where relevant,
+device ids. Never a path inside the folder, a file name, or any other path. Device ids are
+validated with the `device_id.rs` rule (`dev:` + lowercase UUID v4), so one can never contain a path
+separator or `..`. Everything is built from `<root>/<sync|sync-dev>/dev-<uuid>/`; development builds
+use `sync-dev/` and production `sync/`, exactly like `backups-dev/` and `backups/`.
+
+**Device directory name.** The directory is the device id with `dev:` spelled `dev-`
+(`dev:3f1c...` is `dev-3f1c...`), built and parsed only by `device_dir_name` /
+`device_id_from_dir_name` in `sync_folder.rs`. A colon is illegal in Windows file names, Finder shows
+it as `/`, and Drive for desktop may rename or skip such names, and changing the layout after anything
+ships is expensive. The manifest's `deviceId` stays `dev:<uuid>`. Listing and reading map the
+directory name to the id, and the manifest's `deviceId` must equal that mapped id. The parse is
+strict (exactly `dev-` plus a lowercase UUID v4); anything else, including a `dev:<uuid>` directory,
+is an invalid entry reported in `ignored`. **This deliberately differs from the spec text**
+(`specs/todo/multi-laptop-sync.md`, "Folder protocol", which writes `<deviceId>/`); the spec's tree is
+updated in the final documentation slice. The root must
+already exist: an unmounted Google Drive path is `folder_not_found`, and no command ever creates it
+(or any parent). The root is canonicalized once (a `~/Google Drive` symlink is followed there);
+inside the sync directory symlinks (device directories, manifests, bundles) are never followed.
+
+**Roles and the marker.** A role decides which domains a folder may hold: `gtd` accepts only the
+`gtd` domain, `personal` accepts `personal` and `finance`. Any other pair is `domain_not_allowed`,
+checked before anything is written, so a `personal` bundle cannot be written into the shared GTD
+folder by passing the wrong role. `sync_prepare_folder(folderDir, role, environment,
+otherFolderDir?)` is the configuration-time call. It writes `.trackdidia-folder-role`
+(`{"role": "gtd", "formatVersion": 1}`) at the root (temp file, fsync, rename; never over an
+existing marker), creates `sync/` or `sync-dev/`, and refuses (`role_mismatch` / `nested_folder`,
+writing nothing) a folder that:
+
+- already carries the OTHER role's marker, or an unreadable/unknown marker (never overwritten);
+- is to be the `gtd` folder and contains `backups/` or `backups-dev/` (it looks like the personal
+  backup folder, whose database copies hold everything);
+- is nested with the other role's folder: the same folder or a path prefix of `otherFolderDir`
+  (compared canonically when the other folder exists, lexically when it is unmounted), a folder of
+  the other role found by marker in any ancestor, or one directly beneath it.
+
+The other three commands re-check the cheap parts on every call: the root exists, carries THIS
+role's marker (a never-prepared folder is `folder_not_prepared`, so nothing is written into an
+unchecked folder) and, for `gtd`, still has no `backups/`. A user who later points the backup
+destination at the shared GTD folder therefore stops publishing instead of silently sharing backups.
+
+**Publish.** `sync_publish(folderDir, role, environment, deviceId, domain, bundleBase64, rows,
+manifestJson)` writes, in `<sync>/dev-<uuid>/`:
+
+1. `<domain>-<generation>.bundle.partial`, fsync, rename to `<domain>-<generation>.bundle`, then a
+   directory flush so the bundle's name is durable before the manifest can be;
+2. `manifest.json.partial`, fsync, rename to `manifest.json`: the manifest is written LAST and is the
+   commit point, then another directory flush;
+3. housekeeping that can never fail the publish: keep this domain's new generation and the
+   previously COMMITTED one (a reader mid-download of the old one does not lose it; with no readable
+   previous manifest, the newest older bundle on disk), delete every other bundle of the domain
+   (orphans of crashed publishes and older generations) and any leftover `.partial` of ours. A
+   deletion that fails is returned as a warning.
+
+The manifest is built and size-checked (1 MiB) BEFORE the bundle is written, so a refused manifest
+(`too_large`) leaves no orphan bundle behind. A device directory holding more than 2000 files refuses
+the publish (`io`) rather than guessing generations from a truncated listing.
+
+Leftover partials are removed before being recreated and the new one is created exclusively, so a
+write can never follow a planted symlink. Rust owns the generation: the previous generation of this
+domain in the device's manifest, or the highest `<domain>-<n>.bundle` already on disk (an orphan from
+a publish that crashed before its manifest), plus one, so a name a peer may be reading is never
+reused. Rust computes `sha256` and `bytes` of the stored bundle and writes the per-domain entry
+`{generation, file, sha256, bytes, rows}`, MERGED into the device's existing manifest, so publishing
+`gtd` keeps an earlier `personal` entry. `manifestJson` carries everything else (`deviceName`,
+`schemaVersion`, `profile`, ...) and its `deviceId` must equal the `deviceId` argument
+(`device_id_invalid`); any `domains` in it is discarded. A crash between the bundle and the
+manifest leaves the previous manifest valid and its bundle intact. A directory flush the volume does
+not support is a warning (`directory_sync_failed`), not an error: a cloud-synced folder may not
+implement it, and the reader's `bytes`/`sha256` check, not the flush, is what keeps a manifest that
+outlived its bundle from ever being applied.
+
+**Publish lock and timeouts.** Publishes to one device directory are serialized by an in-process lock
+held for the whole publish (no lock file: it would sync to Drive and survive a crash). All four
+commands run their blocking I/O on the blocking thread pool under a timeout (prepare and list 20 s,
+read and publish 45 s) and reject with `timeout` instead of hanging on an online-only Drive file. A
+timed-out call cannot be interrupted: a read stays blocked in its thread until the OS returns, and a
+publish that was already running finishes underneath, which is why the lock exists. A publish whose
+caller timed out while it was still WAITING for the lock never starts; `sync_prepare_folder` behaves
+the same behind its own lock (a queued prepare that timed out writes no marker and creates no
+`sync/`). After a `timeout` the caller
+cannot know whether a publish committed; the next `sync_list_peers` shows it in `own`.
+
+**List.** `sync_list_peers(folderDir, role, environment, ownDeviceId)` returns `{peers, own,
+ignored}`. `peers` are the other devices' manifests, sorted by device id; `own` is this device's own
+manifest (its generations, so a transport needs no fifth command). A missing `sync/` directory is an
+empty result. Nothing under `sync/` is trusted and nothing is an error: a directory whose name is not
+a valid device id (a Drive "(1)" copy), a non-directory, a symlink, an unreadable, non-JSON,
+non-object or oversized (over 1 MiB) manifest, a manifest whose `deviceId` differs from its directory,
+or a `manifest (1).json` conflict copy is skipped and listed in `ignored: [{path, reason}]` (paths
+relative to the sync directory, at most 100 reported). `.partial` files and dotfiles are skipped
+silently. In a returned manifest, `domains` entries the role does not allow, or that are not exactly
+`{generation, file, sha256, bytes, rows}` with `file == "<domain>-<generation>.bundle"`, are REMOVED
+and reported (`domain_not_allowed`, `invalid_domain_entry`); the engine still filters, this is
+defense in depth.
+
+**Read.** `sync_read_bundle(folderDir, role, environment, ownDeviceId, peerDeviceId, domain)` reads
+the peer's manifest again in Rust and takes the file name from it (the webview never supplies one;
+a manifest naming any other file is invalid). The peer directory must be a real direct child of the
+sync directory and the bundle a regular file inside it (a symlink, FIFO or device node is refused:
+opening a FIFO would block forever). Size must equal the manifest's `bytes` and the SHA-256 its
+`sha256`. The result is `{status: "ok", bytesBase64, generation, sha256, bytes, rows}`, or
+`{status: "notReady", reason}` for a missing peer directory, manifest, domain or file, a size or
+hash mismatch (`size_mismatch`, `hash_mismatch`), i.e. a download Drive has not finished. Only an
+unreachable or unprepared folder, a refused request, `too_large` or `timeout` is an error. The
+generation and sha returned are those of the manifest read at that moment, which can be newer than
+the one the caller listed.
+
+**Errors** are `{code, message}`: `folder_not_found`, `folder_not_prepared`, `role_mismatch`,
+`nested_folder`, `domain_not_allowed`, `device_id_invalid`, `too_large`, `timeout`, `io`,
+`invalid_argument` (unknown role/environment, bad base64 or manifest JSON). `folder-api.ts` turns
+them into `SyncFolderError` with the same `code`.
+
+**Limits and IPC encoding.** Rust treats a bundle as opaque bytes; it never decodes one. Bytes cross
+the IPC boundary as base64 text inside the JSON message (simple, testable, one encoding in both
+directions), about 4/3 of the bundle size, and the webview holds the string, the decoded bytes and
+its parsed copy at once, so peak memory is several times the bundle. The cap is 64 MiB per bundle
+(`MAX_BUNDLE_BYTES`; real bundles are on the order of a megabyte), manifests are capped at 1 MiB, the
+marker at 4 KiB, directory scans at 2000 entries. Dependencies: `sha2` and `base64`, both already in
+the lockfile transitively.
+
+**Known limits and obligations for later slices.**
+
+- The settings slice must ALWAYS pass the configured backup destination as `otherFolderDir` when
+  preparing the shared GTD folder (and the GTD folder when preparing the personal one): the nesting
+  check by path only exists when the other folder is given.
+- `prune_backups` must receive the device id whenever `buildBackupFileName` does; a tagged file name
+  pruned without the id would never be selected (and the legacy group would never shrink).
+- Publish serialization is an in-process lock. Two app processes with the same device identity would
+  not exclude each other; `tauri-plugin-single-instance` is needed before any Windows or Linux build
+  (macOS launches one instance per app bundle).
+- CI (`.github/workflows/ci.yml`) runs `cargo check` and `cargo clippy` but never `cargo test`, so the
+  Rust tests described here run only locally (`npm run verify:all` does not run them either).
+- Directory scans stop at 2000 entries (listing reports `too_many_entries`).
+
+**Tests.** Rust unit tests in `sync_folder/tests.rs` (temp directories only) cover path building and
+dev/prod separation, device id and traversal refusals, symlinks, partial leftovers, the manifest-last
+crash window, manifest merge, generation pruning, hash/size mismatch, an unmounted root creating
+nothing, the marker rules, the role/domain matrix, conflict copies, size caps, concurrent and queued
+publishes and the read timeout path; `src/lib/sync/folder-api.test.ts` covers the wrappers and error
+mapping with a mocked `invoke`.
+
 ### Legacy email triage tables (unused)
 
 The email triage feature was removed (see [LLM bridge](llm-bridge.md) for the replacement),
@@ -1691,9 +1843,25 @@ VACUUM INTO '<absolute backup path>'
    Manual and automatic snapshots share the same cap. Sort uses the timestamp in the
    filename so mixed kinds stay chronological. A prune failure does not fail the
    backup or block `lastBackupAt`; undeletable files are skipped and logged.
+   Retention is counted per group (see below); today there is only the legacy group.
 
 This creates a self-contained SQLite snapshot without copying live WAL files.
 Filenames contain the backup kind (`manual` or `auto`) and a sanitized timestamp.
+
+**Per-device names (optional, not used yet).** `buildBackupFileName(createdAt, kind, deviceId?)` in
+`src/lib/backup.ts` and the `prune_backups` command accept an optional device id, so two laptops
+backing up into one `backups/` do not prune each other's snapshots. With a device id the name is
+`trackdidia-(manual|auto)-backup-<deviceTag>-<timestamp>.db`, where `<deviceTag>` is the first eight
+hex digits of the id's UUID (`dev:3f1c0b9c-...` gives `3f1c0b9c`; the id is validated first, so a tag
+can never hold a path separator). A legacy timestamp starts with a year (`2026-...`), so the two forms
+are never confused, and `is_backup_file_name` recognizes both. Retention is 30 files per group: each
+tagged device keeps its own 30, the legacy untagged files form their own group, and a prune only ever
+selects files of ITS group. A device never prunes another device's files, a caller without a device id
+(every caller today) never touches tagged files, and a tagged caller never touches legacy files (they
+cannot be attributed to a device). **Nothing passes a device id yet**: `createBackup` is unchanged, so
+shipped backup behavior (names, one 30-file cap) is identical until a later sync slice wires the id in.
+Two devices sharing a tag would share a group (about a one-in-four-billion chance); nothing else
+would go wrong.
 
 Backups include all AI tables (`ai_messages`, `ai_proposals`, `ai_memories`) plus
 settings JSON (OpenRouter and RescueTime keys). Distilled personal statements in
@@ -1725,8 +1893,8 @@ in browser preview. The backup-directory card shows the resolved environment
 subdirectory, or "Mode preview" in browser preview.
 
 Native helpers: `ensure_backup_dir` and `prune_backups` in `src-tauri/src/backup.rs`
-both take the chosen destination and environment; they do not accept an arbitrary
-path. Folder picking uses `tauri-plugin-dialog`.
+both take the chosen destination and environment (`prune_backups` also an optional device id);
+they do not accept an arbitrary path. Folder picking uses `tauri-plugin-dialog`.
 
 ## Recovery
 
@@ -1736,7 +1904,7 @@ There is no restore UI. Recovery is currently an operator/manual action:
 2. Preserve the current database and any `-wal`/`-shm` files before changing them.
 3. Choose a verified backup from the matching environment subdirectory of the
    configured destination (`backups/` or `backups-dev/`). At most 30 snapshots are
-   kept there.
+   kept there (per device once per-device names are in use).
 4. Replace the matching environment database file with a copy of that backup.
 5. Restart the application and verify entries, tasks, and settings.
 

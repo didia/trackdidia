@@ -10,6 +10,7 @@ mod oauth_loopback;
 mod pomodoro_alarm;
 mod provider_http;
 mod storage_paths;
+mod sync_folder;
 mod vault;
 
 use serde::Serialize;
@@ -60,6 +61,10 @@ fn main() {
             device_id::sync_device_id,
             backup::ensure_backup_dir,
             backup::prune_backups,
+            sync_folder::sync_prepare_folder,
+            sync_folder::sync_publish,
+            sync_folder::sync_list_peers,
+            sync_folder::sync_read_bundle,
             db::db_connect,
             db::db_execute,
             db::db_select,

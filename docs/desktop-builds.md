@@ -122,7 +122,8 @@ The Rust host registers:
 - `tauri-plugin-autostart` (optional launch-at-login, Settings → Application de bureau);
 - system tray (`tray-icon` feature) for the optional hide-on-close tray, so the [LLM bridge](llm-bridge.md#keeping-the-app-running) keeps answering;
 - the custom `resolve_storage_paths` command;
-- the custom `ensure_backup_dir` and `prune_backups` commands;
+- the custom `ensure_backup_dir` and `prune_backups` commands, and the `sync_*` folder commands
+  (`sync_folder.rs`, not called by the app yet);
 - the custom `provider_http_request`, `oauth_loopback_start`, and `oauth_loopback_wait`
   commands (Google Calendar OAuth and provider HTTP, including OpenRouter and RescueTime, from the Rust host);
 - the custom `db_connect`, `db_execute`, and `db_select` commands (`src-tauri/src/db.rs`),

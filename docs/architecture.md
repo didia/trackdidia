@@ -333,6 +333,9 @@ The Rust host is intentionally small:
 - expose `resolve_storage_paths`, `ensure_backup_dir`, and `prune_backups`;
 - expose `sync_device_id`, the per-installation device id file beside the database (see
   [Storage and backups](storage-and-backups.md#application-data-paths));
+- expose the four `sync_*` folder commands (`sync_prepare_folder`, `sync_publish`,
+  `sync_list_peers`, `sync_read_bundle`) in `sync_folder.rs`, not called by the app yet (see
+  [Sync folder commands](storage-and-backups.md#sync-folder-commands));
 - when the user enables it, run the loopback MCP transport in `llm_bridge.rs`
   (`llm_bridge_configure`, `llm_bridge_respond`) and forward tool calls to the webview.
   See [LLM bridge](llm-bridge.md).
