@@ -5,7 +5,9 @@ import { useAsyncResource } from "../app/use-latest-request";
 import { FinanceTabs } from "../components/finance/FinanceTabs";
 import { PageHeader } from "../components/PageHeader";
 import { SectionCard } from "../components/SectionCard";
+import { FinanceCreditPaymentLine } from "../components/finance/FinanceCreditPaymentLine";
 import { addMonthsToMonthKey } from "../domain/finance/budget";
+import { computeFinanceCreditPaymentDue } from "../domain/finance/credit-payment";
 import type { FinanceAccount, FinanceCategory, FinanceRecurringSeries } from "../domain/finance";
 import type { FinanceCashFlowSummary } from "../domain/finance/cash-flow";
 import type { FinanceAlert, FinanceAlertSeverity } from "../domain/finance/forecast";
@@ -595,6 +597,11 @@ export const FinanceOverviewPage = () => {
                 return null;
               }
               const accountFreshness = accountFreshnessById.get(account.id);
+              const creditPayment = computeFinanceCreditPaymentDue(
+                account,
+                line.balanceMinor,
+                today,
+              );
               return (
                 <article
                   key={account.id}
@@ -627,6 +634,13 @@ export const FinanceOverviewPage = () => {
                           })}
                         </span>
                       </div>
+                    ) : null}
+                    {creditPayment ? (
+                      <FinanceCreditPaymentLine
+                        due={creditPayment}
+                        currency={line.currency}
+                        testId={`finance-account-payment-${account.id}`}
+                      />
                     ) : null}
                   </div>
                   <span

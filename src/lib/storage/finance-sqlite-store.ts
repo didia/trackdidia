@@ -148,6 +148,8 @@ interface AccountRow {
   balance_as_of: string | null;
   external_key: string | null;
   update_cadence_days: number | null;
+  payment_due_day: number | null;
+  minimum_payment_minor: number | null;
   notes: string | null;
   sort_order: number;
   created_at: string;
@@ -169,6 +171,8 @@ const mapAccount = (row: AccountRow): FinanceAccount => ({
   balanceAsOf: row.balance_as_of,
   externalKey: row.external_key,
   updateCadenceDays: row.update_cadence_days,
+  paymentDueDay: row.payment_due_day,
+  minimumPaymentMinor: row.minimum_payment_minor,
   notes: row.notes,
   sortOrder: row.sort_order,
   createdAt: row.created_at,
@@ -587,10 +591,17 @@ export class FinanceSqliteStore {
     const now = nowIso();
     const id = account.id || createEntityId("finance-account");
     const [existing] = await db.select<
-      { opening_balance_minor: number; update_cadence_days: number | null }[]
-    >("SELECT opening_balance_minor, update_cadence_days FROM finance_accounts WHERE id = $1", [
-      id,
-    ]);
+      {
+        opening_balance_minor: number;
+        update_cadence_days: number | null;
+        payment_due_day: number | null;
+        minimum_payment_minor: number | null;
+      }[]
+    >(
+      `SELECT opening_balance_minor, update_cadence_days, payment_due_day, minimum_payment_minor
+        FROM finance_accounts WHERE id = $1`,
+      [id],
+    );
     if (existing && existing.opening_balance_minor !== account.openingBalanceMinor) {
       // A hand-edited opening balance supersedes the statement anchor; keeping the anchor would
       // silently revert the edit on the next transaction write.
@@ -603,8 +614,9 @@ export class FinanceSqliteStore {
       `INSERT INTO finance_accounts (
         id, name, institution, type, currency, owner_person_id, ownership, on_budget, closed,
         opening_balance_minor, current_balance_minor, balance_as_of, external_key, notes,
-        sort_order, created_at, updated_at, update_cadence_days
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+        sort_order, created_at, updated_at, update_cadence_days, payment_due_day,
+        minimum_payment_minor
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         institution = excluded.institution,
@@ -621,6 +633,8 @@ export class FinanceSqliteStore {
         notes = excluded.notes,
         sort_order = excluded.sort_order,
         update_cadence_days = excluded.update_cadence_days,
+        payment_due_day = excluded.payment_due_day,
+        minimum_payment_minor = excluded.minimum_payment_minor,
         updated_at = excluded.updated_at`,
       [
         id,
@@ -644,6 +658,12 @@ export class FinanceSqliteStore {
         account.updateCadenceDays === undefined
           ? (existing?.update_cadence_days ?? null)
           : account.updateCadenceDays,
+        account.paymentDueDay === undefined
+          ? (existing?.payment_due_day ?? null)
+          : account.paymentDueDay,
+        account.minimumPaymentMinor === undefined
+          ? (existing?.minimum_payment_minor ?? null)
+          : account.minimumPaymentMinor,
       ],
     );
     const rows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts WHERE id = $1", [

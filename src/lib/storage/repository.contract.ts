@@ -3570,6 +3570,47 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ]);
       });
 
+      it("persists a credit payment due day and minimum, and clears them with explicit nulls", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(
+          account({ type: "credit_card", paymentDueDay: 15, minimumPaymentMinor: 4_500 }),
+        );
+        expect(saved).toMatchObject({ paymentDueDay: 15, minimumPaymentMinor: 4_500 });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, paymentDueDay: 15, minimumPaymentMinor: 4_500 }),
+        ]);
+
+        await repository.saveFinanceAccount({
+          ...saved,
+          paymentDueDay: null,
+          minimumPaymentMinor: null,
+        });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, paymentDueDay: null, minimumPaymentMinor: null }),
+        ]);
+
+        const plain = await repository.saveFinanceAccount(account({ id: "account-plain" }));
+        expect(plain.paymentDueDay ?? null).toBeNull();
+        expect(plain.minimumPaymentMinor ?? null).toBeNull();
+      });
+
+      it("keeps the stored payment due day and minimum when a save omits them", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(
+          account({ type: "line_of_credit", paymentDueDay: 28, minimumPaymentMinor: 2_000 }),
+        );
+        const { paymentDueDay: _day, minimumPaymentMinor: _minimum, ...withoutPayment } = saved;
+        await repository.saveFinanceAccount({ ...withoutPayment, name: "Renommé" });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({
+            id: saved.id,
+            name: "Renommé",
+            paymentDueDay: 28,
+            minimumPaymentMinor: 2_000,
+          }),
+        ]);
+      });
+
       it("returns the newest transaction date per account in one read", async () => {
         const repository = await factory();
         const first = await repository.saveFinanceAccount(account({ id: "account-a" }));

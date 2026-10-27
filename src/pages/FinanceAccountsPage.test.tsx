@@ -207,4 +207,135 @@ describe("FinanceAccountsPage", () => {
       }),
     );
   });
+  it("saves, rejects and clears a credit card's payment due day and minimum", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = new Date().toISOString();
+    await repository.saveFinanceAccount({
+      id: "finance-account:visa",
+      name: "Visa",
+      institution: null,
+      type: "credit_card",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: -150_000,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceAccountsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    // The fields belong to the form, whatever the type: a card has them, a savings account does not.
+    await user.click(await screen.findByText("Modifier"));
+    const dueDayInput = screen.getByLabelText("Jour d'échéance du paiement (1–31)");
+    const minimumInput = screen.getByLabelText("Paiement minimum");
+
+    await user.type(dueDayInput, "32");
+    await user.click(screen.getByText("Enregistrer le compte"));
+    expect(await screen.findByText(/Jour d'échéance invalide/)).toBeInTheDocument();
+
+    await user.clear(dueDayInput);
+    await user.type(dueDayInput, "15");
+    await user.type(minimumInput, "-5");
+    await user.click(screen.getByText("Enregistrer le compte"));
+    expect(await screen.findByText(/Paiement minimum invalide/)).toBeInTheDocument();
+
+    await user.clear(minimumInput);
+    await user.click(screen.getByText("Enregistrer le compte"));
+    await waitFor(async () =>
+      expect((await repository.listFinanceAccounts())[0]).toMatchObject({
+        paymentDueDay: 15,
+        minimumPaymentMinor: null,
+      }),
+    );
+    // Without a stored minimum the list shows an estimate: 3 % of 1 500,00 $ owed.
+    expect(
+      await screen.findByTestId("finance-account-payment-finance-account:visa"),
+    ).toHaveTextContent("Minimum estimé : 45,00 $");
+
+    await user.click(await screen.findByText("Modifier"));
+    await user.type(screen.getByLabelText("Paiement minimum"), "60");
+    await user.click(screen.getByText("Enregistrer le compte"));
+    await waitFor(async () =>
+      expect((await repository.listFinanceAccounts())[0]).toMatchObject({
+        paymentDueDay: 15,
+        minimumPaymentMinor: 6_000,
+      }),
+    );
+    expect(
+      await screen.findByTestId("finance-account-payment-finance-account:visa"),
+    ).toHaveTextContent("Minimum : 60,00 $");
+
+    await user.click(await screen.findByText("Modifier"));
+    await user.clear(screen.getByLabelText("Jour d'échéance du paiement (1–31)"));
+    await user.clear(screen.getByLabelText("Paiement minimum"));
+    await user.click(screen.getByText("Enregistrer le compte"));
+    await waitFor(async () =>
+      expect((await repository.listFinanceAccounts())[0]).toMatchObject({
+        paymentDueDay: null,
+        minimumPaymentMinor: null,
+      }),
+    );
+    expect(
+      screen.queryByTestId("finance-account-payment-finance-account:visa"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("hides the payment fields for non-credit accounts and clears them on a type change", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = new Date().toISOString();
+    await repository.saveFinanceAccount({
+      id: "finance-account:visa",
+      name: "Visa",
+      institution: null,
+      type: "credit_card",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      paymentDueDay: 20,
+      minimumPaymentMinor: 3_000,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceAccountsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    expect(screen.queryByLabelText("Paiement minimum")).not.toBeInTheDocument();
+    await user.click(await screen.findByText("Modifier"));
+    expect(screen.getByLabelText("Jour d'échéance du paiement (1–31)")).toHaveValue(20);
+
+    await user.selectOptions(screen.getByLabelText("Type"), "savings");
+    expect(screen.queryByLabelText("Paiement minimum")).not.toBeInTheDocument();
+    await user.click(screen.getByText("Enregistrer le compte"));
+    await waitFor(async () =>
+      expect((await repository.listFinanceAccounts())[0]).toMatchObject({
+        type: "savings",
+        paymentDueDay: null,
+        minimumPaymentMinor: null,
+      }),
+    );
+  });
 });

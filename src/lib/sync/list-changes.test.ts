@@ -254,7 +254,7 @@ describe("listSyncChanges: shape and consistency", () => {
         formatVersion: 1,
         domain,
         deviceId: a.deviceId,
-        schemaVersion: 43,
+        schemaVersion: 44,
       });
     }
     const gtd = await a.repo.listSyncChanges("gtd");

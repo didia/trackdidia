@@ -908,6 +908,11 @@
   font-size: 0.85rem;
 }
 
+.finance-payment--soon {
+  color: var(--fin-negative);
+  font-weight: 600;
+}
+
 .finance-row__status {
   display: flex;
   flex-wrap: wrap;

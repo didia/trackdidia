@@ -58,7 +58,9 @@ ISO strings from `nowIso()`.
   `line_of_credit`, `loan`, `mortgage`, `investment`, `asset`, `other`), `currency`,
   `on_budget`, `closed`, `opening_balance_minor`, and a nullable unique
   `external_key` binding an imported file's account label to this account, plus a nullable
-  `update_cadence_days` (how often its data should be refreshed; see "Account update tracking").
+  `update_cadence_days` (how often its data should be refreshed; see "Account update tracking"),
+  plus nullable `payment_due_day` and `minimum_payment_minor` for credit cards and lines of
+  credit (see "Credit payment due date and minimum").
   Balances are always **derived** (`opening_balance_minor` + Σ transactions);
   `current_balance_minor` is a reconciliation check only.
 - **`finance_categories`** — `kind` (`expense` | `income` | `transfer` | `internal`),
@@ -544,6 +546,10 @@ there is no hard delete) and accounts (`finance_accounts`: name, institution,
 type, currency, owner person, ownership, on-budget toggle, opening balance as
 of a date, an optional manual balance for reconciliation, close/reopen).
 
+A `credit_card` or `line_of_credit` account also shows two extra fields in the form, "Jour
+d'échéance du paiement (1–31)" and "Paiement minimum" (see "Credit payment due date and
+minimum"); the list line under the balance shows the next due date and minimum.
+
 Each account's derived balance (opening balance + Σ its transactions) is
 computed by the pure `computeDerivedBalanceMinor` in
 `src/domain/finance/account-balance.ts` (tested directly, no repository
@@ -841,6 +847,38 @@ on SQLite, a single pass in memory — never a table scan per account) and
 `repository.contract.ts`. A quiet account that is
 genuinely current but had no activity for a cadence still shows as due until a statement is
 applied — give it a longer cadence if that is the usual rhythm.
+
+### Credit payment due date and minimum
+
+Credit cards and lines of credit can carry the day of the month their payment is due, so the
+screens say when to pay and how much at least. Both values are optional account fields edited on
+`/finances/accounts` (only shown for those two types; saving the account as another type clears
+them), stored in `finance_accounts.payment_due_day` (whole day 1–31) and
+`finance_accounts.minimum_payment_minor` (positive minor units), migration 44, both nullable with
+no backfill — an existing account shows nothing until the user opts in. `saveFinanceAccount`
+keeps the stored values when a caller omits the fields (`undefined`); only an explicit `null`
+clears them, as for the update cadence.
+
+Rules (pure, `src/domain/finance/credit-payment.ts`, tested directly):
+
+- **Opt-in**: `computeFinanceCreditPaymentDue(account, balanceMinor, today)` returns `null` for
+  other account types, closed accounts, and accounts with neither a valid due day nor a stored
+  minimum. A stored value outside the allowed range is ignored, not mis-read.
+- **Next due date**: the due day this month if it is today or later, otherwise next month. A day
+  past the end of a short month (31 in April, 30 in February) lands on that month's last day.
+  Today counts as due today (`daysUntil = 0`).
+- **Amount owed** is the derived balance's negative part (`max(0, -balance)`); a zero or positive
+  balance owes nothing and the minimum is `0` ("Aucun solde à payer").
+- **Minimum**: the stored value when set, capped at what is owed. When blank it is **inferred** as
+  `max(10.00, 3 % of the balance owed)` rounded up to a minor unit and never above the balance
+  (`inferMinimumPaymentMinor`; the floor scales with the currency's exponent). This is a typical
+  Canadian card rule, not the issuer's figure, so it is labelled "Minimum estimé" until the user
+  types the real one from the statement. It is not read from imported statements.
+- **Soon**: when something is owed and the due date is within 7 days the line is highlighted.
+
+`FinanceCreditPaymentLine` renders "Échéance le … (dans N jours) · Minimum estimé : …" under the
+account on `/finances/accounts` and in the account rows of the `/finances` overview. Nothing is
+stored per payment — the app does not know whether a payment was made, only the current balance.
 
 ### Category management (`/finances/categories`)
 

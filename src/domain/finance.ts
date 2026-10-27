@@ -74,6 +74,10 @@ export interface FinanceAccount {
   externalKey: string | null;
   /** Days between expected data updates; null/absent falls back to weekly (on-budget) or monthly. */
   updateCadenceDays?: number | null;
+  /** Day of the month (1–31) a credit card / line of credit payment is due; null/absent = unset. */
+  paymentDueDay?: number | null;
+  /** Minimum payment in minor units; null/absent = infer it from the balance owed. */
+  minimumPaymentMinor?: number | null;
   notes: string | null;
   sortOrder: number;
   createdAt: string;
