@@ -1668,9 +1668,14 @@ domain in the device's manifest, or the highest `<domain>-<n>.bundle` already on
 a publish that crashed before its manifest), plus one, so a name a peer may be reading is never
 reused. Rust computes `sha256` and `bytes` of the stored bundle and writes the per-domain entry
 `{generation, file, sha256, bytes, rows}`, MERGED into the device's existing manifest, so publishing
-`gtd` keeps an earlier `personal` entry. `manifestJson` carries everything else (`deviceName`,
+`finance` keeps an earlier `personal` entry. `manifestJson` carries everything else (`deviceName`,
 `schemaVersion`, `profile`, ...) and its `deviceId` must equal the `deviceId` argument
-(`device_id_invalid`); any `domains` in it is discarded. A crash between the bundle and the
+(`device_id_invalid`); any `domains` in it is discarded. If the device's existing manifest cannot be READ
+(an I/O failure such as a permission error or a failing Drive download, as opposed to malformed JSON)
+the publish aborts with `io` before writing the bundle or the manifest, so the other domains'
+committed entries are never dropped from discovery; the caller retries. A manifest that is readable
+but malformed is replaced (with a `previous_manifest_ignored` warning), and a missing one is the
+first publish. A crash between the bundle and the
 manifest leaves the previous manifest valid and its bundle intact. A directory flush the volume does
 not support is a warning (`directory_sync_failed`), not an error: a cloud-synced folder may not
 implement it, and the reader's `bytes`/`sha256` check, not the flush, is what keeps a manifest that
@@ -1703,11 +1708,18 @@ defense in depth.
 **Read.** `sync_read_bundle(folderDir, role, environment, ownDeviceId, peerDeviceId, domain)` reads
 the peer's manifest again in Rust and takes the file name from it (the webview never supplies one;
 a manifest naming any other file is invalid). The peer directory must be a real direct child of the
-sync directory and the bundle a regular file inside it (a symlink, FIFO or device node is refused:
-opening a FIFO would block forever). Size must equal the manifest's `bytes` and the SHA-256 its
+sync directory and the bundle a regular file inside it (a symlink, FIFO or device node is refused).
+On unix every read of a manifest, marker or bundle opens the file with `O_NOFOLLOW | O_NONBLOCK` and
+judges the type and size from the OPENED handle (`fstat`), so a regular file swapped for a symlink
+between a path check and the open is rejected (`ELOOP` is a not-regular entry, never an error that
+aborts a listing) and a FIFO can never block the open; only the last path component is covered, the
+directories above it are validated separately. Non-unix builds keep the weaker check-then-open order. Size must equal the manifest's `bytes` and the SHA-256 its
 `sha256`. The result is `{status: "ok", bytesBase64, generation, sha256, bytes, rows}`, or
 `{status: "notReady", reason}` for a missing peer directory, manifest, domain or file, a size or
-hash mismatch (`size_mismatch`, `hash_mismatch`), i.e. a download Drive has not finished. Only an
+hash mismatch (`size_mismatch`, `hash_mismatch`), or an unreadable peer manifest
+(`manifest_unreadable`), i.e. a download Drive has not finished or a transient failure. In listings,
+`manifest_unreadable` is the one RETRYABLE `ignored` reason (nothing is remembered; the next listing
+reads the file again), unlike the malformed reasons. Only an
 unreachable or unprepared folder, a refused request, `too_large` or `timeout` is an error. The
 generation and sha returned are those of the manifest read at that moment, which can be newer than
 the one the caller listed.

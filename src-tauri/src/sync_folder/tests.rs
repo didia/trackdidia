@@ -1957,6 +1957,214 @@ fn a_prepare_that_timed_out_while_queued_writes_nothing() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Unreadable (not corrupt) manifests, and replacement races on the last path component
+// ---------------------------------------------------------------------------------------------
+
+/// Makes `path` unreadable (mode 000). Returns false (and the test should return early) when the
+/// current user can read it anyway, e.g. when running as root.
+#[cfg(unix)]
+fn make_unreadable(path: &Path) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o000)).unwrap();
+    if fs::read(path).is_ok() {
+        fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
+        return false;
+    }
+    true
+}
+
+#[cfg(unix)]
+fn make_readable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_own_manifest_aborts_the_publish_and_keeps_every_committed_domain() {
+    let fixture = Fixture::prepared(Role::Personal);
+    put(&fixture, Role::Personal, A, "personal", b"p1").unwrap();
+    put(&fixture, Role::Personal, A, "finance", b"f1").unwrap();
+    let manifest = fixture.device_dir(A).join("manifest.json");
+    let committed = fs::read(&manifest).unwrap();
+    let files_before = names_in(&fixture.device_dir(A));
+    if !make_unreadable(&manifest) {
+        return;
+    }
+
+    let error = put(&fixture, Role::Personal, A, "finance", b"f2").unwrap_err();
+    make_readable(&manifest);
+    assert_eq!(error.code, code::IO);
+    // Nothing was written: no new bundle, the manifest is byte-identical.
+    assert_eq!(names_in(&fixture.device_dir(A)), files_before);
+    assert_eq!(fs::read(&manifest).unwrap(), committed);
+    assert_eq!(
+        read_ok(read_peer(&fixture, Role::Personal, B, A, "personal")),
+        b"p1"
+    );
+
+    // The retry (the file is readable again) keeps the personal entry.
+    let retry = put(&fixture, Role::Personal, A, "finance", b"f2").unwrap();
+    assert_eq!(retry.entry.generation, 2);
+    let domains = manifest_json(&fixture, A)["domains"].clone();
+    assert_eq!(domains["personal"]["generation"], 1);
+    assert_eq!(domains["finance"]["generation"], 2);
+    assert_eq!(
+        read_ok(read_peer(&fixture, Role::Personal, B, A, "personal")),
+        b"p1"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn an_unreadable_peer_manifest_is_a_retryable_report_not_an_invalid_peer() {
+    let fixture = Fixture::prepared(Role::Gtd);
+    put(&fixture, Role::Gtd, B, "gtd", b"b").unwrap();
+    let manifest = fixture.device_dir(B).join("manifest.json");
+    if !make_unreadable(&manifest) {
+        return;
+    }
+    let listing = list_peers(fixture.dir(), Role::Gtd, PROD, A).unwrap();
+    let result = read_bundle(fixture.dir(), Role::Gtd, PROD, A, B, "gtd");
+    make_readable(&manifest);
+
+    assert!(listing.peers.is_empty());
+    assert!(listing.ignored.iter().any(|entry| {
+        entry.path == format!("{}/manifest.json", dn(B)) && entry.reason == "manifest_unreadable"
+    }));
+    assert_eq!(read_reason(result.unwrap()), "manifest_unreadable");
+    // Nothing is remembered: once the file is readable the peer is back.
+    assert_eq!(
+        list_peers(fixture.dir(), Role::Gtd, PROD, A)
+            .unwrap()
+            .peers
+            .len(),
+        1
+    );
+    assert_eq!(read_ok(read_peer(&fixture, Role::Gtd, A, B, "gtd")), b"b");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_symlink_as_the_last_component_is_not_regular_and_not_an_io_error() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("outside.txt");
+    fs::write(&outside, b"OUTSIDE").unwrap();
+    let link = dir.path().join("link.json");
+    std::os::unix::fs::symlink(&outside, &link).unwrap();
+    assert!(matches!(
+        read_regular_file_limited(&link, 1024),
+        Err(FileReadError::NotRegular)
+    ));
+    assert!(matches!(
+        read_regular_file_limited(&dir.path().join("missing"), 1024),
+        Err(FileReadError::Missing)
+    ));
+    // A dangling link is a link too, not a missing file.
+    let dangling = dir.path().join("dangling.json");
+    std::os::unix::fs::symlink(dir.path().join("nowhere"), &dangling).unwrap();
+    assert!(matches!(
+        read_regular_file_limited(&dangling, 1024),
+        Err(FileReadError::NotRegular)
+    ));
+}
+
+/// Sets the flag when dropped, so a failing assertion in the reader still stops the swapper thread
+/// (a scoped thread that never stops would hang the test instead of failing it).
+#[cfg(unix)]
+struct StopOnDrop<'a>(&'a AtomicBool);
+
+#[cfg(unix)]
+impl Drop for StopOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
+}
+
+/// Swaps `path` between a regular file holding `inside` and a symlink to `outside`, atomically
+/// (rename over the path), until `stop` is set.
+#[cfg(unix)]
+fn flip_between_file_and_link(path: PathBuf, inside: Vec<u8>, outside: PathBuf, stop: &AtomicBool) {
+    let scratch = path.with_extension("swap");
+    while !stop.load(Ordering::SeqCst) {
+        let _ = fs::remove_file(&scratch);
+        std::os::unix::fs::symlink(&outside, &scratch).unwrap();
+        fs::rename(&scratch, &path).unwrap();
+        fs::write(&scratch, &inside).unwrap();
+        fs::rename(&scratch, &path).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn a_file_swapped_for_a_symlink_while_it_is_read_never_yields_outside_bytes() {
+    let dir = tempfile::tempdir().unwrap();
+    let outside = dir.path().join("outside.txt");
+    fs::write(&outside, b"OUTSIDE-OUTSIDE").unwrap();
+    let path = dir.path().join("data.json");
+    fs::write(&path, b"inside").unwrap();
+    let stop = AtomicBool::new(false);
+
+    thread::scope(|scope| {
+        scope.spawn(|| {
+            flip_between_file_and_link(path.clone(), b"inside".to_vec(), outside.clone(), &stop)
+        });
+        let _stopper = StopOnDrop(&stop);
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut ok = 0u32;
+        while std::time::Instant::now() < deadline {
+            match read_regular_file_limited(&path, 1024) {
+                Ok(bytes) => {
+                    assert_eq!(bytes, b"inside", "read bytes from outside the folder");
+                    ok += 1;
+                }
+                Err(FileReadError::NotRegular | FileReadError::Missing) => {}
+                Err(other) => panic!("a replaced entry must be rejected, not an error: {other:?}"),
+            }
+        }
+        assert!(ok > 0, "the regular file was never observed");
+    });
+}
+
+#[cfg(unix)]
+#[test]
+fn a_bundle_swapped_for_a_symlink_while_it_is_read_is_never_followed() {
+    let fixture = Fixture::prepared(Role::Gtd);
+    put(&fixture, Role::Gtd, B, "gtd", b"0123456789").unwrap();
+    let bundle = fixture.device_dir(B).join("gtd-1.bundle");
+    // Same size as the real bundle, different bytes: a followed link shows up as a hash mismatch.
+    let outside = fixture._tmp.path().join("outside.bin");
+    fs::write(&outside, b"ABCDEFGHIJ").unwrap();
+    let stop = AtomicBool::new(false);
+
+    thread::scope(|scope| {
+        scope.spawn(|| {
+            flip_between_file_and_link(
+                bundle.clone(),
+                b"0123456789".to_vec(),
+                outside.clone(),
+                &stop,
+            )
+        });
+        let _stopper = StopOnDrop(&stop);
+        let deadline = std::time::Instant::now() + Duration::from_secs(3);
+        let mut ok = 0u32;
+        while std::time::Instant::now() < deadline {
+            match read_bundle(fixture.dir(), Role::Gtd, PROD, A, B, "gtd").unwrap() {
+                ReadBundleResult::Ok { bytes_base64, .. } => {
+                    assert_eq!(BASE64.decode(bytes_base64).unwrap(), b"0123456789");
+                    ok += 1;
+                }
+                ReadBundleResult::NotReady { reason } => {
+                    assert_eq!(reason, "file_not_regular", "the link was followed");
+                }
+            }
+        }
+        assert!(ok > 0, "the regular file was never observed");
+    });
+}
+
+// ---------------------------------------------------------------------------------------------
 // Durability helper, blocking runner
 // ---------------------------------------------------------------------------------------------
 

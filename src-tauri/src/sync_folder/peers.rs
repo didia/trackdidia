@@ -14,9 +14,9 @@ use serde_json::{Map, Value};
 use super::folder::open_folder;
 use super::publish::MANIFEST_FILE_NAME;
 use super::{
-    code, device_dir_name, device_id_from_dir_name, encode_base64, read_regular_file_limited,
-    require_device_id, sha256_hex, DomainEntry, FileReadError, Role, SyncError, MAX_BUNDLE_BYTES,
-    MAX_MANIFEST_BYTES, MAX_SCANNED_ENTRIES,
+    code, device_dir_name, device_id_from_dir_name, encode_base64, open_regular_nofollow,
+    read_regular_file_limited, require_device_id, sha256_hex, DomainEntry, FileReadError, Role,
+    SyncError, MAX_BUNDLE_BYTES, MAX_MANIFEST_BYTES, MAX_SCANNED_ENTRIES,
 };
 
 /// Reports beyond this are dropped (a folder full of junk must not produce a huge IPC reply).
@@ -68,6 +68,10 @@ fn not_ready(reason: &str) -> ReadBundleResult {
 pub enum ManifestOutcome {
     /// No manifest file (a peer mid first publish): not worth reporting.
     Missing,
+    /// The manifest exists but could not be read (an I/O failure). Distinct from [`Self::Ignored`]
+    /// (readable but malformed or untrustworthy): this one is transient, so a reader reports it as
+    /// retryable and the publisher must NOT replace the manifest it could not read.
+    Unreadable,
     Ignored(&'static str),
     Valid {
         manifest: Map<String, Value>,
@@ -85,7 +89,8 @@ pub fn load_manifest(dir: &Path, expected_device_id: &str, role: Role) -> Manife
         Err(FileReadError::Missing) => return ManifestOutcome::Missing,
         Err(FileReadError::NotRegular) => return ManifestOutcome::Ignored("not_regular_file"),
         Err(FileReadError::TooLarge) => return ManifestOutcome::Ignored("manifest_too_large"),
-        Err(FileReadError::Io(_)) => return ManifestOutcome::Ignored("manifest_unreadable"),
+        // Not corrupt, just not readable right now (permissions, a Drive download failing, EIO).
+        Err(FileReadError::Io(_)) => return ManifestOutcome::Unreadable,
     };
     let Ok(value) = serde_json::from_slice::<Value>(&bytes) else {
         return ManifestOutcome::Ignored("manifest_invalid_json");
@@ -211,6 +216,13 @@ pub fn list_peers(
         // The manifest's `deviceId` must be the id this directory name maps to.
         match load_manifest(&device_dir, &device_id, role) {
             ManifestOutcome::Missing => {}
+            // Retryable: the next listing reads it again (unlike the malformed reasons).
+            ManifestOutcome::Unreadable => {
+                ignored.push(
+                    format!("{name}/{MANIFEST_FILE_NAME}"),
+                    "manifest_unreadable",
+                );
+            }
             ManifestOutcome::Ignored(reason) => {
                 ignored.push(format!("{name}/{MANIFEST_FILE_NAME}"), reason);
             }
@@ -241,8 +253,8 @@ fn real_dir(path: &Path) -> bool {
 
 /// Reads and verifies one peer's bundle. The file name comes from the peer's manifest, which is
 /// read here, and must be exactly `<domain>-<generation>.bundle`; the file must be a regular file
-/// inside the peer's own directory (symlinks are refused outright, and the canonical path is
-/// re-checked), its size must equal the manifest's `bytes` and its SHA-256 the manifest's `sha256`.
+/// inside the peer's own directory (symlinks are refused outright: the file is opened without following
+/// a link and judged from the opened handle, see `open_regular_nofollow`), its size must equal the manifest's `bytes` and its SHA-256 the manifest's `sha256`.
 pub fn read_bundle(
     folder_dir: &str,
     role: Role,
@@ -282,6 +294,7 @@ pub fn read_bundle(
     let manifest = match load_manifest(&peer_dir, peer_device_id, role) {
         ManifestOutcome::Valid { manifest, .. } => manifest,
         ManifestOutcome::Missing => return Ok(not_ready("manifest_missing")),
+        ManifestOutcome::Unreadable => return Ok(not_ready("manifest_unreadable")),
         ManifestOutcome::Ignored(reason) => return Ok(not_ready(reason)),
     };
     let entry = manifest
@@ -300,26 +313,21 @@ pub fn read_bundle(
     }
 
     let bundle_path = canonical_peer.join(&entry.file);
-    match fs::symlink_metadata(&bundle_path) {
-        Ok(metadata) if metadata.file_type().is_file() => {
-            if metadata.len() != entry.bytes {
-                return Ok(not_ready("size_mismatch"));
-            }
+    // One open decides everything: no symlink is followed, and the type and size come from the
+    // opened handle, so a swap after a path check cannot redirect the read.
+    let (file, metadata) = match open_regular_nofollow(&bundle_path) {
+        Ok(opened) => opened,
+        Err(FileReadError::Missing) => return Ok(not_ready("file_missing")),
+        Err(FileReadError::NotRegular) => return Ok(not_ready("file_not_regular")),
+        Err(FileReadError::TooLarge) => return Ok(not_ready("size_mismatch")),
+        Err(FileReadError::Io(error)) => {
+            return Err(SyncError::io("Impossible d'ouvrir le bundle", &error))
         }
-        Ok(_) => return Ok(not_ready("file_not_regular")),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(not_ready("file_missing"))
-        }
-        Err(error) => return Err(SyncError::io("Impossible de lire le bundle", &error)),
+    };
+    if metadata.len() != entry.bytes {
+        return Ok(not_ready("size_mismatch"));
     }
-    match bundle_path.canonicalize() {
-        Ok(canonical) if canonical.parent() == Some(canonical_peer.as_path()) => {}
-        _ => return Ok(not_ready("file_outside_peer_directory")),
-    }
-
     // `bytes + 1` so a file that grew after the stat is a size mismatch, not a silent truncation.
-    let file = fs::File::open(&bundle_path)
-        .map_err(|error| SyncError::io("Impossible d'ouvrir le bundle", &error))?;
     let mut buffer = Vec::with_capacity(entry.bytes as usize);
     file.take(entry.bytes + 1)
         .read_to_end(&mut buffer)

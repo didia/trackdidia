@@ -297,22 +297,54 @@ pub enum FileReadError {
     Io(std::io::Error),
 }
 
-/// Reads a regular file of at most `cap` bytes (a symlink is refused, not followed).
-pub fn read_regular_file_limited(path: &Path, cap: u64) -> Result<Vec<u8>, FileReadError> {
-    let metadata = match fs::symlink_metadata(path) {
-        Ok(metadata) => metadata,
+/// Opens `path` for reading WITHOUT following a symlink in its last component, and returns the
+/// handle with the metadata of the OPENED file. Checking the path and opening it as two steps is a
+/// race (another process can swap a regular file for a symlink in between and the open would follow
+/// it outside the folder), so on unix the open itself refuses links (`O_NOFOLLOW`, `ELOOP` becomes
+/// `NotRegular`) and never blocks on a FIFO (`O_NONBLOCK`); the type is then judged from the handle
+/// (`fstat`), not from the path. Non-unix builds keep the check-then-open order, which is weaker.
+/// Only the last component is covered: the directories above it are validated by the callers.
+pub fn open_regular_nofollow(path: &Path) -> Result<(fs::File, fs::Metadata), FileReadError> {
+    #[cfg(unix)]
+    let opened = {
+        use std::os::unix::fs::OpenOptionsExt;
+        fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+            .open(path)
+    };
+    #[cfg(not(unix))]
+    let opened = match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => return Err(FileReadError::NotRegular),
+        Ok(_) => fs::File::open(path),
+        Err(error) => Err(error),
+    };
+    let file = match opened {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Err(FileReadError::Missing)
         }
+        // A symlink in the last component under O_NOFOLLOW.
+        #[cfg(unix)]
+        Err(error) if error.raw_os_error() == Some(libc::ELOOP) => {
+            return Err(FileReadError::NotRegular)
+        }
         Err(error) => return Err(FileReadError::Io(error)),
     };
+    let metadata = file.metadata().map_err(FileReadError::Io)?;
     if !metadata.file_type().is_file() {
         return Err(FileReadError::NotRegular);
     }
+    Ok((file, metadata))
+}
+
+/// Reads a regular file of at most `cap` bytes (a symlink is refused, not followed; see
+/// [`open_regular_nofollow`]).
+pub fn read_regular_file_limited(path: &Path, cap: u64) -> Result<Vec<u8>, FileReadError> {
+    let (file, metadata) = open_regular_nofollow(path)?;
     if metadata.len() > cap {
         return Err(FileReadError::TooLarge);
     }
-    let file = fs::File::open(path).map_err(FileReadError::Io)?;
     let mut buffer = Vec::with_capacity(metadata.len() as usize);
     // The file can grow between the stat and the read; `take` keeps that bounded too.
     file.take(cap + 1)

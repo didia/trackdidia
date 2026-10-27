@@ -149,6 +149,17 @@ pub fn publish_with_hook(
             }
         }
         ManifestOutcome::Missing => {}
+        // An existing manifest we could not READ must not be replaced: the replacement would hold
+        // only this domain's entry and silently drop the other domains' committed entries from
+        // discovery. Abort before either file is written; the caller retries.
+        ManifestOutcome::Unreadable => {
+            return Err(SyncError::new(
+                code::IO,
+                "Le manifest existant est illisible (erreur d'E/S): publication annulee pour ne \
+                 pas ecraser les domaines deja publies. Reessayer.",
+            ));
+        }
+        // Readable but malformed or not ours: recovered by replacing it (with a warning).
         ManifestOutcome::Ignored(reason) => {
             warnings.push(format!("previous_manifest_ignored: {reason}"));
         }
@@ -205,7 +216,7 @@ pub fn publish_with_hook(
     after_bundle()?;
 
     // 2. The manifest, LAST: this rename is the commit point. The per-domain entry was merged into
-    //    the device's existing manifest above, so publishing `gtd` keeps an earlier `personal` entry.
+    //    the device's existing manifest above, so publishing `finance` keeps an earlier `personal` entry.
     atomic_write(&device_dir, MANIFEST_FILE_NAME, &encoded)
         .map_err(|error| SyncError::io("Impossible d'ecrire le manifest", &error))?;
     warnings.extend(directory_sync_warning(&device_dir));
