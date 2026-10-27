@@ -307,3 +307,58 @@ it("saves an AI edit from a stale form without resetting newer settings fields",
     aiMaxTokensUpgradeDoneAt: "upgraded",
   });
 });
+
+describe("SettingsPage multi-device sync card", () => {
+  it("is absent without debug mode, so sync cannot be enabled by accident", async () => {
+    await renderWithApp(<SettingsPage />, { contextOverrides: { debugEnabled: false } });
+
+    expect(
+      screen.queryByText("Synchronisation multi-ordinateurs (expérimental)"),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Activer la synchronisation" })).toBeNull();
+  });
+
+  it("appears with debug mode on", async () => {
+    await renderWithApp(<SettingsPage />, { contextOverrides: { debugEnabled: true } });
+
+    expect(
+      screen.getByText("Synchronisation multi-ordinateurs (expérimental)"),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("SettingsPage backup folder picker and the shared GTD folder", () => {
+  const pick = async (chosen: string, syncGtdFolderDir: string) => {
+    vi.mocked(open).mockReset();
+    vi.mocked(open).mockResolvedValue(chosen);
+    const updateSettings = vi.fn().mockResolvedValue(undefined);
+    await renderWithApp(<SettingsPage />, {
+      contextOverrides: {
+        browserPreview: false,
+        updateSettings,
+        settings: { ...defaultAppSettings(), syncGtdFolderDir },
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Choisir le dossier Google Drive" }));
+    return updateSettings;
+  };
+
+  it.each([
+    ["the shared GTD folder", "/Drive/Shared/GTD"],
+    ["a folder inside it", "/Drive/Shared/GTD/archive"],
+    ["a folder around it", "/Drive/Shared"],
+  ])("refuses %s as the backup destination and saves nothing", async (_label, chosen) => {
+    const updateSettings = await pick(chosen, "/Drive/Shared/GTD");
+    expect(await screen.findByText(/ne peut pas être le dossier GTD partagé/)).toBeInTheDocument();
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it("accepts any folder when no GTD folder is set, and a folder apart from it", async () => {
+    let updateSettings = await pick("/Drive/Shared/GTD", "");
+    expect(await screen.findByText("Dossier de backup enregistré.")).toBeInTheDocument();
+    expect(updateSettings).toHaveBeenCalledTimes(1);
+    document.body.innerHTML = "";
+    updateSettings = await pick("/Drive/Perso", "/Drive/Shared/GTD");
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
+  });
+});

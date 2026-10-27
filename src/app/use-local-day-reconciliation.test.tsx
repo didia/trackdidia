@@ -8,6 +8,7 @@ import { buildIsoFromLocalDateAndTime } from "../lib/date";
 import { buildPomodoroSessionDetails, buildPomodoroState } from "../lib/pomodoro/engine";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { AppContext, type AppContextValue } from "./app-context";
+import { inertSyncController } from "./use-multi-device-sync";
 import { useGtdWorkspace } from "./use-gtd";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
 
@@ -101,6 +102,7 @@ const MountedGtdView = ({
       calendarDay,
       llmBridgeStatus: { state: "off" },
       retryLlmBridge: () => undefined,
+      sync: inertSyncController,
     }),
     [calendarDay, repository],
   );

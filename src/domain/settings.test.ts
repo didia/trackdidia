@@ -1,8 +1,10 @@
 import {
   applyLegacyAiMaxTokensUpgrade,
+  DEFAULT_SYNC_DEVICE_NAME,
   defaultAppSettings,
   normalizeAppSettings,
   rebaseSettingsDraft,
+  SYNC_DEVICE_NAME_MAX_LENGTH,
   settingsDraftPatch,
 } from "./settings";
 
@@ -93,4 +95,43 @@ it("keeps tray and launch-at-login off by default and coerces stored values to b
     launchAtLogin: true,
   });
   expect(normalizeAppSettings({ runInTray: "yes" as unknown as boolean }).runInTray).toBe(false);
+});
+
+it("keeps multi-device sync off, personal and unnamed by default and repairs stored values", () => {
+  const defaults = defaultAppSettings();
+  expect(defaults).toMatchObject({
+    multiDeviceSyncEnabled: false,
+    syncProfile: "personal",
+    syncGtdFolderDir: "",
+    syncDeviceName: DEFAULT_SYNC_DEVICE_NAME,
+  });
+  // Rows saved before the feature existed simply lack the fields.
+  expect(normalizeAppSettings({})).toMatchObject({
+    multiDeviceSyncEnabled: false,
+    syncProfile: "personal",
+    syncGtdFolderDir: "",
+    syncDeviceName: DEFAULT_SYNC_DEVICE_NAME,
+  });
+  expect(
+    normalizeAppSettings({ multiDeviceSyncEnabled: "yes" as unknown as boolean }),
+  ).toMatchObject({ multiDeviceSyncEnabled: false });
+  expect(normalizeAppSettings({ multiDeviceSyncEnabled: true }).multiDeviceSyncEnabled).toBe(true);
+  // A stored "work" is kept (sync refuses it today); anything else is the default.
+  expect(normalizeAppSettings({ syncProfile: "work" }).syncProfile).toBe("work");
+  expect(normalizeAppSettings({ syncProfile: "boss" as never }).syncProfile).toBe("personal");
+  expect(normalizeAppSettings({ syncGtdFolderDir: "  /Drive/GTD  " }).syncGtdFolderDir).toBe(
+    "/Drive/GTD",
+  );
+  expect(normalizeAppSettings({ syncGtdFolderDir: 7 as unknown as string }).syncGtdFolderDir).toBe(
+    "",
+  );
+  expect(normalizeAppSettings({ syncDeviceName: "   " }).syncDeviceName).toBe(
+    DEFAULT_SYNC_DEVICE_NAME,
+  );
+  expect(normalizeAppSettings({ syncDeviceName: " Portable perso " }).syncDeviceName).toBe(
+    "Portable perso",
+  );
+  expect(normalizeAppSettings({ syncDeviceName: "x".repeat(300) }).syncDeviceName).toHaveLength(
+    SYNC_DEVICE_NAME_MAX_LENGTH,
+  );
 });

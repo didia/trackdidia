@@ -653,6 +653,10 @@ describe("synced settings", () => {
       llmBridgeToken: "bridge-only-on-a",
       backupDestinationDir: "/Users/a/Drive/backups",
       runInTray: true,
+      multiDeviceSyncEnabled: true,
+      syncProfile: "work",
+      syncGtdFolderDir: "/Users/a/Drive/gtd",
+      syncDeviceName: "Laptop A",
       language: EN,
     }));
     for (const domain of ["gtd", "personal", "finance"] as const) {
@@ -665,6 +669,11 @@ describe("synced settings", () => {
     expect(onB.llmBridgeToken).toBe("");
     expect(onB.backupDestinationDir).not.toBe("/Users/a/Drive/backups");
     expect(onB.runInTray).toBe(false);
+    // The sync switches themselves are device-local: A's setup never turns sync on for B.
+    expect(onB.multiDeviceSyncEnabled).toBe(false);
+    expect(onB.syncProfile).toBe("personal");
+    expect(onB.syncGtdFolderDir).toBe("");
+    expect(onB.syncDeviceName).not.toBe("Laptop A");
     // And B's own device keys survive a merge that rewrites the settings blob.
     await b.repo.updateSettings((current) => ({ ...current, aiApiKey: "sk-only-on-b" }));
     a.clock.advance(60_000);

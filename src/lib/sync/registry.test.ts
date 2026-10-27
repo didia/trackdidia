@@ -1030,6 +1030,10 @@ describe("settings registry", () => {
         "rescuetimeApiKey",
         "runInTray",
         "storageMode",
+        "multiDeviceSyncEnabled",
+        "syncDeviceName",
+        "syncGtdFolderDir",
+        "syncProfile",
       ].sort(),
     );
   });

@@ -25,6 +25,7 @@ import { ReferencesPage } from "./pages/ReferencesPage";
 import { ScheduledPage } from "./pages/ScheduledPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SomedayMaybePage } from "./pages/SomedayMaybePage";
+import { SyncPage } from "./pages/SyncPage";
 import { MidWeekReviewPage } from "./pages/MidWeekReviewPage";
 import { TodayPage } from "./pages/TodayPage";
 import { WaitingForPage } from "./pages/WaitingForPage";
@@ -78,6 +79,7 @@ export const App = () => (
           <Route path="someday-maybe" element={<SomedayMaybePage />} />
           <Route path="waiting-someday" element={<Navigate to="/waiting-for" replace />} />
           <Route path="finances/*" element={<FinanceRoutes />} />
+          <Route path="sync" element={<SyncPage />} />
           <Route path="parametres" element={<SettingsPage />} />
         </Route>
       </Routes>

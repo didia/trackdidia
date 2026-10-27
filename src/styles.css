@@ -2062,3 +2062,36 @@ button.tag-chip:active:not(:disabled) {
     grid-template-columns: 1fr;
   }
 }
+
+/* Multi-device sync (experimental): the /sync page and the Settings card. */
+.banner--danger {
+  border-color: rgba(168, 44, 32, 0.45);
+  background: rgba(255, 236, 232, 0.95);
+  color: #5c1a12;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.banner--danger ul,
+.sync-issues {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.sync-issue--error {
+  color: #5c1a12;
+}
+
+.sync-stale {
+  margin-top: 8px;
+}

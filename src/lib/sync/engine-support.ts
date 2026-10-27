@@ -2,7 +2,7 @@ import type { AppRepository } from "../storage/repository";
 import type { SafetyBackupReason, SyncIssue } from "./engine-types";
 import type { DeviceProfile } from "./profile";
 import type { SyncTransport } from "./transport";
-import { SyncTransportError } from "./transport";
+import { SyncTransportError, SyncTransportFailure } from "./transport";
 
 /** The repository methods the engine uses; a test can wrap or spy on exactly these. */
 export type SyncEngineRepository = Pick<
@@ -124,7 +124,8 @@ export const transportIssue = (
         error.code === "timeout"
           ? `${what}: the folder did not answer in time (${transport.id}); will retry`
           : `${what}: the folder cannot be reached (${transport.id}); will retry`,
-      detail: error.message,
+      // The host's reason when the transport has one, so the page can say what to do.
+      detail: error.reason ?? error.message,
     };
   }
   return {
@@ -133,7 +134,8 @@ export const transportIssue = (
     code: "transport_failed",
     transport: transport.id,
     message: `${what}: ${messageOf(error)} (${transport.id})`,
-    detail: messageOf(error),
+    // A failure that retrying cannot fix names its kind, so the page can tell it from a bug.
+    detail: error instanceof SyncTransportFailure ? error.kind : messageOf(error),
   };
 };
 

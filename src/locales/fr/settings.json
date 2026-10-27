@@ -164,6 +164,8 @@
     "missingDestination": "Choisis un dossier de backup dans Paramètres avant d'exporter un snapshot.",
     "destinationMissing": "Les backups automatiques sont arrêtés tant qu'aucun dossier n'est choisi.",
     "destinationMissingLink": "Ouvrir les paramètres",
+    "overlapsSyncFolder": "Le dossier de backup ne peut pas être le dossier GTD partagé de la synchronisation, ni être à l'intérieur ni autour de lui : les backups contiennent toute la base (finances, journal, IA) et seraient partagés. Choisis un autre dossier de backup.",
+    "overlapsSyncFolderBanner": "Les backups sont arrêtés : le dossier de backup chevauche le dossier GTD partagé de la synchronisation.",
     "folderSaved": "Dossier de backup enregistré.",
     "folderError": "Échec de la sélection du dossier de backup.",
     "autoEnable": "Activer le backup automatique",

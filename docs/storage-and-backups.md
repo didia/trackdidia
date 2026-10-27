@@ -42,8 +42,9 @@ A file that is empty, malformed, or longer than an id is reported as an error an
 regenerated, because replacing it would orphan the device's identity. The file is not
 included in backups, so restoring a backup (see [Recovery](#recovery)) leaves it untouched.
 It is the authority for the device id kept in the `sync_identity` row (see
-[Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)); nothing calls
-`ensureSyncIdentity` at startup yet.
+[Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)); only the
+debug-gated sync enable flow and the engine construction call `ensureSyncIdentity` (never
+startup; see [Multi-device sync](multi-device-sync.md)).
 
 The live database resolves beneath:
 
@@ -415,11 +416,12 @@ edit on an event that already exists becomes a planner update (not a create).
 
 Migration 42 (`add_multi_device_sync_sidecars`) adds the storage foundation for the planned
 multi-laptop sync (design: [`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)).
-**Multi-device sync is not shipped.** The tables are created empty on every database and
+**Multi-device sync is experimental** ([Multi-device sync](multi-device-sync.md): opt-in,
+debug-gated, manual only). The tables are created empty on every database and
 nothing reads or writes them except the repository methods below and, once a database has
 change capture enabled (see [Multi-device sync change capture](#multi-device-sync-change-capture)),
-the capture stamper and `applySyncBundle`; no existing table was altered, no setting enables the feature, and users
-who never use sync see no behavior change.
+the capture stamper and `applySyncBundle`; no existing table was altered, the only switch is the
+device-local `multiDeviceSyncEnabled` setting, and users who never enable sync see no behavior change.
 
 | Table | Purpose |
 |---|---|
@@ -464,9 +466,10 @@ exactly what the repair rule above exists for.
 ### Multi-device sync change capture
 
 Migration 43 (`add_sync_capture_state`) adds three device-local tables and
-`AppRepository.enableSyncCapture()` turns capture on. **Sync and capture are not user-enabled
-yet**: nothing in the app calls `enableSyncCapture`, so on every real database the tables stay
-empty, no trigger exists, and no write path runs any sync query.
+`AppRepository.enableSyncCapture()` turns capture on. **Capture is enabled only by the opt-in,
+debug-gated enable flow** of the Settings sync card ([Multi-device sync](multi-device-sync.md#enabling-settings-card)):
+on every database where that was never run the tables stay empty, no trigger exists, and no write
+path runs any sync query.
 
 | Table | Purpose |
 |---|---|
@@ -631,10 +634,10 @@ up:
 
 `AppRepository.listSyncChanges(domain)` and `AppRepository.applySyncBundle(domain, changeSet)`
 are the read and write halves of multi-laptop sync (design:
-[`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)). **Sync is still not
-user-enabled**: nothing in the app calls either method (no folder transport, bundle file, setting,
-UI or startup step exists yet), and `MemoryRepository` rejects both with the browser-preview error.
-Only tests exercise them, through a two-laptop harness (`src/lib/sync/test-support/`) built from
+[`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)). **Sync is experimental and
+manual**: only the sync engine calls either method, and only from the debug-gated "Synchroniser maintenant"
+([Multi-device sync](multi-device-sync.md)); `MemoryRepository` rejects both with the browser-preview error.
+The tests exercise them through a two-laptop harness (`src/lib/sync/test-support/`) built from
 independent `TauriSqliteRepository` instances over real in-memory SQLite.
 
 **Change set** (`src/lib/sync/change-set.ts`): the FULL synced state of one domain, not a log.
@@ -1404,12 +1407,13 @@ the harness gives each simulated laptop its own.
 ### Sync engine, transport seam and device profile
 
 `src/lib/sync/sync-engine.ts` is the orchestration layer of multi-laptop sync: pull, then merge and
-apply through `applySyncBundle`, then publish through `readSyncSnapshot` (`listSyncChanges` plus the covered counter). **Sync is still not
-user-enabled and no transport exists yet.** There is no folder transport, bundle file format,
-setting, UI or startup step: the engine is constructed only by tests, against the in-memory folders
-of `src/lib/sync/test-support/memory-transport.ts`. The native folder commands it will use exist
-([Sync folder commands](#sync-folder-commands)) but nothing calls them. The `work` device profile is
-enforced by the engine but is not selectable anywhere.
+apply through `applySyncBundle`, then publish through `readSyncSnapshot` (`listSyncChanges` plus the covered counter). **Sync is
+experimental, opt-in and manual** ([Multi-device sync](multi-device-sync.md)): the app constructs the engine only in
+`src/lib/sync/sync-service.ts` (folder transports, per-device safety backup), and only the debug-gated
+"Synchroniser maintenant" runs it. There is no startup, focus, timer or quit trigger yet. Tests construct it against the
+in-memory folders of `src/lib/sync/test-support/memory-transport.ts` or the fake host of
+`test-support/fake-folder-host.ts`. The `work` device profile is enforced by the engine but is not
+selectable anywhere (`syncProfile: "work"` is refused).
 
 **Modules.** `sync-engine.ts` (the `SyncEngine` class and `createSyncEngine`), `engine-pull.ts`,
 `engine-publish.ts`, `engine-gates.ts` (pure manifest gates), `engine-support.ts` (options, timeouts,
@@ -1424,7 +1428,10 @@ every read and publish by `domains`; two transports may not declare the same dom
 (`SyncEngineError("invalid_transports")` at construction). `listPeers` already excludes this device and
 ignores conflict copies. `readBundle` has verified `bytes` and `sha256`: a mismatch or partial download
 is `{ notReady: true }`, never an exception; bytes that verify but do not parse are delivered as raw text
-and rejected by the engine's validation. `SyncTransportError` has three codes: `unreachable`, `timeout` and `stale_publish` (below).
+and rejected by the engine's validation. `SyncTransportError` has three codes: `unreachable`, `timeout` and
+`stale_publish` (below). `SyncTransportFailure` (kinds `configuration`, `too_large`, `unsupported`, `internal`) is a
+failure retrying cannot fix: the engine reports it as an `error` issue (`transport_failed`, or `publish_failed`) whose
+`detail` is the kind, so the page can show it prominently instead of as a retry hint.
 `PeerManifest.domains` is keyed by plain strings on purpose, so a manifest naming a domain nobody
 declared can be represented, and refused. `ownGeneration` is what lets a folder configured later receive
 bundles although the change counter is clean ("no bundle published yet").
@@ -1599,8 +1606,9 @@ operation log.
 
 `src-tauri/src/sync_folder.rs` (with `sync_folder/folder.rs`, `publish.rs`, `peers.rs`) is the native
 half of the folder protocol: four commands registered in `main.rs` and wrapped by
-`src/lib/sync/folder-api.ts`. **Nothing calls them yet**: there is no folder transport, setting, UI
-or startup step, so sync still reads and writes no folder. They are in-app commands, so like
+`src/lib/sync/folder-api.ts`. They are called only through the folder transport
+([Sync bundle format and folder transport](#sync-bundle-format-and-folder-transport)) and the enable flow of the
+experimental sync ([Multi-device sync](multi-device-sync.md)); nothing calls them at startup. They are in-app commands, so like
 `ensure_backup_dir` they need no Tauri capability entry.
 
 **Path discipline (mirrors `backup.rs`).** Every command takes the user-chosen folder root, a
@@ -1758,6 +1766,89 @@ nothing, the marker rules, the role/domain matrix, conflict copies, size caps, c
 publishes and the read timeout path; `src/lib/sync/folder-api.test.ts` covers the wrappers and error
 mapping with a mocked `invoke`.
 
+### Sync bundle format and folder transport
+
+`src/lib/sync/bundle.ts` encodes a `SyncChangeSet` to the bytes stored in the folder and decodes them back;
+`src/lib/sync/transport-folder.ts` implements `SyncTransport` over the folder commands. Both are used only by
+the experimental, manual sync ([Multi-device sync](multi-device-sync.md)).
+
+**Format** (`formatVersion` 1). One plain-ASCII preamble line, then the body:
+
+```text
+trackdidia-sync-bundle 1 gzip\n         preamble: magic, format version, compression (gzip | none)
+<body>                                   a gzip stream of the following lines (or the raw text with `none`)
+  {"kind":"header","formatVersion":1,"domain":"gtd","deviceId":...,"schemaVersion":43,"hlcHigh":...,
+   "counts":{"entities":n,"settings":n,"occurrences":n,"clears":n,"aliases":n,"unionTables":{"<table>":n}}}
+  ["e", <entity>]  ["u", "<table>", <row>]  ["s", <setting>]  ["o", <occurrence>]  ["c", <clear>]  ["a", <alias>]
+```
+
+One record per line, so neither side builds the whole change set as one string: encoding feeds the compressor
+batches of about 1 MiB of lines; decoding parses line by line as the decompressor produces them. The header's
+`counts` (every union table is listed, empty ones too) let the reader prove it received everything.
+`decodeBundle` returns the SHAPE of a change set, unvalidated; `validateChangeSet` is the gate and runs on it
+unchanged, and `validateChangeSet(decodeBundle(encodeBundle(x)))` deep-equals `x` (tests cover unicode, lone
+surrogates, multi-megabyte strings, own `__proto__` keys, empty change sets and empty union tables).
+`manifest.rows` is the number of records.
+
+**Compression** is the platform's `CompressionStream` / `DecompressionStream` (Safari 16.4+, Chromium, Node 18+): no
+dependency is added (`fflate` is not in the lockfile). Where the runtime has none, a bundle is written with
+`none`; a gzip bundle cannot be read there (`compression_unavailable`, reported as an `unsupported` transport
+failure naming a required update, not as a corrupt peer).
+
+**Hostile input** is rejected with a typed `SyncBundleError` before anything reaches a database: no/foreign preamble
+(`bad_preamble`), another format version (`unknown_version`), an unknown compression, a stream that is not gzip, was
+cut or damaged (`bad_gzip`), a body that inflates beyond **8 x 64 MiB = 512 MiB** or an uncompressed body over it
+(`decoded_too_large`: the output is counted while it streams and the decompressor is cancelled, so a bomb never
+materializes), a line over 16 MiB, invalid UTF-8 or JSON, a malformed header or record, a header declaring another
+domain when the caller asks for one (`wrong_domain`, checked before any record), and records that do not match
+the header counts (`count_mismatch`: truncated, padded, or rows of an unlisted table). A decode failure of VERIFIED
+bytes reaches the engine as text it cannot validate, so the engine rejects the bundle with the peer's name
+(`bundle_invalid`); the reason code goes to the debug log, never any content.
+
+**Measured sizes** (synthetic database, `node:sqlite`; ids and hashes random, so the compression ratio is conservative):
+
+| Domain | Records | Uncompressed body | gzip bundle | Encode | Decode | `validateChangeSet` |
+|---|---|---|---|---|---|---|
+| `gtd` (5,000 tasks, 3,000 events, 40 projects) | 8,040 | 13.7 MiB | 0.86 MiB (16x) | 136 ms | 77 ms | 85 ms |
+| `personal` (1,100 daily entries) | 1,101 | 4.0 MiB | 0.14 MiB (29x) | 21 ms | 23 ms | 25 ms |
+| `finance` (50,000 transactions, 15,000 splits) | 65,005 | 61.9 MiB | 5.27 MiB (12x) | 449 ms | 221 ms | 174 ms |
+| `finance` at twice that (100,000 tx, 30,000 splits) | 130,005 | 123.9 MiB | 10.57 MiB | 889 ms | 453 ms | 377 ms |
+| `gtd` at twice that (10,000 tasks, 30,000 events) | 40,040 | 33.3 MiB | 2.27 MiB | 286 ms | 115 ms | 176 ms |
+
+The 64 MiB cap is therefore about six times the largest bundle measured (10.6 MiB); base64 over the IPC makes it 14.1 MiB.
+The text is far larger than the file: the webview holds the inflated text's objects while it validates, so a very large
+`finance` domain needs a few hundred MiB of heap at that moment. Over the cap, publish and read are a permanent
+`too_large` (see below); if real bundles approach about 16 MiB the IPC should switch to raw binary.
+
+**Folder transport.** One `FolderTransport` per folder role (`createFolderTransport`): `gtd` declares `["gtd"]`,
+`personal` declares `["personal", "finance"]`; the role, folder and environment travel with every command, and a
+domain the folder does not carry is refused before it is encoded (`internal`, never reaching the host, which would
+refuse it as `domain_not_allowed` too).
+
+- `listPeers` passes through the host's defensively parsed manifests (non-objects dropped; the engine's gates do the rest) and
+  keeps what the host ignored (`lastListing()`), which the `/sync` page lists. Stray files never throw.
+- `readBundle` returns `{ notReady }` for the host's `notReady`, and also when the manifest moved between the listing and
+  the read (the hash the engine would record must be the hash applied). Otherwise it decodes.
+- `publish` encodes, refuses over 64 MiB locally (`too_large`, no IPC), sends the manifest fields the engine and the page need
+  (`formatVersion`, `deviceId`, `deviceName`, `appVersion`, `schemaVersion`, `writtenAt`, `hlcHigh` (the highest clock published to
+  this folder across domains), `profile`, `calendarSyncEnabled`; the host merges the domain entry) and serializes this
+  device's publishes. The encoder enforces the decoder's 16 MiB line cap: one record over it fails at publish with
+  `line_too_long`, reported as a persistent `too_large` failure (no IPC), not as a bundle every reader would reject.
+- `ownGeneration` reads the device's own manifest from `sync_list_peers`.
+- Error mapping: `folder_not_found`, `folder_not_prepared`, `io` -> `SyncTransportError("unreachable")` (a retryable warning: an
+  unmounted Drive, or a marker still downloading); `timeout` -> `"timeout"`; `role_mismatch`, `nested_folder` ->
+  `SyncTransportFailure("configuration")`, which the page shows prominently with "choose another folder";
+  `too_large` -> `"too_large"` (persistent); `domain_not_allowed`, `device_id_invalid`, `invalid_argument` and anything
+  unrecognized -> `"internal"` (a bug, not a retry).
+- `SyncTransportError` carries the host's code as `reason` (`folder_not_prepared`, `io`, ...), which becomes the issue's
+  `detail`, so `/sync` can say "use Revérifier les dossiers" for a never-prepared folder instead of "Drive unmounted".
+- Timeouts: the engine gives up on a transport call after 30 s while the host's own publish and read timeouts are 45 s
+  (prepare and list 20 s). The engine's 30 s therefore usually fires first; the host call keeps running underneath, which
+  is why publishes are serialized. The transport reconciles a publish through the device's own manifest only when the host itself reports the timeout; when the engine abandons the call first, that later result is discarded and the next run republishes the same data as one extra generation (harmless).
+- A **publish that times out** may still commit in the host (it keeps running underneath). The transport reads its own manifest
+  back: when the new bundle (same SHA-256) is there it reports success with that generation instead of a failure that would
+  publish a second generation of the same data; otherwise it reports the timeout.
+
 ### Legacy email triage tables (unused)
 
 The email triage feature was removed (see [LLM bridge](llm-bridge.md) for the replacement),
@@ -1806,7 +1897,7 @@ storage-layer summary.
   (unique by header signature) and one row per import run, used by
   `undoFinanceImportBatch`.
 
-Multi-device sync of these tables (not user-enabled yet) is described in
+Multi-device sync of these tables (experimental and debug-gated) is described in
 [Finance tables, the categorization unit and statement anchors](#finance-tables-the-categorization-unit-and-statement-anchors).
 
 The three system categories (`fincat:non-categorise`, `fincat:transfert`,
@@ -1860,7 +1951,7 @@ VACUUM INTO '<absolute backup path>'
 This creates a self-contained SQLite snapshot without copying live WAL files.
 Filenames contain the backup kind (`manual` or `auto`) and a sanitized timestamp.
 
-**Per-device names (optional, not used yet).** `buildBackupFileName(createdAt, kind, deviceId?)` in
+**Per-device names.** `buildBackupFileName(createdAt, kind, deviceId?)` in
 `src/lib/backup.ts` and the `prune_backups` command accept an optional device id, so two laptops
 backing up into one `backups/` do not prune each other's snapshots. With a device id the name is
 `trackdidia-(manual|auto)-backup-<deviceTag>-<timestamp>.db`, where `<deviceTag>` is the first eight
@@ -1869,11 +1960,29 @@ can never hold a path separator). A legacy timestamp starts with a year (`2026-.
 are never confused, and `is_backup_file_name` recognizes both. Retention is 30 files per group: each
 tagged device keeps its own 30, the legacy untagged files form their own group, and a prune only ever
 selects files of ITS group. A device never prunes another device's files, a caller without a device id
-(every caller today) never touches tagged files, and a tagged caller never touches legacy files (they
-cannot be attributed to a device). **Nothing passes a device id yet**: `createBackup` is unchanged, so
-shipped backup behavior (names, one 30-file cap) is identical until a later sync slice wires the id in.
-Two devices sharing a tag would share a group (about a one-in-four-billion chance); nothing else
-would go wrong.
+never touches tagged files, and a tagged caller never touches legacy files (they cannot be attributed
+to a device).
+
+`AppRepository.createBackup(kind, { deviceId? })` is the single place a backup is named and pruned. With an
+explicit id (the sync safety backup) it uses it; otherwise, **while `multiDeviceSyncEnabled` is on**, the
+SQLite repository reads this device's id from the NATIVE device-id file (`sync_device_id`, injected into the
+repository), so every manual, automatic and safety backup of a sync-enabled laptop is tagged. It never reads the
+`sync_identity` row for this: a database copied or restored from another laptop carries that laptop's identity, and
+naming or pruning backups under its tag would evict its snapshots. An unreadable native id falls back to the legacy
+name. The same id is passed to `prune_backups` whenever the file name carries it (a
+tagged file pruned without the id would never be selected). An id that is not a valid device id, or a native id that cannot be read, never blocks a
+backup: the legacy name and an unlabeled prune are used. With sync off, backup behavior (names, one 30-file cap)
+is exactly the legacy one. Two devices sharing a tag would share a group (about a one-in-four-billion chance);
+nothing else would go wrong.
+
+**The shared GTD sync folder never receives a backup.** A backup is a full copy of the database (finance, journal,
+AI memory). While `syncGtdFolderDir` is set, `createBackup` (manual, automatic, safety) throws a typed
+`BackupDestinationError` (`overlaps_sync_folder`, French message) before anything is written when `backupDestinationDir`
+is the same folder, a folder inside it or a folder around it (`backupDestinationOverlap`, the same text rule as the
+picker). The Settings backup-folder picker refuses such a choice, and an app-wide banner says backups are stopped while the
+stored settings overlap (so the scheduler does not fail silently). With no GTD folder set nothing changes. The native
+`ensure_backup_dir` also refuses a destination that is, lies inside, or directly contains a directory carrying a `gtd`
+`.trackdidia-folder-role` marker, before creating `backups/` (`gtd_marker_around` in `sync_folder/folder.rs`).
 
 Backups include all AI tables (`ai_messages`, `ai_proposals`, `ai_memories`) plus
 settings JSON (OpenRouter and RescueTime keys). Distilled personal statements in

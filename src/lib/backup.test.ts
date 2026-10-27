@@ -1,6 +1,7 @@
 import { defaultAppSettings } from "../domain/daily-entry";
 import {
   BACKUP_RETENTION_COUNT,
+  backupDestinationOverlap,
   buildBackupFileName,
   deviceBackupTag,
   isAutoBackupDue,
@@ -129,5 +130,28 @@ describe("backup helpers", () => {
     );
     expect(merged.financeEnabled).toBe(true);
     expect(merged.financeBaseCurrency).toBe("USD");
+  });
+});
+
+describe("backupDestinationOverlap", () => {
+  it("flags a destination that is, is inside, or contains the shared GTD folder", () => {
+    const overlap = (backupDestinationDir: string, syncGtdFolderDir: string) =>
+      backupDestinationOverlap({ backupDestinationDir, syncGtdFolderDir });
+    expect(overlap("/Drive/GTD", "/Drive/GTD")).toBe("same");
+    expect(overlap("/Drive/GTD/backups", "/Drive/GTD")).toBe("inside");
+    expect(overlap("/Drive", "/Drive/GTD")).toBe("contains");
+  });
+
+  it("says nothing without a GTD folder or when the folders are apart", () => {
+    expect(
+      backupDestinationOverlap({ backupDestinationDir: "/Drive/Perso", syncGtdFolderDir: "" }),
+    ).toBeNull();
+    expect(backupDestinationOverlap({ backupDestinationDir: "", syncGtdFolderDir: "" })).toBeNull();
+    expect(
+      backupDestinationOverlap({
+        backupDestinationDir: "/Drive/Perso",
+        syncGtdFolderDir: "/Drive/GTD",
+      }),
+    ).toBeNull();
   });
 });

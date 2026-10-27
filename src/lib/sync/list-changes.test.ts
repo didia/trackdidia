@@ -20,7 +20,13 @@ const SECRETS = {
   llmBridgeToken: "BRIDGE-SECRET-TOKEN",
   backupDestinationDir: "/Users/someone/Google Drive/PRIVATE-BACKUPS",
   aiBaseUrl: "https://user:PASSWORD-IN-URL@llm.internal.example/v1",
+  // Multi-device sync's own device-local settings (folder paths are private, a name is personal).
+  syncGtdFolderDir: "/Users/someone/Google Drive/PRIVATE-SHARED-GTD-FOLDER",
+  syncDeviceName: "PRIVATE-DEVICE-NAME",
 };
+
+/** Device-local sync switches whose VALUES are not distinctive text, so their keys are checked. */
+const SYNC_DEVICE_FLAGS = { multiDeviceSyncEnabled: true, syncProfile: "work" } as const;
 
 const account = (): FinanceAccount => ({
   id: "account-1",
@@ -104,6 +110,7 @@ const fullLaptop = async (): Promise<SyncDevice> => {
   await a.repo.updateSettings((current) => ({
     ...current,
     ...SECRETS,
+    ...SYNC_DEVICE_FLAGS,
     language: "fr",
     aiModel: "vendor/model-a",
     financeEnabled: true,
@@ -177,8 +184,9 @@ describe("listSyncChanges: privacy guards", () => {
         expect(keys.has(entry.key as never), `${domain}: ${entry.key}`).toBe(true);
       }
       const keyNames = changeSet.settings.map((entry) => entry.key);
-      for (const forbidden of Object.keys(SECRETS)) {
+      for (const forbidden of [...Object.keys(SECRETS), ...Object.keys(SYNC_DEVICE_FLAGS)]) {
         expect(keyNames).not.toContain(forbidden);
+        expect(text, `${domain}: ${forbidden}`).not.toContain(`"${forbidden}"`);
       }
     }
   });

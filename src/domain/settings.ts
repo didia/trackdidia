@@ -33,6 +33,9 @@ export const DEFAULT_LLM_BRIDGE_PORT = 47_821;
 export const isValidLlmBridgePort = (value: unknown): value is number =>
   typeof value === "number" && Number.isInteger(value) && value >= 1_024 && value <= 65_535;
 
+export const DEFAULT_SYNC_DEVICE_NAME = "Cet ordinateur";
+export const SYNC_DEVICE_NAME_MAX_LENGTH = 100;
+
 export const defaultAppSettings = (): AppSettings => ({
   language: "fr",
   storageMode: "sqlite",
@@ -88,6 +91,10 @@ export const defaultAppSettings = (): AppSettings => ({
   llmBridgeToken: "",
   runInTray: false,
   launchAtLogin: false,
+  multiDeviceSyncEnabled: false,
+  syncProfile: "personal",
+  syncGtdFolderDir: "",
+  syncDeviceName: DEFAULT_SYNC_DEVICE_NAME,
 });
 
 export const normalizeAppSettings = (
@@ -143,6 +150,21 @@ export const normalizeAppSettings = (
     : defaults.llmBridgePort,
   runInTray: settings.runInTray === true,
   launchAtLogin: settings.launchAtLogin === true,
+  multiDeviceSyncEnabled: settings.multiDeviceSyncEnabled === true,
+  // Kept as stored so a future build that supports `work` finds it; sync refuses anything but
+  // `personal` today. Anything that is not a profile at all is the default.
+  syncProfile:
+    settings.syncProfile === "personal" || settings.syncProfile === "work"
+      ? settings.syncProfile
+      : defaults.syncProfile,
+  syncGtdFolderDir:
+    typeof settings.syncGtdFolderDir === "string"
+      ? settings.syncGtdFolderDir.trim()
+      : defaults.syncGtdFolderDir,
+  syncDeviceName:
+    typeof settings.syncDeviceName === "string" && settings.syncDeviceName.trim().length > 0
+      ? settings.syncDeviceName.trim().slice(0, SYNC_DEVICE_NAME_MAX_LENGTH)
+      : defaults.syncDeviceName,
 });
 
 /** Only fields edited relative to the form's baseline are submitted. */

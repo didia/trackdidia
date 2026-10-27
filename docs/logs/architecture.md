@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-10-27 | Added the `/sync` route (always registered; gate message unless debug mode and `multiDeviceSyncEnabled`), the debug-gated `sync` nav entry (`gate` beside `flag`), the sync controller in `AppProvider` and the Settings sync card; the cloud-sync limitation names the experimental exception. | [architecture.md](../architecture.md), [multi-device-sync.md](../multi-device-sync.md) | `src/App.tsx`, `src/components/AppShell.tsx`, `src/app/app-context.tsx`, `src/pages/SyncPage.test.tsx` |
 | 2026-10-26 | Native boundary lists the four `sync_*` folder commands in `sync_folder.rs` (not called by the app yet). | [architecture.md](../architecture.md), [storage-and-backups.md](../storage-and-backups.md) | `src-tauri/src/sync_folder.rs` |
 | 2026-10-12 | Removed the `/email-triage` route, the email triage coordinator step from bootstrap (replaced by `useDesktopShell`), and the `emailTriage` repository property | `docs/architecture.md` | `src/App.tsx`, `src/app/app-context.tsx`, `src/lib/storage/repository.ts` |
 | 2026-10-08 | Architecture now notes the opt-in loopback LLM bridge listener (the only listening socket) and the extra Tauri commands `llm_bridge_configure` / `llm_bridge_respond` | `docs/architecture.md`, `docs/llm-bridge.md` | `src-tauri/src/llm_bridge.rs` |

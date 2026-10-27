@@ -131,6 +131,18 @@ pub fn ensure_backup_directory(destination_dir: &str, environment: &str) -> Resu
         ));
     }
 
+    // The shared GTD sync folder must never receive a full-database backup. A destination that is,
+    // lies inside, or directly contains a folder carrying a `gtd` role marker is refused before
+    // anything is created. (The TypeScript side refuses the same overlap from the settings first.)
+    if let Some(marked) = crate::sync_folder::gtd_folder_marker_around(&root) {
+        return Err(format!(
+            "Le dossier de backup {} chevauche le dossier GTD partage {}: les backups contiennent \
+             toute la base et seraient partages. Choisis un autre dossier de backup.",
+            root.display(),
+            marked.display()
+        ));
+    }
+
     let backup_dir = root.join(backup_subdir(environment)?);
     fs::create_dir_all(&backup_dir)
         .map_err(|error| format!("Impossible de creer le dossier de backups: {error}"))?;
@@ -309,6 +321,68 @@ mod tests {
         let created = ensure_backup_directory(dir.path().to_str().unwrap(), "development").unwrap();
         assert!(Path::new(&created).ends_with("backups-dev"));
         assert!(Path::new(&created).is_dir());
+    }
+
+    fn write_gtd_marker(dir: &Path) {
+        fs::write(
+            dir.join(crate::sync_folder::MARKER_FILE_NAME),
+            r#"{"role":"gtd","formatVersion":1}"#,
+        )
+        .expect("marker");
+    }
+
+    #[test]
+    fn refuses_a_destination_that_is_the_gtd_sync_folder() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_gtd_marker(dir.path());
+        let result = ensure_backup_directory(dir.path().to_str().unwrap(), "production");
+        assert!(result.is_err());
+        assert!(!dir.path().join("backups").exists());
+    }
+
+    #[test]
+    fn refuses_a_destination_inside_the_gtd_sync_folder() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_gtd_marker(dir.path());
+        let inside = dir.path().join("archive");
+        fs::create_dir(&inside).expect("inside");
+        let result = ensure_backup_directory(inside.to_str().unwrap(), "development");
+        assert!(result.is_err());
+        assert!(!inside.join("backups-dev").exists());
+    }
+
+    #[test]
+    fn refuses_a_destination_that_contains_the_gtd_sync_folder() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let shared = dir.path().join("GTD");
+        fs::create_dir(&shared).expect("shared");
+        write_gtd_marker(&shared);
+        let result = ensure_backup_directory(dir.path().to_str().unwrap(), "production");
+        assert!(result.is_err());
+        assert!(!dir.path().join("backups").exists());
+    }
+
+    #[test]
+    fn accepts_the_personal_folder_and_unrelated_siblings() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let shared = dir.path().join("GTD");
+        let personal = dir.path().join("Perso");
+        fs::create_dir(&shared).expect("shared");
+        fs::create_dir(&personal).expect("personal");
+        write_gtd_marker(&shared);
+        // A personal marker, an unreadable marker and no marker are all fine.
+        fs::write(
+            personal.join(crate::sync_folder::MARKER_FILE_NAME),
+            r#"{"role":"personal","formatVersion":1}"#,
+        )
+        .expect("personal marker");
+        let created = ensure_backup_directory(personal.to_str().unwrap(), "production").unwrap();
+        assert!(Path::new(&created).is_dir());
+        let junk = dir.path().join("Junk");
+        fs::create_dir(&junk).expect("junk");
+        fs::write(junk.join(crate::sync_folder::MARKER_FILE_NAME), "not json")
+            .expect("junk marker");
+        assert!(ensure_backup_directory(junk.to_str().unwrap(), "production").is_ok());
     }
 
     #[test]

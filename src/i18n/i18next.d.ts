@@ -20,6 +20,7 @@ import type relativeTime from "../locales/fr/relativeTime.json";
 import type insights from "../locales/fr/insights.json";
 import type relationship from "../locales/fr/relationship.json";
 import type finance from "../locales/fr/finance.json";
+import type sync from "../locales/fr/sync.json";
 
 declare module "i18next" {
   interface CustomTypeOptions {
@@ -47,6 +48,7 @@ declare module "i18next" {
       insights: typeof insights;
       relationship: typeof relationship;
       finance: typeof finance;
+      sync: typeof sync;
     };
   }
 }

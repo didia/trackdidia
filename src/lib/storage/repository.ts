@@ -123,6 +123,11 @@ export interface StorageInfo extends NativeStoragePaths {
   backupDir: string;
 }
 
+export interface BackupOptions {
+  /** `dev:<uuid v4>` of this device. */
+  deviceId?: string;
+}
+
 export interface BackupResult {
   backupPath: string;
   createdAt: string;
@@ -244,7 +249,14 @@ export interface AppRepository {
   saveAiMemory(memory: AiMemory): Promise<AiMemory>;
   archiveAiMemory(id: string, reason: "expired" | "contradicted" | "resolved"): Promise<void>;
   getStorageInfo(): Promise<StorageInfo | null>;
-  createBackup(kind?: "manual" | "auto"): Promise<BackupResult>;
+  /**
+   * `VACUUM INTO` a snapshot in the backup destination. With a device id the file name carries the
+   * device tag and retention is counted per device (see `buildBackupFileName`); without one it is the
+   * legacy name. While multi-device sync is enabled the SQLite repository uses this device's id by
+   * default, so two laptops sharing one backup folder never prune each other's snapshots. An id that
+   * is not a device id never blocks a backup: it falls back to the legacy name.
+   */
+  createBackup(kind?: "manual" | "auto", options?: BackupOptions): Promise<BackupResult>;
   importGoogleTasksExport(rawJson: unknown): Promise<GtdImportSummary>;
   getGtdOverview(): Promise<{ taskCount: number; projectCount: number; contextCount: number }>;
   moveTasksWithContextToBucket(contextId: string, bucket: Task["bucket"]): Promise<number>;

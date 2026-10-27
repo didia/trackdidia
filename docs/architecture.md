@@ -59,6 +59,7 @@ framework or external state-management library.
       pomodoro/                 timer state and sound/notification support
       recurring/                recurrence rules and previews
       storage/                  repository API, memory and SQLite adapters
+      sync/                     experimental multi-device sync: registry, merge/apply, engine, bundle format, folder transport, enable flow
   src-tauri/
     src/main.rs                 native app and storage-path command
     src/db.rs                   single-connection sqlx pool and db_connect/db_execute/db_select commands
@@ -82,7 +83,9 @@ services shared by the pages:
 - `CoachPulseService`,
 - the global Pomodoro controller,
 - debug state,
-- the browser-preview flag.
+- the browser-preview flag,
+- the experimental multi-device sync controller (`sync`, from `useMultiDeviceSync`; idle until the user acts, no
+  startup work).
 
 The application uses React hooks and this context instead of a global store.
 
@@ -109,7 +112,9 @@ floating Pomodoro timer. The sidebar's nav list is normally static, but a nav
 entry can carry a `flag` naming an `AppSettings` boolean; `AppShell` reads
 `settings` from `useAppContext()` and filters that entry out when the flag is
 false. `finances` (`/finances`) is the first such conditional entry, gated on
-`settings.financeEnabled`.
+`settings.financeEnabled`. The `sync` entry (`/sync`) carries a `gate` instead: it is
+listed only when `isSyncPageEnabled(debugEnabled, settings)` (debug mode AND
+`multiDeviceSyncEnabled`; see [Multi-device sync](multi-device-sync.md#the-gate)).
 
 | Route | Screen | Purpose |
 |---|---|---|
@@ -139,7 +144,8 @@ false. `finances` (`/finances`) is the first such conditional entry, gated on
 | `/scheduled` | Scheduled | Day/week planning, deadlines, recurrence previews |
 | `/waiting-for` | Waiting For | Work awaiting external action |
 | `/someday-maybe` | Someday / Maybe | Deferred possibilities |
-| `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import, calendar sync |
+| `/sync` | Synchronisation (experimental) | Peers, pending changes, "Synchroniser maintenant", last run and errors; always registered, shows a gate message unless debug mode and `multiDeviceSyncEnabled` are on ([Multi-device sync](multi-device-sync.md)) |
+| `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import, calendar sync, experimental multi-device sync card (debug mode only) |
 | `/waiting-someday` | Redirect | Legacy alias redirected to `/waiting-for` |
 
 `/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
@@ -330,12 +336,13 @@ The Rust host is intentionally small:
 - initialize the notification and dialog plugins;
 - resolve/create the application data directory;
 - choose development versus production database filenames;
-- expose `resolve_storage_paths`, `ensure_backup_dir`, and `prune_backups`;
+- expose `resolve_storage_paths`, `ensure_backup_dir` (which refuses a destination carrying or touching the shared GTD
+  sync folder's role marker), and `prune_backups`;
 - expose `sync_device_id`, the per-installation device id file beside the database (see
   [Storage and backups](storage-and-backups.md#application-data-paths));
 - expose the four `sync_*` folder commands (`sync_prepare_folder`, `sync_publish`,
-  `sync_list_peers`, `sync_read_bundle`) in `sync_folder.rs`, not called by the app yet (see
-  [Sync folder commands](storage-and-backups.md#sync-folder-commands));
+  `sync_list_peers`, `sync_read_bundle`) in `sync_folder.rs`, called only by the experimental folder transport
+  (see [Sync folder commands](storage-and-backups.md#sync-folder-commands));
 - when the user enables it, run the loopback MCP transport in `llm_bridge.rs`
   (`llm_bridge_configure`, `llm_bridge_respond`) and forward tool calls to the webview.
   See [LLM bridge](llm-bridge.md).
@@ -347,7 +354,8 @@ default core access, notifications, and dialogs.
 
 ## Current limitations
 
-- No cloud sync, accounts, or shared data.
+- No cloud sync, accounts, or shared data. The one exception is the experimental, debug-gated, manual
+  two-laptop folder sync described in [Multi-device sync](multi-device-sync.md); it is not on by default.
 - No background recurrence generation while the application is closed.
 - Browser preview has no persistence or backups.
 - Backup creation exists, but restore is manual and has no UI.
@@ -365,3 +373,4 @@ default core access, notifications, and dialogs.
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
 - [Calendar sync](calendar-sync.md)
 - [LLM bridge](llm-bridge.md)
+- [Multi-device sync (experimental)](multi-device-sync.md)

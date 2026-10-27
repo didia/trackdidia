@@ -44,6 +44,12 @@ use sha2::{Digest, Sha256};
 
 use crate::device_id::is_valid_device_id;
 
+/// The directory carrying a `gtd` role marker that `root` is, lies inside, or directly contains.
+/// The backup command refuses such a destination (see `backup::ensure_backup_directory`).
+pub fn gtd_folder_marker_around(root: &Path) -> Option<std::path::PathBuf> {
+    folder::gtd_marker_around(root)
+}
+
 /// A `manifest.json` (and the manifest the webview sends to publish) may not exceed this.
 pub const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 /// Largest bundle Rust will store or return. Bundles cross the webview boundary as base64 inside

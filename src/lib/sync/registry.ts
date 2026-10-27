@@ -1100,6 +1100,11 @@ export const SETTINGS_REGISTRY: Readonly<Record<keyof AppSettings, SettingRule>>
   lastBackupPath: device,
   runInTray: device,
   launchAtLogin: device,
+  // Multi-device sync's own switches: what a laptop syncs with can never be decided by a peer.
+  multiDeviceSyncEnabled: device,
+  syncProfile: device,
+  syncGtdFolderDir: device,
+  syncDeviceName: device,
 
   // Personal: AI preferences, pulse/pastor settings, relationship draws, one-time markers.
   aiEnabled: lww("personal"),

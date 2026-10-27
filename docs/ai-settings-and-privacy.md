@@ -17,6 +17,11 @@ like any other value.
 Defaults, normalization and the one-time legacy token-budget upgrade live in
 `src/domain/settings.ts`; the previous exports remain compatibility aliases.
 
+The experimental multi-device sync adds four **device-local** keys (`multiDeviceSyncEnabled` default `false`,
+`syncProfile` `"personal"` (a stored `"work"` is kept but refused), `syncGtdFolderDir` `""`, `syncDeviceName`
+`"Cet ordinateur"`), each classified `device` in `src/lib/sync/registry.ts`, so they never leave the laptop in a sync
+bundle. Their meaning is in [Multi-device sync](multi-device-sync.md#settings).
+
 Application writers use `updateSettings(current => next)`. Desktop reads, applies
 and writes inside one serialized transaction; memory preview does the same work
 synchronously against an isolated snapshot. An error leaves stored settings intact.
@@ -1057,6 +1062,9 @@ Debug is always enabled in Vite development. In other builds it can be persisted
 
 Logs are not persisted to SQLite. Even so, avoid passing sensitive values to
 `logDebug`; console output can be copied or captured externally.
+
+Debug mode is also the gate of the experimental multi-device sync: its Settings card renders only while debug
+mode is on, and the `/sync` page and nav entry need it too (see [Multi-device sync](multi-device-sync.md#the-gate)).
 
 ### AI payload preview
 

@@ -72,4 +72,16 @@ export interface AppSettings {
   runInTray: boolean;
   /** Desktop only: launch TrackDidia when the user logs in (macOS LaunchAgent). */
   launchAtLogin: boolean;
+  /**
+   * EXPERIMENTAL multi-device sync, off by default and reachable only with debug mode on. Every
+   * `sync*` key and this flag are device-local: they are never part of a change set. The personal
+   * sync folder is `backupDestinationDir`.
+   */
+  multiDeviceSyncEnabled: boolean;
+  /** The device profile. Only `"personal"` is supported; a stored `"work"` is refused by sync. */
+  syncProfile: "personal" | "work";
+  /** The shared GTD folder (visible to personal and work laptops). Empty until chosen. */
+  syncGtdFolderDir: string;
+  /** How this laptop is named to its peers. */
+  syncDeviceName: string;
 }

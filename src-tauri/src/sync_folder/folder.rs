@@ -102,6 +102,30 @@ fn read_marker_lenient(dir: &Path) -> Option<Role> {
         .and_then(|bytes| parse_marker(&bytes))
 }
 
+/// A directory carrying a `gtd` role marker that `root` is, lies inside, or directly contains (one
+/// level, like the nesting check). Used by the backup command: a full-database backup must never be
+/// written into the shared GTD folder or around it. Read-only, lenient (an unreadable marker counts
+/// as none), canonical when the path exists.
+pub fn gtd_marker_around(root: &Path) -> Option<PathBuf> {
+    let canonical = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+    for dir in canonical.ancestors() {
+        if read_marker_lenient(dir) == Some(Role::Gtd) {
+            return Some(dir.to_path_buf());
+        }
+    }
+    let children = fs::read_dir(&canonical).ok()?;
+    for child in children.take(MAX_SCANNED_ENTRIES).flatten() {
+        let is_real_dir = child
+            .file_type()
+            .map(|file_type| file_type.is_dir())
+            .unwrap_or(false);
+        if is_real_dir && read_marker_lenient(&child.path()) == Some(Role::Gtd) {
+            return Some(child.path());
+        }
+    }
+    None
+}
+
 /// A folder holding the full-database backups is the personal folder; it must never be shared.
 fn looks_like_personal_folder(root: &Path) -> bool {
     ["backups", "backups-dev"]

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useAppContext } from "../app/app-context";
+import { isSyncPageEnabled } from "../lib/sync/gate";
 import { shouldRenderFloatingPomodoro } from "../lib/pomodoro/floating-visibility";
 import { getQuoteOfTheDay } from "../lib/quote-of-the-day";
 import { FloatingPomodoroTimer } from "./FloatingPomodoroTimer";
@@ -26,13 +27,14 @@ const navigation = [
   { to: "/scheduled", labelKey: "scheduled" },
   { to: "/waiting-for", labelKey: "waitingFor" },
   { to: "/someday-maybe", labelKey: "somedayMaybe" },
+  { to: "/sync", labelKey: "sync", gate: "sync" },
   { to: "/parametres", labelKey: "settings" },
 ] as const;
 
 export const AppShell = () => {
   const { t } = useTranslation("nav");
   const { t: tCommon } = useTranslation("common");
-  const { pomodoro, settings } = useAppContext();
+  const { pomodoro, settings, debugEnabled } = useAppContext();
   const { pathname } = useLocation();
   const hasActivePomodoroSession = Boolean(pomodoro.state.activeSession);
   const [idleNowMs, setIdleNowMs] = useState<number>(() => Date.now());
@@ -68,6 +70,8 @@ export const AppShell = () => {
         <nav className="nav">
           {navigation
             .filter((item) => !("flag" in item) || settings[item.flag])
+            // The experimental sync page is listed only with debug mode AND sync enabled.
+            .filter((item) => !("gate" in item) || isSyncPageEnabled(debugEnabled, settings))
             .map((item) => (
               <NavLink
                 key={item.to}
