@@ -7,6 +7,7 @@ import {
   CAPTURE_TRIGGER_PREFIX,
   capturedTables,
   captureTriggerTables,
+  unionCounterTables,
   disableSyncCapture,
   ensureSyncCapture,
   expectedCaptureHash,
@@ -75,9 +76,16 @@ describe("generated trigger SQL", () => {
       expect(trigger.name.startsWith(CAPTURE_TRIGGER_PREFIX)).toBe(true);
       byTable.set(trigger.table, [...(byTable.get(trigger.table) ?? []), trigger.name]);
     }
-    expect([...byTable.keys()].sort()).toEqual([...captureTriggerTables()].sort());
+    // The union tables carry one counter trigger each and nothing else.
+    const unions = unionCounterTables().map((entry) => entry.table);
+    expect(unions.sort()).toEqual(["ai_messages", "gtd_task_events"]);
+    expect([...byTable.keys()].sort()).toEqual([...captureTriggerTables(), ...unions].sort());
     for (const [table, names] of byTable) {
-      expect(names).toHaveLength(table === SETTINGS_TABLE ? 2 : 3);
+      if (unions.includes(table)) {
+        expect(names).toEqual([`${CAPTURE_TRIGGER_PREFIX}${table}_cnt`]);
+      } else {
+        expect(names).toHaveLength(table === SETTINGS_TABLE ? 2 : 3);
+      }
     }
     expect(triggers.map((trigger) => trigger.name)).toEqual(
       triggers.map((trigger) => trigger.name).sort(),
@@ -185,8 +193,12 @@ describe("installSyncCapture", () => {
     ]);
     expect(await isSyncCaptureInstalled(db)).toBe(true);
     const tables = new Set(rows.map((row) => row.tbl_name));
-    expect(tables.has("gtd_task_events")).toBe(false);
-    expect(tables.has("ai_messages")).toBe(false);
+    // Union tables get only the change-counter trigger: no dirty marks, no meta.
+    for (const table of ["gtd_task_events", "ai_messages"]) {
+      expect(rows.filter((row) => row.tbl_name === table).map((row) => row.name)).toEqual([
+        `${CAPTURE_TRIGGER_PREFIX}${table}_cnt`,
+      ]);
+    }
     expect(tables.has("sync_entity_meta")).toBe(false);
     expect(tables.has("gtd_tasks")).toBe(true);
     expect(tables.has("app_settings")).toBe(true);
@@ -278,7 +290,11 @@ describe("ensureSyncCapture", () => {
       `CREATE TRIGGER "${CAPTURE_TRIGGER_PREFIX}gtd_task_events_ai" AFTER INSERT ON gtd_task_events BEGIN SELECT 1; END`,
     );
     expect((await ensureSyncCapture(db)).state).toBe("reinstalled");
-    expect((await triggerRows(db)).some((row) => row.tbl_name === "gtd_task_events")).toBe(false);
+    expect(
+      (await triggerRows(db))
+        .filter((row) => row.tbl_name === "gtd_task_events")
+        .map((r) => r.name),
+    ).toEqual([`${CAPTURE_TRIGGER_PREFIX}gtd_task_events_cnt`]);
   });
 });
 

@@ -1227,6 +1227,12 @@ export const resolveIdempotentMigrationSql = async (
   return sql.trim() ? sql : "SELECT 1;";
 };
 
+/** The highest migration id of this build: the schema version a device reports to its sync peers. */
+export const LATEST_MIGRATION_ID = migrations.reduce(
+  (max, migration) => Math.max(max, migration.id),
+  0,
+);
+
 /** Applies each migration and its ledger entry in the same transaction. */
 export const runMigrations = async (
   db: Database,

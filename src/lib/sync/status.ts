@@ -1,3 +1,5 @@
+import { SYNC_DOMAINS } from "./registry";
+
 /**
  * Types and pure helpers behind `AppRepository.getSyncStatus` / `ensureSyncIdentity`. No I/O: the
  * SQLite repository feeds it raw rows, tests feed it garbage.
@@ -28,6 +30,27 @@ export interface SyncPeerSummary {
   lastSyncedAt: string | null;
   /** Content hash of the last bundle applied per domain; malformed entries are dropped. */
   lastAppliedShaByDomain: Record<string, string>;
+}
+
+/** What `AppRepository.recordSyncPeerApplied` stores about one peer (see the repository contract). */
+export interface SyncPeerAppliedInput {
+  /** `dev:<uuid v4>` of the peer. */
+  peerId: string;
+  peerName: string;
+  /** The manifest the applied bundles were announced in, as read. */
+  manifest: Record<string, unknown> | null;
+  /** Lowercase hex SHA-256 of the bundle applied, by domain. Merged into the stored map. */
+  appliedShaByDomain: Record<string, string>;
+  /** ISO timestamp of the contact, or `null` to keep the one already stored. */
+  syncedAt: string | null;
+}
+
+/** The result of `AppRepository.markSyncPublished`. */
+export interface SyncPublishMark {
+  /** `last_publish_counter` after the call. */
+  lastPublishCounter: number;
+  /** Whether the call moved it forward. */
+  advanced: boolean;
 }
 
 export type SyncStatus =
@@ -149,4 +172,80 @@ export const buildSupportedSyncStatus = (
     captureEnabled,
     peers: peerRows.map(syncPeerFromRow),
   };
+};
+
+/** A validated {@link SyncPeerAppliedInput}, ready to bind: the manifest is already JSON text. */
+export interface NormalizedPeerApplied {
+  peerId: string;
+  peerName: string;
+  manifestJson: string | null;
+  appliedShaByDomain: Record<string, string>;
+  syncedAt: string | null;
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** Rejects an invalid peer id, an unknown domain, a malformed hash or an unusable timestamp. */
+export const normalizePeerApplied = (input: SyncPeerAppliedInput): NormalizedPeerApplied => {
+  const peerId = assertValidDeviceId(input?.peerId);
+  const name = typeof input.peerName === "string" ? input.peerName.trim() : "";
+  const appliedShaByDomain: Record<string, string> = {};
+  if (!isPlainRecord(input.appliedShaByDomain)) {
+    throw new Error("Invalid applied hashes: expected an object keyed by domain");
+  }
+  for (const [domain, sha] of Object.entries(input.appliedShaByDomain)) {
+    if (!(SYNC_DOMAINS as readonly string[]).includes(domain)) {
+      throw new Error(`Invalid applied hashes: unknown sync domain "${domain}"`);
+    }
+    if (typeof sha !== "string" || !SHA256_HEX.test(sha)) {
+      throw new Error(`Invalid applied hashes: "${domain}" is not a lowercase hex SHA-256`);
+    }
+    appliedShaByDomain[domain] = sha;
+  }
+  if (
+    input.syncedAt !== null &&
+    (typeof input.syncedAt !== "string" || Number.isNaN(Date.parse(input.syncedAt)))
+  ) {
+    throw new Error("Invalid sync time: expected an ISO timestamp or null");
+  }
+  if (input.manifest !== null && !isPlainRecord(input.manifest)) {
+    throw new Error("Invalid peer manifest: expected an object or null");
+  }
+  return {
+    peerId,
+    peerName: name.length > 0 ? name.slice(0, DEVICE_NAME_MAX_LENGTH) : peerId,
+    manifestJson: input.manifest === null ? null : JSON.stringify(input.manifest),
+    appliedShaByDomain,
+    syncedAt: input.syncedAt,
+  };
+};
+
+/** The stored hash map with `incoming` laid over it. A corrupt stored value degrades to empty. */
+export const mergeAppliedShas = (
+  storedJson: string | null,
+  incoming: Record<string, string>,
+): Record<string, string> => {
+  const merged = syncPeerFromRow({
+    peer_id: "",
+    peer_name: "",
+    last_manifest_json: null,
+    last_synced_at: null,
+    last_applied_sha_by_domain: storedJson,
+  }).lastAppliedShaByDomain;
+  return { ...merged, ...incoming };
+};
+
+/**
+ * The new `last_publish_counter`, or `null` when it must not change: `value` has to be a counter,
+ * has to move forward, and may not pass `change_counter` (a value above it was never read from it).
+ */
+export const nextPublishCounter = (
+  value: unknown,
+  changeCounter: number,
+  lastPublishCounter: number,
+): number | null => {
+  if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
+    throw new Error("Invalid change counter: expected a non-negative integer");
+  }
+  return value > lastPublishCounter && value <= changeCounter ? value : null;
 };

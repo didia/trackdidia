@@ -151,6 +151,16 @@ export interface SyncApplyResult {
   hlcAdvanced: boolean;
 }
 
+/** Options of `applySyncBundle`. */
+export interface SyncApplyOptions {
+  /**
+   * When the merge changed anything (`applied + tombstonesApplied > 0`), bump `change_counter` in the
+   * SAME transaction, so the merged state is published at the next publish and survives a restart
+   * between the apply and the publish. Without it a merge never counts as a local change.
+   */
+  republish?: boolean;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Validation
 // ---------------------------------------------------------------------------------------------

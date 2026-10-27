@@ -121,10 +121,12 @@ It groups:
 - AI messages, proposals, and memories;
 - standing weekly objectives and per-week manual results;
 - the inert multi-device sync foundation: `getSyncStatus()`, `ensureSyncIdentity()`,
-  `enableSyncCapture()`, `listSyncChanges()` and `applySyncBundle()` (see
+  `enableSyncCapture()`, `listSyncChanges()`, `applySyncBundle()`, `recordSyncPeerApplied()` and
+  `markSyncPublished()` (see
   [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables),
-  [Multi-device sync change capture](#multi-device-sync-change-capture) and
-  [Multi-device sync change sets and apply](#multi-device-sync-change-sets-and-apply)).
+  [Multi-device sync change capture](#multi-device-sync-change-capture),
+  [Multi-device sync change sets and apply](#multi-device-sync-change-sets-and-apply) and
+  [Sync engine, transport seam and device profile](#sync-engine-transport-seam-and-device-profile)).
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
@@ -136,7 +138,8 @@ the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information, backup creation, and multi-device sync (memory reports
 `{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity`,
-`enableSyncCapture`, `listSyncChanges` and `applySyncBundle`).
+`enableSyncCapture`, `listSyncChanges`, `applySyncBundle`, `recordSyncPeerApplied` and
+`markSyncPublished`).
 
 ## Atomic AI proposal acceptance
 
@@ -422,7 +425,7 @@ who never use sync see no behavior change.
 |---|---|
 | `sync_entity_meta` | `(entity_type, entity_id)` primary key, `field_clocks_json` (default `'{}'`), `row_hlc` (indexed), nullable `deleted_at` tombstone |
 | `sync_identity` | Single row (`id = 1` enforced by `CHECK`): `device_id`, `device_name`, HLC state (`physical_ms`, `counter`), `change_counter`, `last_publish_counter`, and `applying` (the transaction-scoped "merge in progress" switch for later slices) |
-| `sync_peers` | Per-peer last manifest, last sync time, and last applied content hash per domain |
+| `sync_peers` | Per-peer last manifest, last sync time, and last applied content hash per domain; written by the sync engine through `recordSyncPeerApplied` |
 | `sync_id_aliases` | `(entity_type, alias_id)` to `canonical_id` (the smallest id of the alias class) with `recorded_hlc`; written by the alias engine (see [Canonical identity](#canonical-identity-natural-keys-and-aliases)) |
 | `sync_recurrence_occurrences` | `(template_id, due_date)` outcome with `outcome_hlc` and the producing `device_id`; written by change capture for recurring instances, joined on apply |
 | `sync_recurrence_clears` | `template_id` to `cleared_through_date` (a maximum); written by change capture, joined on apply |
@@ -478,8 +481,13 @@ All three are classified device-local in `src/lib/sync/registry.ts` and never le
 - `installSyncCapture` (`src/lib/sync/capture-install.ts`) generates `AFTER INSERT / UPDATE /
   DELETE` triggers named `trg_sync_cap_<table>_ai|au|ad` for every registry table of the
   `gtd`, `personal` and `finance` domains except grow-only-union tables (`gtd_task_events`,
-  `ai_messages`: published as full sets by id / dedupe key, no triggers, no meta) and sidecars,
-  plus insert/update triggers on `app_settings` for per-key setting capture. The SQL is generated
+  `ai_messages`: published as full sets by id / dedupe key, no dirty marks, no meta) and sidecars,
+  plus insert/update triggers on `app_settings` for per-key setting capture. A union table gets ONE
+  trigger, `trg_sync_cap_<table>_cnt`, `AFTER INSERT` only, that bumps `sync_identity.change_counter`
+  by one (same gates: silent without an identity row or while `applying = 1`; an insert that
+  `ON CONFLICT DO NOTHING` ignores fires nothing, so a generator that emits no event bumps nothing).
+  Without it a laptop that only saved an AI message would look clean and never publish it. The
+  trigger set hash changes, so `ensureSyncCapture` reinstalls it at the next start; no migration. The SQL is generated
   from the registry and the live `pragma_table_info`, never written per table, and installation
   fails loudly if the registry primary key differs from the real one.
 - Every trigger has `WHEN (SELECT applying FROM sync_identity WHERE id = 1) = 0`, so without an
@@ -739,7 +747,10 @@ through. Inside the transaction, in order:
    already past it), so every clock issued afterwards is causally after everything applied.
 4. `sync_identity.applying = 1`: the capture triggers stay quiet, so merge-applied writes leave no
    `sync_dirty` mark, stamp no local clock and do not touch `change_counter`. The flag is reset to 0
-   before COMMIT and is rolled back with everything else on failure.
+   before COMMIT and is rolled back with everything else on failure. The one exception is the
+   `options.republish` flag of `applySyncBundle` (used by the sync engine): when the merge changed
+   anything (`applied + tombstonesApplied > 0`), `change_counter` is bumped once, in the same
+   transaction, after the flag is reset, so the merged state is pending for the next publish.
 5. Canonical identity runs before anything of the bundle is merged (`apply-aliases.ts`, see
    [Canonical identity](#canonical-identity-natural-keys-and-aliases)): stale local state is healed,
    the bundle's aliases are learned, rows that stopped being canonical are moved, the bundle is
@@ -1389,6 +1400,167 @@ Sync must still not be user-enabled before the remaining slices (engine, transpo
 Test-only clock: `TauriSqliteRepository` takes an optional third constructor argument, the wall clock
 (epoch milliseconds) behind every sync clock it issues (default `Date.now`). Production never passes it;
 the harness gives each simulated laptop its own.
+
+### Sync engine, transport seam and device profile
+
+`src/lib/sync/sync-engine.ts` is the orchestration layer of multi-laptop sync: pull, then merge and
+apply through `applySyncBundle`, then publish through `listSyncChanges`. **Sync is still not
+user-enabled and no transport exists yet.** There is no folder transport, bundle file format, Rust
+command, setting, UI or startup step: the engine is constructed only by tests, against the
+in-memory folders of `src/lib/sync/test-support/memory-transport.ts`. The `work` device profile is
+enforced by the engine but is not selectable anywhere.
+
+**Modules.** `sync-engine.ts` (the `SyncEngine` class and `createSyncEngine`), `engine-pull.ts`,
+`engine-publish.ts`, `engine-gates.ts` (pure manifest gates), `engine-support.ts` (options, timeouts,
+transport issues), `engine-types.ts` (reports and issue codes), `transport.ts` (the seam),
+`profile.ts` (the device profile).
+
+**Transport seam** (`transport.ts`). A `SyncTransport` has an `id`, a `domains` list and
+`listPeers()`, `readBundle(peer, domain)`, `publish(domain, changeSet, meta)` and
+`ownGeneration(domain)`. One transport serves ONE folder role: the shared GTD folder declares
+`["gtd"]`, the personal folder `["personal", "finance"]`. The engine takes an array of them and routes
+every read and publish by `domains`; two transports may not declare the same domain
+(`SyncEngineError("invalid_transports")` at construction). `listPeers` already excludes this device and
+ignores conflict copies. `readBundle` has verified `bytes` and `sha256`: a mismatch or partial download
+is `{ notReady: true }`, never an exception; bytes that verify but do not parse are delivered as raw text
+and rejected by the engine's validation. `SyncTransportError` has two codes, `unreachable` and `timeout`.
+`PeerManifest.domains` is keyed by plain strings on purpose, so a manifest naming a domain nobody
+declared can be represented, and refused. `ownGeneration` is what lets a folder configured later receive
+bundles although the change counter is clean ("no bundle published yet").
+
+**Device profile** (`profile.ts`). `DeviceProfile` is `"personal" | "work"`. `domainsReadable` and
+`domainsPublishable` come from the registry: `personal` handles every domain, `work` only
+`WORK_PROFILE_DOMAINS` (`gtd`). A value outside the type gets no domain. The engine applies it on both
+sides: a work engine does not even list the peers of a transport that carries nothing it may read
+(`transport_ignored`, an `error`-severity issue so `getStatus()` shows the misconfiguration), refuses manifest entries for other domains (`domain_not_allowed`, error, naming the
+writer, bundle never read), re-checks with `assertDomainAllowed` right before `applySyncBundle`, and never
+calls `listSyncChanges` for a domain it cannot publish. The real boundary remains physical (a work laptop is
+only given the GTD folder); the profile is the backstop.
+
+**Pull** (`engine.pull(options)`). Transports in the order given, peers by device id, domains in registry
+order (all `gtd` bundles before `personal`, before `finance`). Per peer, BEFORE any bundle is read:
+1. a manifest that is not an object of the expected shape is `manifest_invalid` (error, skipped); an unknown
+   `formatVersion` is `format_version_unsupported` (warning, skipped);
+2. a `schemaVersion` newer than the local highest migration is `update_required` ("Update TrackDidia to sync
+   with <device>"; skipped, nothing read or merged); an older one is merged (unknown columns are ignored by
+   apply);
+3. a peer whose `writtenAt` is more than 90 days old (`peer_written_long_ago`), or that this laptop has not
+   synced with for more than 90 days (`not_pulled_recently`, from `sync_peers.last_synced_at`), is `stale_peer`
+   ("offline too long to merge safely, review"): nothing is applied unless the caller passes the device id in
+   `approveStalePeers` (the review flow of a later slice). Exactly 90 days is still fine;
+4. a peer whose `hlcHigh` runs more than five minutes ahead of local time is merged with a `clock_skew`
+   warning (the repository itself still rejects one more than 24 hours ahead: `bundle_rejected` with detail
+   `remote_too_far_ahead`);
+5. each domain entry must be a sync domain, declared by the transport, readable by this profile and
+   publishable by the peer's own profile, and well formed; otherwise it alone is refused.
+A domain whose manifest `sha256` equals `sync_peers.last_applied_sha_by_domain` is `unchanged`: nothing is
+read. (The content hash is the identity; `generation` is carried for display and ordering.) Otherwise
+`readBundle`: `notReady` keeps the previous state and reports `bundle_not_ready` ("not yet"); the change set
+is validated with `validateChangeSet` (failure: `bundle_invalid`, rejected as a whole, naming the peer);
+its `domain` must be the one the manifest promised (`wrong_domain_bundle`) and its `deviceId` the peer's
+(`bundle_device_mismatch`); then `applySyncBundle`. A `SyncApplyError`, `SyncClockError` or
+`SyncChangeSetError` from it is `bundle_rejected` (the transaction rolled back, nothing kept) with the inner
+code in `detail`; anything else is `bundle_failed`. `sync_peers` is written only after a successful apply
+(`recordSyncPeerApplied`, merging the new hashes into the stored map), plus a contact record at most once a
+day for peers whose domains are all unchanged, so a quiet peer never counts as "not pulled for 90 days"
+(a refused stray domain entry does not prevent it). A peer with a domain that is not ready or was rejected
+keeps its previous contact time (the hashes of what did apply are still remembered). What is stored of a
+peer's manifest is what passed the gates: its own fields and the domain entries this device may read
+(never the hash, size or row count of a refused domain), plus `localSchemaVersion`, the local schema at the
+last merge. Every peer, domain and transport fails alone; a failed
+`listPeers` marks the transport unreachable for the run (`transport_unreachable` / `transport_timeout`
+warnings, never a crash, nothing written) and its remaining reads are skipped.
+
+**Safety backup.** The `beforeFirstMerge` option is called AT MOST ONCE per pull, right before the first
+apply, with the reasons: `first_merge` (no peer has ever been applied here; the engine takes any database
+that is not a `verifiedEmptyJoiner` for one holding user rows) and `schema_skew` (a peer whose
+`schemaVersion` differs from ours AND the (local schema, peer schema) pair differs from the pair recorded in
+`sync_peers` at the last merge with it, so it is asked once per new skew, not on every pull; a peer upgrade
+and a local upgrade are both new skews, and a contact that merged nothing does not update the recorded pair).
+`verifiedEmptyJoiner: true` (a pull option, decided by the join flow) skips it and the skip is recorded
+(`safetyBackup.status = "skipped_empty_joiner"`). With no hook, or when it throws, NO bundle is applied: the
+pull reports `safety_backup_required`, `complete: false`, `safetyBackup.status = "failed"` and the work in
+`remaining`. A throttle for the hook, if wanted, belongs to its implementation.
+
+**Budget.** `budgetMs` (measured on the engine's injected clock) stops the engine STARTING new work: it is
+checked before each `listPeers`, `readBundle` and apply. An apply that has begun always finishes (one
+transaction). What was left is in `PullReport.remaining` (`{ transport, domain, peerId | null, peerName }`),
+`complete` is false, and a later `pull()` finishes it (unchanged bundles cost nothing). The apply right after
+a safety backup is not re-checked against the budget. `transportTimeoutMs` (default 30 s, `Infinity`
+disables it) cuts off a single transport call that never answers, so a hung folder cannot hold the run slot
+forever (`transport_timeout`).
+
+**Publish** (`engine.publish({ force })`). For each domain the profile can publish AND a transport carries
+(registry order), when `change_counter > last_publish_counter`, or no bundle exists in that folder
+(`ownGeneration` is `null`), or `force`: `listSyncChanges(domain)`, `assertRouted` (the transport declares
+the domain and the bundle is of that domain; otherwise `publish_failed` with `domain_routing_violation` and
+nothing is handed over), `transport.publish`. The counter is read BEFORE the change sets and recorded
+with `markSyncPublished(counterAtRead)` only if every attempted domain succeeded, as a compare-and-set
+(it moves forward only, never past `change_counter`, never backwards), so an edit made while the bundle is
+being written stays pending. A domain already published in this process at the current counter is not
+written again when a retry follows a partial failure. Failures are reported (`publish_failed`, or the
+`transport_*` warnings), never thrown, and do not advance the counter. A domain with no transport is
+`no_transport` and is never read from the repository.
+
+**One run at a time.** `pull()`, `publish()` and `syncNow()` (pull, then publish; publishing is not
+stopped by a failed or incomplete pull) share one slot. Asking again for the same kind while it runs
+returns the in-flight promise (the second call's options are ignored); a different kind rejects with
+`SyncEngineError("already_running")`. `getStatus()` returns readiness, pending changes, one state per known
+peer (`synced`, `update_required`, `stale`, `format_unsupported`, `invalid_manifest`, `not_ready`, `error`,
+`unreachable`, `unknown`; the most serious across the folders a peer appears in) and the warnings and
+errors of the last pull and publish.
+
+Reports are plain data matched on `code`, never on `message`: `PullReport` (per-peer, per-domain outcomes
+`applied | unchanged | not_ready | rejected | refused | deferred | unreachable | halted`, totals, issues,
+`safetyBackup`, `remaining`, `complete`) and `PublishReport`.
+
+**Repository additions** (SQLite; memory rejects with the browser-preview error; no schema change):
+`recordSyncPeerApplied({ peerId, peerName, manifest, appliedShaByDomain, syncedAt })` upserts the
+`sync_peers` row, merging the per-domain hashes into the stored map and replacing the manifest and the
+contact time (`syncedAt: null` keeps the stored one)
+(rejects an invalid device id, an unknown domain or a malformed hash); `markSyncPublished(counter)` is
+the compare-and-set described above and returns `{ lastPublishCounter, advanced }`. Both go through the
+writer queue (`writeTransaction`), with no nested public calls.
+
+**Known limits.**
+- `change_counter` is one counter for the whole database: an edit in any domain makes every publishable
+  domain republish. The bundles are full state, so this costs extra writes, and because a republished
+  bundle carries a newer `hlcHigh` its sha changes, so each peer downloads it once more and applies 0
+  rows. Per-domain change detection should be measured before the lifecycle slice.
+- A merge that changed rows is published too. The engine applies with `republish: true`, which bumps
+  `change_counter` in the apply transaction (durable: a laptop that applied and quit before publishing
+  still owes the publish at the next start). Several merge cases "heal on exchange" only if the merged
+  state is exchanged again, e.g. a delete on A, an edit on B and a completion on W: without the republish
+  W stayed `active` until A or B made an unrelated edit. It does not ping-pong: a re-apply of identical
+  content reports `applied = 0` and bumps nothing, so a laptop republishes only when a merge actually
+  moved its state, and the property and engine tests count the publishes until every laptop is quiet. A
+  merge that is not idempotent (the delete-race limit below) could, in principle, keep two laptops
+  republishing; nothing in the random runs does.
+- Delete races (property-test finding): the merge is a join except across a delete that races edits from
+  TWO other laptops the deleting laptop never saw. A tombstone carries no field values (see
+  [GTD task and recurring template rules](#gtd-task-and-recurring-template-rules) and the "Known limit"
+  in `merge-entity.ts`), so such a result depends on the order bundles arrive in. A deterministic
+  reproducer is pinned in `merge.property.test.ts` ("known limit"); the random generators keep deletes to
+  single-writer entities. Open item: tombstones should carry the last field values.
+- Order of the first merge on a large database is one transaction per bundle; chunking it against the
+  15-second writer watchdog and the 8-second bootstrap rule belongs to the lifecycle slice, which uses
+  `budgetMs`.
+
+**Tests.** `sync-engine.test.ts` (the spec's scenarios through the real engine), `sync-engine.faults.test.ts`
+(unreachable, not ready, corrupt, skew, stale, safety backup, budget), `sync-engine.routing.test.ts`,
+`sync-engine.isolation.test.ts` (personal A, personal B and work W attached to the GTD folder only: no
+personal or finance row on W beyond what a fresh database holds, no sentinel string in W's database or in
+any file W can read, A and B converge, W converges on every `gtd` table), `engine-gates.test.ts`,
+`profile.test.ts`, `test-support/memory-transport.test.ts`. The property tests are
+`merge.property.test.ts` (random real repository operations on three laptops, random partial exchanges,
+replays of stale bundles; shuffled application with repeats on fresh replicas must converge, and re-applying
+must change nothing) and `sync-engine.property.test.ts` (the same through the engine, adding offline
+laptops, folders that go away, budget-limited pulls, crashed publishes, damaged bundles, and a work
+laptop). 20 and 16 seeds run by default; `SYNC_PROPERTY_SEEDS=300` (and `SYNC_PROPERTY_SEEDS_FROM`) run
+more, `SYNC_PROPERTY_LOG_LINES` lengthens the operation log in a failure. The operation sequence is a pure
+function of the seed; ids the repository mints itself (finance transactions, import batches, Pomodoro
+sessions) and real-clock timestamps are not, so a failure reproduces in shape, with the printed seed and
+operation log.
 
 ### Legacy email triage tables (unused)
 

@@ -1,8 +1,13 @@
 import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
 import type { ReconcileDayResult } from "../gtd/reconcile";
-import type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 import type { SyncDomain } from "../sync/registry";
-import type { SyncIdentityResult, SyncStatus } from "../sync/status";
+import type {
+  SyncIdentityResult,
+  SyncPeerAppliedInput,
+  SyncPublishMark,
+  SyncStatus,
+} from "../sync/status";
 import type {
   CalendarSyncDetachReason,
   CalendarSyncLink,
@@ -592,16 +597,40 @@ export interface AppRepository {
    * a table this build cannot merge (`unsupported_merge_class`), a schema newer than ours, capture
    * not enabled, a unique-key collision or any SQL error (`SyncApplyError`), a bad remote clock
    * (`SyncClockError`). Idempotent and order independent for the supported classes; merge-applied
-   * writes are not captured back and do not touch `change_counter`. Memory rejects. Nothing in the
+   * writes are not captured back and do not touch `change_counter` (except with `options.republish`,
+   * which bumps it once, in the same transaction, when the merge changed anything). Memory rejects. Nothing in the
    * app calls this yet.
    */
-  applySyncBundle(domain: SyncDomain, changeSet: SyncChangeSet): Promise<SyncApplyResult>;
+  applySyncBundle(
+    domain: SyncDomain,
+    changeSet: SyncChangeSet,
+    options?: SyncApplyOptions,
+  ): Promise<SyncApplyResult>;
+  /**
+   * Records what the sync engine has taken from one peer, in `sync_peers` (device-local; never
+   * published). The per-domain bundle hashes are MERGED into the stored map (a domain that is not
+   * named keeps its hash), the manifest is replaced, `syncedAt` replaces the contact time (`null` keeps the stored one), and the row is created on first
+   * contact. Call it only after the bundles it names were applied: it is what makes the next pull of
+   * an unchanged manifest a no-op. Rejects an invalid peer id or an unknown domain. Memory rejects:
+   * sync is unavailable in browser preview.
+   */
+  recordSyncPeerApplied(input: SyncPeerAppliedInput): Promise<void>;
+  /**
+   * Marks the changes up to `changeCounterAtRead` as published: sets `last_publish_counter` to it,
+   * but only if it moves forward and does not pass `change_counter` (compare-and-set). The caller
+   * reads the counter BEFORE `listSyncChanges`, so an edit made while the bundle was being written
+   * has bumped `change_counter` past the value stored here and stays pending. Never moves backwards.
+   * Memory rejects: sync is unavailable in browser preview.
+   */
+  markSyncPublished(changeCounterAtRead: number): Promise<SyncPublishMark>;
 }
 
-export type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+export type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 export type {
   SyncIdentity,
   SyncIdentityResult,
+  SyncPeerAppliedInput,
   SyncPeerSummary,
+  SyncPublishMark,
   SyncStatus,
 } from "../sync/status";

@@ -760,7 +760,9 @@ describe("stampDirtyEntities: mechanics", () => {
       await db.execute("INSERT INTO sync_peers (peer_id, peer_name) VALUES ('p', 'n')");
     });
     expect(await readMeta(db)).toEqual([]);
-    expect((await readIdentity(db))?.change_counter).toBe(0);
+    // The stamper counts nothing for them; the union counter trigger counted the one event insert,
+    // and the device-local peers table counts nothing at all.
+    expect((await readIdentity(db))?.change_counter).toBe(1);
   });
 
   it("discards marks, without failing, when the identity row disappeared", async () => {
