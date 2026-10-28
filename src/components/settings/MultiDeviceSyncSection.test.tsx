@@ -56,11 +56,12 @@ describe("MultiDeviceSyncSection visibility", () => {
     expect(screen.getByText(/Profil personnel : tout est synchronisé/)).toBeInTheDocument();
     expect(screen.getByText(/ne sont jamais synchronisés/)).toBeInTheDocument();
     expect(screen.getByText(/la synchronisation est manuelle/)).toBeInTheDocument();
-    // The enable step is one long operation: warn not to use or edit the app meanwhile.
+    // The initialization is chunked: the app stays usable, sync waits, and quitting resumes it.
+    expect(screen.getByText(/tu peux continuer à utiliser l'application/)).toBeInTheDocument();
     expect(
-      screen.getByText(/n'utilise pas et ne modifie pas l'application pendant ce temps/),
+      screen.getByText(/Tant qu'elle n'est pas terminée, la synchronisation reste en pause/),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/ne ferme pas/)).toBeNull();
+    expect(screen.queryByText(/ne modifie pas l'application/)).toBeNull();
     expect(screen.getByLabelText("Dossier personnel (dossier de sauvegarde)")).toHaveValue(
       "/Drive/Perso",
     );
@@ -133,10 +134,35 @@ describe("enabling and disabling", () => {
   it("shows the step being run while enabling, and the button as busy", async () => {
     await render(syncController({ phase: "enabling", enableStep: "capture" }));
     expect(screen.getByRole("button", { name: "Activation…" })).toBeDisabled();
-    const step = screen.getByText(/Initialisation du suivi des changements de toute la base/);
-    // Warn not to use or edit the app meanwhile; quitting is not the thing to avoid.
-    expect(step).toHaveTextContent("n'utilise pas et ne modifie pas l'application");
-    expect(step).not.toHaveTextContent("ne ferme pas");
+    const step = screen.getByText(/Initialisation du suivi des changements, par petites étapes/);
+    expect(step).toHaveTextContent("tu peux continuer à utiliser l'application");
+  });
+
+  it("shows the backfill progress while enabling, as a labelled progress bar", async () => {
+    await render(
+      syncController({
+        phase: "enabling",
+        enableStep: "capture",
+        backfill: { percent: 42, scannedRows: 4200, totalRows: 10000 },
+      }),
+    );
+    const bar = screen.getByRole("progressbar", {
+      name: "Progression de l'initialisation du suivi des changements",
+    });
+    expect(bar).toHaveAttribute("value", "42");
+    expect(screen.getByText(/42 % \(4200 sur 10000 éléments parcourus\)/)).toBeInTheDocument();
+    // Nothing to resume while it runs.
+    expect(screen.queryByRole("button", { name: "Reprendre l'initialisation" })).toBeNull();
+  });
+
+  it("offers to resume an interrupted backfill instead of enabling again", async () => {
+    const sync = syncController({ backfill: { percent: 61, scannedRows: 61, totalRows: 100 } });
+    await render(sync);
+    expect(screen.getByText(/n'est pas terminée \(61 %\)/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Activer la synchronisation" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reprendre l'initialisation" }));
+    expect(sync.resumeBackfill).toHaveBeenCalledTimes(1);
+    expect(sync.enable).not.toHaveBeenCalled();
   });
 
   it("reports what enabling did, including a repaired identity", async () => {
@@ -144,7 +170,13 @@ describe("enabling and disabling", () => {
       syncController({
         enableResult: {
           identity: { deviceId: "dev:x", deviceName: "A", created: false, repaired: true },
-          capture: { installed: true, backfilled: 71146, durationMs: 8562 },
+          capture: {
+            installed: true,
+            backfilled: 71146,
+            durationMs: 8562,
+            chunks: 72,
+            maxChunkStatements: 90,
+          },
           folders: { gtd: "/g", personal: "/p" },
         },
       }),

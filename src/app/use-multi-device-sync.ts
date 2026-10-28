@@ -1,6 +1,8 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import type { AppSettings } from "../domain/types";
 import { logDebug } from "../lib/debug";
+import { backfillPercent, runSyncCaptureBackfill } from "../lib/sync/backfill-driver";
+import type { SyncBackfillProgress } from "../lib/sync/backfill-state";
 import type { EngineStatus, SyncNowReport } from "../lib/sync/engine-types";
 import type { IgnoredSyncEntry } from "../lib/sync/folder-api";
 import {
@@ -27,7 +29,27 @@ import type { AppRepository } from "../lib/storage/repository";
  * It lives in `AppProvider`, so the last report survives navigating between Settings and `/sync`.
  */
 
-export type SyncPhase = "idle" | "enabling" | "disabling" | "syncing" | "checking";
+export type SyncPhase = "idle" | "enabling" | "disabling" | "syncing" | "checking" | "resuming";
+
+/**
+ * Where the capture backfill stands, for the Settings card and the `/sync` page. Present while a
+ * pass is running (this session's enable, or one an earlier session left unfinished); `null` when
+ * there is nothing to show.
+ */
+export interface BackfillView {
+  percent: number;
+  scannedRows: number;
+  totalRows: number;
+}
+
+const viewOf = (progress: SyncBackfillProgress | null): BackfillView | null =>
+  progress === null
+    ? null
+    : {
+        percent: backfillPercent(progress, false),
+        scannedRows: progress.scannedRows,
+        totalRows: progress.totalRows,
+      };
 
 /** What the UI shows for a failure; matched on `code`, never on the message. */
 export interface SyncUiError {
@@ -61,11 +83,18 @@ export interface MultiDeviceSyncController {
   status: EngineStatus | null;
   /** Files the last listing of each folder ignored (stray files, Drive conflict copies). */
   ignored: FolderIgnored[];
+  /** The capture backfill while it is unfinished (running now, or interrupted earlier). */
+  backfill: BackfillView | null;
   /** The last Sync now. */
   run: SyncRunRecord | null;
   /** The identity was rewritten to this device's id at the last engine build (a cloned database). */
   identityRepaired: boolean;
   enable(): Promise<void>;
+  /**
+   * Continues an interrupted backfill ("Reprendre l'initialisation"). With sync not yet turned on it
+   * is the enable flow again (every step is safe to repeat); with sync on it only runs the chunks.
+   */
+  resumeBackfill(): Promise<void>;
   disable(): Promise<void>;
   syncNow(options?: { approveStalePeers?: readonly string[] }): Promise<void>;
   refresh(): Promise<void>;
@@ -82,9 +111,11 @@ export const inertSyncController: MultiDeviceSyncController = {
   setupError: null,
   status: null,
   ignored: [],
+  backfill: null,
   run: null,
   identityRepaired: false,
   enable: async () => undefined,
+  resumeBackfill: async () => undefined,
   disable: async () => undefined,
   syncNow: async () => undefined,
   refresh: async () => undefined,
@@ -139,6 +170,7 @@ export const useMultiDeviceSync = (
   const [status, setStatus] = useState<EngineStatus | null>(null);
   const [ignored, setIgnored] = useState<FolderIgnored[]>([]);
   const [run, setRun] = useState<SyncRunRecord | null>(null);
+  const [backfill, setBackfill] = useState<BackfillView | null>(null);
   const [identityRepaired, setIdentityRepaired] = useState(false);
 
   const built = useRef<{ key: string; engine: BuiltSyncEngine } | null>(null);
@@ -208,16 +240,29 @@ export const useMultiDeviceSync = (
     );
   }, []);
 
+  /** An unfinished backfill is shown whether or not sync was turned on: it can be resumed either way. */
+  const readBackfill = useCallback(async () => {
+    const repo = latest.current.repository;
+    if (!repo) return;
+    const read = await repo.getSyncStatus();
+    setBackfill(
+      read.supported && read.captureEnabled && !read.backfillComplete
+        ? viewOf(read.backfillProgress)
+        : null,
+    );
+  }, []);
+
   const refresh = useCallback(
     () =>
       exclusive("checking", async () => {
+        await readBackfill();
         if (!latest.current.getSettings().multiDeviceSyncEnabled) {
           setStatus(null);
           return;
         }
         await readStatus(await ensureEngine());
       }),
-    [exclusive, ensureEngine, readStatus],
+    [exclusive, ensureEngine, readStatus, readBackfill],
   );
 
   const enable = useCallback(
@@ -233,14 +278,41 @@ export const useMultiDeviceSync = (
           updateSettings: current.updateSettings,
           deps: current.deps,
           onStep: setEnableStep,
+          onBackfillProgress: (tick) => setBackfill(viewOf(tick.progress)),
+        }).catch(async (error) => {
+          // A stopped or failed backfill stays resumable: show where it stopped.
+          await readBackfill().catch(() => undefined);
+          throw error;
         });
+        setBackfill(null);
         setEnableResult(result);
         setIdentityRepaired(result.identity.repaired);
         setRun(null);
         await readStatus(await ensureEngine());
       }),
-    [exclusive, ensureEngine, readStatus],
+    [exclusive, ensureEngine, readStatus, readBackfill],
   );
+
+  const resumeBackfill = useCallback(async () => {
+    if (!latest.current.getSettings().multiDeviceSyncEnabled) {
+      await enable();
+      return;
+    }
+    await exclusive("resuming", async () => {
+      const repo = latest.current.repository;
+      if (!repo) throw new SyncSetupError("unsupported_preview", "No repository");
+      try {
+        const result = await runSyncCaptureBackfill(repo, {
+          onProgress: (tick) => setBackfill(viewOf(tick.progress)),
+        });
+        if (result.complete) setBackfill(null);
+      } catch (error) {
+        await readBackfill().catch(() => undefined);
+        throw error;
+      }
+      await readStatus(await ensureEngine());
+    });
+  }, [enable, exclusive, ensureEngine, readStatus, readBackfill]);
 
   const disable = useCallback(
     () =>
@@ -308,9 +380,11 @@ export const useMultiDeviceSync = (
       setupError,
       status,
       ignored,
+      backfill,
       run,
       identityRepaired,
       enable,
+      resumeBackfill,
       disable,
       syncNow,
       refresh,
@@ -324,9 +398,11 @@ export const useMultiDeviceSync = (
       setupError,
       status,
       ignored,
+      backfill,
       run,
       identityRepaired,
       enable,
+      resumeBackfill,
       disable,
       syncNow,
       refresh,

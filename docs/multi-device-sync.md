@@ -76,19 +76,23 @@ and the `sync_peers` table.
 4. Reads the device id from the native device-id file and runs `ensureSyncIdentity`. If the stored identity
    belonged to another laptop (a cloned or restored database) it is rewritten to this device's id with its
    clock state kept, and the card says so.
-5. Runs `enableSyncCapture`: installs the change-capture triggers and stamps every existing synced row
-   in **one write transaction**. The card shows the step ("Initialisation du suivi des changements de
-   toute la base…") and, when done, how many entities were initialized and how long it took.
-6. Saves `multiDeviceSyncEnabled`.
+5. Runs `enableSyncCapture` and then the remaining backfill chunks: a short first transaction installs the
+   change-capture triggers, then every existing synced row is stamped in **bounded writer slots** (about
+   1,000 rows each) with the app free to run in between, and a progress bar with the percentage. The card
+   shows "Initialisation du suivi des changements, par petites étapes…" and, when done, how many entities
+   were initialized and how long it took.
+6. Saves `multiDeviceSyncEnabled` once every row is initialized.
 
-Every step is safe to run again after a failure. **Large databases.** The backfill is not chunked. On a
-synthetic database of 5,000 tasks, 3,000 events, 50,000 finance transactions with 15,000 splits and 1,100
-daily entries (71,146 entities) it took 8.6 s in-process with `node:sqlite` and 5,146 SQL statements; at twice
-that size (141,146 entities, 10,026 statements) it took 17.1 s, and each statement over the Tauri IPC adds to
-that. The serial queue's 15 s watchdog is a limit on how long a *queued* operation may wait for its turn, so
-the enable itself does not fail; any other write queued behind it for more than 15 s is rejected, which on a
-database that size means an edit made during the enable could fail. The app should not be used while the card is
-enabling. Chunking the backfill is the first item of the lifecycle slice.
+Every step is safe to run again after a failure. **Large databases.** The backfill used to be one write
+transaction (8.6 s in process for a synthetic 71,146-entity database, 17.1 s at twice that, plus every
+statement's IPC cost, during which any other write queued for more than 15 s was rejected). It is now
+chunked and resumable: the longest slot measured is about 0.1 to 0.3 s in process (see
+[Chunked capture backfill and chunked apply](storage-and-backups.md#chunked-capture-backfill-and-chunked-apply)),
+so the app stays usable and an edit made during the enable is captured as usual. The progress is saved after
+every chunk: if the app is quit or crashes, nothing is lost, sync stays off, and the Settings card (and the
+`/sync` page, when sync was already on) shows the unfinished percentage with **"Reprendre l'initialisation"**,
+which carries on from where it stopped. **While the initialization is unfinished nothing is published and
+nothing is merged** (`/sync` says so); the engine reports `backfill_incomplete`.
 
 **Disabling** ("Désactiver la synchronisation") only turns `multiDeviceSyncEnabled` off. The identity, change
 capture and every file already in the folders stay (nothing is deleted from Drive), edits are still captured,
@@ -155,6 +159,11 @@ same check. The refusal reaches the user as a typed error (Settings, and `/sync`
 nothing). Users who
 never set a GTD folder see no change.
 
+A bundle above the apply limits (400 entities, 4,000 union rows, 400 aliases, 2,000 recurrence rows per chunk) is
+merged as several transactions, in table and reference order, groups that merge rules read together kept whole (up to 1,500 entities; a larger one is cut by id); the
+peer's hash is recorded only after the last one, so an interrupted merge is simply repeated. The run report shows
+`fusion en N étapes` for such a bundle (and `fusion interrompue après N étapes sur M` when a time budget cut it) ([details and measurements](storage-and-backups.md#chunked-capture-backfill-and-chunked-apply)).
+
 One action runs at a time; a second request while one runs is ignored.
 
 ## Safety
@@ -176,8 +185,14 @@ One action runs at a time; a second request while one runs is ignored.
 - The second laptop is joined by enabling sync on it with the same two folders; there is no guided join flow, and the
   first merge into a database that already holds data relies on the safety backup and the merge rules, not on an
   empty-database check.
-- The enable backfill is not chunked (see above); a database larger than the sizes measured there may exceed the
-  serial queue's 15 s wait limit. Do not use or edit the app while it runs; quitting is safe (the transaction rolls back).
+- The enable backfill and the apply of a large incoming bundle are chunked (a writer slot of 0.1 to 0.3 s in process
+  for the backfill and the usual merge, about 1 s with a simulated IPC cost, and a worst case of about 1,600
+  statements for an oversized group; see above), but nothing resumes an interrupted backfill by itself: after a quit the user
+  presses "Reprendre l'initialisation". A large bundle that fails or is cut by a restart is applied again from its
+  first chunk, at about 60 % of the cost of the first time (the merge has no persisted per-chunk marker yet); once
+  it has been applied completely it is never re-read. The memory needed to READ a 130,000-transaction finance
+  domain for a publish is the largest cost left (350 to 450 MB of JavaScript heap measured in Node, not in the
+  webview), a reason the lifecycle slice must not publish automatically before it has per-domain change detection.
 - **Disable leaves change tracking installed.** The capture triggers stay on the database and keep recording every edit
   (a small cost per write), so enabling again is a catch-up. There is no "remove tracking" action.
 - **Minimum system.** Compression needs `CompressionStream`/`DecompressionStream` (WebKit 16.4+, i.e. macOS 13 or a

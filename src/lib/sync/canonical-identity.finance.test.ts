@@ -58,7 +58,11 @@ const suggestion = (
 /** Everything a scan could restamp: a verifying scan changes nothing and stamps nothing. */
 const expectNothingToStamp = async (device: SyncDevice): Promise<void> => {
   const before = await syncState(device.db);
-  expect(await device.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+  expect(await device.repo.enableSyncCapture()).toMatchObject({
+    installed: false,
+    backfilled: 0,
+    backfillComplete: true,
+  });
   expect(await syncState(device.db)).toEqual(before);
 };
 

@@ -122,12 +122,14 @@ It groups:
 - AI messages, proposals, and memories;
 - standing weekly objectives and per-week manual results;
 - the inert multi-device sync foundation: `getSyncStatus()`, `ensureSyncIdentity()`,
-  `enableSyncCapture()`, `listSyncChanges()`, `applySyncBundle()`, `recordSyncPeerApplied()`,
-  `markSyncPublished()`, `queueSyncRepublish()`, `readSyncPublishCounters()` and `readSyncSnapshot()` (see
+  `enableSyncCapture()`, `continueSyncCaptureBackfill()`, `listSyncChanges()`, `applySyncBundle()`,
+  `recordSyncPeerApplied()`, `markSyncPublished()`, `queueSyncRepublish()`, `readSyncPublishCounters()` and
+  `readSyncSnapshot()` (see
   [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables),
   [Multi-device sync change capture](#multi-device-sync-change-capture),
   [Multi-device sync change sets and apply](#multi-device-sync-change-sets-and-apply) and
-  [Sync engine, transport seam and device profile](#sync-engine-transport-seam-and-device-profile)).
+  [Sync engine, transport seam and device profile](#sync-engine-transport-seam-and-device-profile) and
+  [Chunked capture backfill and chunked apply](#chunked-capture-backfill-and-chunked-apply)).
 
 Repository helpers include `listDailyEntriesOnOrBefore(endDate, limit)` for bounded
 history ending at a calendar date, `listDailyEntriesInRange(startDate, endDate)`
@@ -139,8 +141,9 @@ the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information, backup creation, and multi-device sync (memory reports
 `{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity`,
-`enableSyncCapture`, `listSyncChanges`, `applySyncBundle`, `recordSyncPeerApplied`,
-`markSyncPublished`, `queueSyncRepublish`, `readSyncPublishCounters` and `readSyncSnapshot`).
+`enableSyncCapture`, `continueSyncCaptureBackfill`, `listSyncChanges`, `applySyncBundle`,
+`recordSyncPeerApplied`, `markSyncPublished`, `queueSyncRepublish`, `readSyncPublishCounters` and
+`readSyncSnapshot`).
 
 ## Atomic AI proposal acceptance
 
@@ -235,6 +238,7 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 42 | `add_multi_device_sync_sidecars` | Creates the seven inert `sync_*` sidecar tables and an index on `sync_entity_meta.row_hlc` with `CREATE ... IF NOT EXISTS` only: no `ALTER TABLE`, no data change, no seed rows. See [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables) |
 | 43 | `add_sync_capture_state` | Creates the three device-local change-capture tables `sync_dirty`, `sync_entity_snapshot` and `sync_capture_state` with `CREATE TABLE IF NOT EXISTS` only: no `ALTER TABLE`, no trigger, no data change, no seed rows. See [Multi-device sync change capture](#multi-device-sync-change-capture) |
 | 44 | `add_finance_account_payment_due` | Adds nullable `payment_due_day` and `minimum_payment_minor` to `finance_accounts` via guarded, idempotent `ALTER TABLE`s, no backfill (null = no due day, minimum inferred); see [finance.md](finance.md#credit-payment-due-date-and-minimum) |
+| 45 | `add_sync_backfill_state` | Creates the single-row device-local table `sync_backfill_state` (progress of the chunked capture backfill: pass, status `running` / `complete`, step, primary-key cursor, row counts) with `CREATE TABLE IF NOT EXISTS` only: no `ALTER TABLE`, no trigger, no data change, no seed row. A database that enabled capture earlier has no row, which counts as a complete backfill. See [Chunked capture backfill and chunked apply](#chunked-capture-backfill-and-chunked-apply) |
 
 ## Table reference
 
@@ -477,7 +481,9 @@ path runs any sync query.
 | `sync_entity_snapshot` | The last stamped content of an entity: the decoded record for field-clock tables (`snapshot_json`), a content hash for the other classes (`content_hash`), the value for a setting key. Rebuildable; never published |
 | `sync_capture_state` | Single row (`id = 1`), present only while capture is enabled: `installed_hash` of the trigger set and `installed_at` |
 
-All three are classified device-local in `src/lib/sync/registry.ts` and never leave the machine.
+A fourth table, `sync_backfill_state` (migration 45), holds the progress of the chunked backfill
+([Chunked capture backfill and chunked apply](#chunked-capture-backfill-and-chunked-apply)).
+All four are classified device-local in `src/lib/sync/registry.ts` and never leave the machine.
 
 **Triggers record what, TypeScript computes the clocks.**
 
@@ -594,12 +600,16 @@ stamps the leftover marks in a transaction of its own right after the operation,
 writer slot. A failure there is logged and leaves the marks durable for the next write or scan.
 With capture disabled both paths issue no sync query at all.
 
-**Backfill / self-healing scan** (`backfillSyncCapture`) marks and stamps every synced row with no
-live meta row, tombstones every live meta row whose row is gone, and re-checks the settings blob;
-with `verify` it re-checks every row against its snapshot or hash (needed when capture was off
-for a while). It is idempotent: a second run stamps nothing. `enableSyncCapture()` requires an
-existing sync identity, installs the triggers and runs the verifying backfill in one
-`writeTransaction` and returns `{ installed, backfilled }`. Known limit for the startup slice: a
+**Backfill / self-healing scan** (`src/lib/sync/capture-backfill.ts`) marks and stamps every synced
+row with no live meta row, tombstones every live meta row whose row is gone, and re-checks the
+settings blob; with `verify` it re-checks every row against its snapshot or hash (needed when capture
+was off for a while). It is idempotent: a second run stamps nothing. It runs as bounded slices
+(`runBackfillSlice`), each in its own writer slot, with a persisted cursor, so a quit or a crash
+resumes it: see [Chunked capture backfill and chunked apply](#chunked-capture-backfill-and-chunked-apply).
+`backfillSyncCapture(db, nowMs, { verify })` is the same scan run to the end in the caller's
+transaction (tests and callers that already hold one). `enableSyncCapture()` requires an existing sync
+identity, installs the triggers and starts a pass in a short first transaction, runs the first chunk
+and returns `{ installed, backfilled, backfillComplete, remaining }`. Known limit for the startup slice: a
 future migration that rewrites synced rows or rebuilds a synced table should be followed by a
 verifying backfill, because the rewritten rows have no marks (a rebuild also drops the triggers
 until `ensureSyncCapture` runs).
@@ -619,9 +629,9 @@ up:
   (`weekly_objective_results` -> `weekly_objectives`, `ai_proposals` -> `ai_messages`). SQLite fires
   the child table's DELETE triggers for rows removed by a foreign-key action, so cascaded children
   are marked and tombstoned too; a test with enforcement on checks both cascades.
-- *Writer queue and transactions.* Enabling is one writer slot (`…Internal` helpers, no nested
-  public call), concurrent writes queue behind it, and a failed stamp rolls the whole
-  `writeTransaction` back.
+- *Writer queue and transactions.* Installing is one short writer slot (`…Internal` helpers, no
+  nested public call), the backfill is many (one per chunk), concurrent writes queue between them,
+  and a failed stamp rolls the whole `writeTransaction` back.
 - *Upserts.* `INSERT ... ON CONFLICT DO UPDATE` fires the INSERT trigger for a new row and the
   UPDATE trigger for an existing one; `INSERT OR IGNORE` and `ON CONFLICT DO NOTHING` fire
   nothing. The repository uses no `REPLACE`. With `recursive_triggers` off, `INSERT OR REPLACE`
@@ -982,12 +992,14 @@ Limits and open points of this build:
   keeps the deterministic id it was raised with (its `entity_id` is rewritten to the canonical id).
 - The hash re-derivation is best effort (above). It costs about two hashes per row when the stored
   hash matches an occurrence index, and up to 257 per row when it matches none (2,000 such rows took
-  about 5.7 s); the enable and first-merge slice must chunk it against the 15 s writer watchdog, and a
+  about 5.7 s); the chunked apply bounds it to a few hundred rows per writer slot
+  ([Chunked capture backfill and chunked apply](#chunked-capture-backfill-and-chunked-apply)), and a
   future manual-entry path that stores its own hashes should cap or cache the search.
 - A first merge of years of statements costs about two statements per collision, linear in their
   number (measured on an in-memory database: 5,000 collisions 11,119 statements and about 1.7 s;
-  20,000 collisions 44,340 statements and about 7.8 s). The later enable slice must chunk it against
-  the writer watchdog. `canonical-identity.scale.test.ts` pins the statements per collision and
+  20,000 collisions 44,340 statements and about 7.8 s). The engine applies a bundle that large as
+  chunks of a few hundred rows (measured in the chunked-apply section below), so no writer slot
+  holds the queue for more than a fraction of a second in process. `canonical-identity.scale.test.ts` pins the statements per collision and
   `collections.test.ts` pins the helpers the path uses as linear.
 - A stale task card saved under an alias id fails with `UNIQUE gtd_tasks.source_external_id` (the
   edit is rejected with an error, nothing is lost, and the next apply moves nothing because the
@@ -1318,7 +1330,10 @@ random states).
 - **Planned queue.** Tasks merge one by one, so two laptops that reordered (or both appended) can leave
   duplicate `planned_order` values. When a project's active queue has a duplicate or missing order, the whole
   queue is renumbered `0..n-1` with `compactPlannedOrders` (same function and tie rules as the desktop),
-  in memory before anything is written, so a re-applied bundle writes nothing. Gaps are left alone.
+  in memory before anything is written. Gaps are left alone. A re-applied bundle is idempotent except
+  for this repair: it may renumber `planned_order` again (the stored orders and the incoming ones then
+  disagree at the same clock), which settles after at most two applies and never produces an endless
+  republish loop (a re-apply writes no clock and reports no tombstone).
   Renumbering writes orders without a clock, so it is not a join: replicas that repaired different
   intermediate states can hold different orders until the next exchange, which resolves the tie by the
   smaller tuple and repairs again. The order is cosmetic; no edit is lost.
@@ -1508,8 +1523,14 @@ wanted, belongs to its implementation.
 
 **Budget.** `budgetMs` (measured on the engine's injected clock) stops the engine STARTING new work. It is
 checked before each `listPeers` and before each `readBundle`; it is never checked mid-apply, nor between a
-read and its apply: a bundle that has been read is always applied (an apply is one transaction), so a run
-makes progress however small the budget. What was left is in `PullReport.remaining`
+read and the START of its apply: every bundle that has been read gets at least its first apply transaction, so
+a run makes progress however small the budget. A bundle above the apply limits is applied as several
+transactions ([chunked apply](#chunked-capture-backfill-and-chunked-apply)) and the budget is ALSO checked
+between those chunks of one bundle (never mid-chunk, never before the first): when it runs out there, the
+chunks already applied stay, the bundle is `deferred` (in `remaining`, hash not recorded) and the next pull
+continues from the chunk it stopped at. "Applied" therefore means "applied completely" only for a bundle
+that fits one chunk; for a larger one it means "at least the first chunk, and the rest unless the budget
+stops it between chunks". What was left is in `PullReport.remaining`
 (`{ transport, domain, peerId | null, peerName }`), `complete` is false, `getStatus()` shows such a peer as
 `pending`, and a later `pull()` finishes it (unchanged bundles cost nothing). `transportTimeoutMs`
 (default 30 s, `Infinity` disables it) cuts off a single transport call that never answers, so a hung folder
@@ -1582,9 +1603,11 @@ writer queue (`writeTransaction`), with no nested public calls.
   in `merge-entity.ts`), so such a result depends on the order bundles arrive in. A deterministic
   reproducer is pinned in `merge.property.test.ts` ("known limit"); the random generators keep deletes to
   single-writer entities. Open item: tombstones should carry the last field values.
-- Order of the first merge on a large database is one transaction per bundle; chunking it against the
-  15-second writer watchdog and the 8-second bootstrap rule belongs to the lifecycle slice, which uses
-  `budgetMs`.
+- A bundle above the apply limits is applied as several transactions, each its own writer slot, and
+  the peer's hash is recorded only after the last one; see
+  [Chunked capture backfill and chunked apply](#chunked-capture-backfill-and-chunked-apply). A pull
+  with a `budgetMs` checks it between those slots of one bundle (after at least the first, see the Budget
+  paragraph of the engine section).
 
 **Tests.** `sync-engine.test.ts` (the spec's scenarios through the real engine), `sync-engine.faults.test.ts`
 (unreachable, not ready, corrupt, skew, stale, safety backup, budget), `sync-engine.routing.test.ts`,
@@ -1601,6 +1624,309 @@ more, `SYNC_PROPERTY_LOG_LINES` lengthens the operation log in a failure. The op
 function of the seed; ids the repository mints itself (finance transactions, import batches, Pomodoro
 sessions) and real-clock timestamps are not, so a failure reproduces in shape, with the printed seed and
 operation log.
+
+### Chunked capture backfill and chunked apply
+
+Two operations used to be one long writer slot each: the capture backfill done by `enableSyncCapture`
+and the apply of a large incoming bundle. Both are now bounded so that an automatic trigger (a later
+slice) can call them without blocking the app. **They are still started only by the manual, debug-gated
+enable and "Synchroniser maintenant"**; nothing runs them at startup, on focus or on a timer.
+
+#### Why the slot length matters
+
+All writes share one serial queue (`DbSerialQueue`). Its 15-second watchdog rejects a write that has
+WAITED more than 15 s for its turn, so one slot that long makes every write queued behind it fail. A slot
+is also a stretch in which the app cannot save. The rule for both operations is therefore a maximum slot
+length, not a total time: a few hundred milliseconds in process, a few seconds at worst with the Tauri
+IPC cost of every statement (the in-process test adapter has none; see
+[Measured](#measured-numbers) for how that is projected).
+
+#### Backfill: states and resumption
+
+`sync_backfill_state` (migration 45, one row, device-local, never published) holds the progress of a
+backfill pass. The two facts that used to be one are now separate:
+
+| `captureInstalled` | backfill | State |
+|---|---|---|
+| no `sync_capture_state` row | n/a | capture never enabled (zero cost anywhere) |
+| row | no `sync_backfill_state` row | complete: capture was enabled before the table existed (the old single-transaction backfill) |
+| row | `status = 'running'` | **incomplete**: some entities still lack clocks and snapshots |
+| row | `status = 'complete'` | complete |
+
+`AppRepository.getSyncStatus()` reports `captureEnabled`, `backfillComplete` and `backfillProgress`
+`{ pass, scannedRows, totalRows, stamped, startedAt }`.
+
+- `enableSyncCapture(options?)` runs a short first transaction (triggers, trigger hash, a new pass with
+  the row counts for the progress display) and then ONLY THE FIRST CHUNK. It returns
+  `{ installed, backfilled, backfillComplete, remaining }`; a database smaller than one chunk (1,000
+  rows) is complete when it returns, which keeps every small-database caller unchanged. A pass that is
+  `running` is resumed, not restarted; a call after a `complete` pass starts a new verifying one (the old
+  behaviour of every enable).
+- `continueSyncCaptureBackfill({ maxChunks?, deadlineMs?, limits? })` runs further chunks, each in its own
+  writer slot, and resolves with `{ complete, chunks, stamped, scanned, maxChunkStatements, remaining,
+  cursor, progress }`. It is a no-op once complete and rejects when capture is not enabled. The
+  deadline is checked between chunks, never inside one.
+- `runSyncCaptureBackfill(repository, { onProgress, shouldStop, limits, yieldBetweenChunks })`
+  (`backfill-driver.ts`) loops the chunks, yielding a macrotask between them so the UI paints and the
+  queue serves what is waiting. It gives up with an error when the cursor does not move for three chunks in
+  a row (a stuck pass would otherwise repeat forever). `enableSync` uses it, and so will a later
+  background continuation.
+- The startup path (`ensureSyncCapture` at `initialize()`) only repairs triggers by hash. It does not
+  run a chunk: the 8-second bootstrap rule. An unfinished pass waits for an explicit continuation.
+- **While a pass is running the engine neither publishes nor applies.** `listSyncChanges` and
+  `applySyncBundle` throw `SyncApplyError("backfill_incomplete")` (checked against the stored state, the
+  apply check inside its transaction); the engine's pull and publish report a `backfill_incomplete`
+  warning without calling them, and `EngineStatus.ready` is false. Local edits keep being captured
+  by the triggers and stamped by the normal path at their own commit.
+
+**One chunk** (`runBackfillSlice`, `capture-backfill.ts`, inside one `writeTransaction`): up to
+`rowsPerChunk` rows (default 1,000, plus live clock rows) of one or more steps, marked in `sync_dirty` and
+stamped by the normal `stampDirtyEntities`, then the cursor and counters saved in the same transaction. A
+chunk also ends when its scan has issued `statementsPerChunk` statements (default 200; at least one step is
+always processed, so a chunk always progresses). The steps, in a fixed order: for each captured table in
+registry order `rows:<table>` (keyset by primary key: `(a, b) > (cursor)` for a composite key, NULL-keyed rows
+skipped as before) then `meta:<table>` (live clock rows by entity id; one whose row is gone is tombstoned),
+then `settings`, then `occurrences` (the recurring-instance baseline). The cursor is the step name plus the
+last primary key as JSON; a cursor naming a step this build does not have restarts the pass at its
+beginning, which is safe because the scan is idempotent.
+
+Why interleaving with the user's edits is safe: a mark only says "look at this row". The stamper compares
+the live row with the stored snapshot (or hash) and writes nothing when they agree, so an entity the
+normal path already stamped (created, edited, deleted) is left alone and a newer clock or snapshot is
+never overwritten; a row inserted ahead of the cursor is stamped by its own commit and found stamped; one
+behind it never needed the scan. The queue is FIFO and the next chunk joins it only after the previous one
+finished, so a write waits for at most one chunk. `capture-backfill.test.ts` (engine level, including
+edits between slices and deletes of unstamped and stamped rows),
+`storage/sync-backfill.test.ts` (resume after a restart, no double stamp, writes interleaved between
+chunks, nothing run at startup) and `sync-engine.backfill.test.ts` pin this.
+
+Unfinished enable. If the app quits mid-pass, `multiDeviceSyncEnabled` was never saved (it is saved after
+the last chunk). The Settings card and the `/sync` page read the unfinished pass and offer
+"Reprendre l'initialisation" with the percentage; resuming runs the same flow again (every step is
+repeatable).
+
+#### Chunked apply
+
+`applySyncBundle` stays ONE atomic `writeTransaction` per call. Chunking is above it, in three pure or
+thin modules:
+
+- `split-change-set.ts`: `planChangeSet` / `splitChangeSet(changeSet, limits)` cut a change set into an
+  ordered list of valid sub-change-sets. A set that fits `ApplyLimits` is returned as is (`[changeSet]`),
+  so a small bundle is applied by one call exactly as before.
+- `split-groups.ts`: which entities must stay together.
+- `apply-chunked.ts`: `applyChunked(repo, domain, changeSet, { limits, republish, onProgress, shouldStop,
+  yieldBetweenChunks, startAt })` applies the chunks in order through `applySyncBundle`, sums the
+  results and reports `{ chunks, chunksApplied, nextChunk, stopped, maxChunkMs, chunkMs, largestGroup,
+  oversizedGroups, cutGroups }`. A failing chunk throws `ChunkedApplyError` (the original error is its `cause`, `partial`
+  carries what the earlier chunks did).
+
+**Split rules.** The chunks follow the order `mergeAll` itself applies tables in, so applying them in turn is
+the same sequence of merges with a commit between:
+
+1. aliases first, by entity type in registry order, `maxAliases` per chunk;
+2. entity groups and grow-only-union rows, table by table in `orderByReferences` order (registry order,
+   `gtd_tasks` last, a parent table before a child table), so a child never lands in an earlier chunk than
+   its parent. The foreign keys come from the registry (`declaredForeignKeyEdges`); `registry.test.ts`
+   checks they equal `PRAGMA foreign_key_list` on a migrated schema. A group that spans tables is placed at
+   its LAST table;
+3. the settings with the last chunk.
+
+Aliases first and settings last are conventions, not requirements: one `mergeAll` call already learns
+the aliases before it merges any entity and applies the settings after them, so putting the settings in the
+first chunk, or letting an alias slice share a chunk with entities, changes no result (two mutation checks
+confirmed it). Reference order, grouping and the per-table order below are the requirements.
+
+Every chunk keeps the original header, so `hlcHigh` stays an upper bound of every clock it carries and
+absorbing it again is a no-op for the local clock.
+
+**Groups kept in one chunk** (a merge rule reads more than one entity of the same call; cutting them
+would still be a valid merge but not the same one):
+
+| Group | Why |
+|---|---|
+| a transaction and its splits | the categorization unit is one decision; the splits come from the same bundle |
+| the balance snapshots of one account | one standing anchor per account |
+| a Pomodoro session and its segments | a segment is judged by its session |
+| a weekly objective and its results | `ON DELETE CASCADE`: a deleted parent removes its children after they were merged; split across calls, the cascade would tombstone children with a clock this laptop invents, and an edit of a result later than the delete could not be judged against the parent |
+| a recurring template, its instance task and its occurrence/clear sidecars | the instance row and the template are recomputed from the merged occurrences |
+| the NON-TERMINAL tasks of one project, in any bucket (the only group that may be cut, see the cap below) | the Planned queue is renumbered over the tasks of a call, and a task that LEAVES the queue (moved to Next Actions) is still in its project, so it must be merged with the tasks that stay. Completed and cancelled tasks, deleted tasks and tasks without a project are not in this group. Any task piece WITHOUT a queue key (alone, or in a natural-key or template group) is applied FIRST, so a task that leaves the queue by being finished or deleted is already gone when the remaining tasks are merged, as in one call |
+| entities of one table sharing a declared natural key (bare columns, `alias` or `name-prompt` resolution) | a collision between two rows of the same bundle is resolved in one call |
+
+**Ordered, not grouped: proposals and category suggestions.** A pending proposal (one per message and type or
+goal) or suggestion (one per transaction) meets the stored pending rows that the earlier entities of the call
+left, and `applyRowClockTable` applies these tables one entity at a time: decided rows first, then deletes, then
+pending rows, each by id. A tombstone carries no message or transaction, so the splitter cannot group it with the
+pending rows it frees; instead it keeps that order across chunks (`subOrderOf` in `split-groups.ts`), which is the
+same sequence of single-entity merges with a commit in between. The review's example: a laptop clears its pending
+proposal `pm` and regenerates `pb` of the same type while `pa` was dismissed; grouping `pa` and `pb` by message and
+applying the tombstone of `pm` afterwards demoted `pm` to `expired` (a `pending_collision` conflict, and `pm` then
+survives its own tombstone); the order puts the tombstone before `pb`.
+
+**Cap and worst case.** `maxGroupEntities` (1,500) only ever cuts away **detachable** tasks: tasks tied to their
+group by their project's queue and nothing else. A project's active tasks beyond the cap go in slices of 1,500 by
+id, before the rest of the group. Everything else in a group is tied to its members by a rule that reads them
+together and is **never cut**, whatever the cap: a transaction from its splits (children sort before the parent id,
+an unknown parent skips them as orphans and the unit then deletes the local splits), a weekly objective from its
+results, a Pomodoro session from its segments (a segment of an unknown session fails the whole bundle with
+`row_filter_violation`, on every pull), the balance snapshots of an account, a template with its instance task,
+rows sharing a natural key. A template's occurrence rows beyond `maxSidecarRows` go in slices of their own before its
+entities (they are joins); the template, its instance and the remaining sidecar rows stay in the LAST slice, after
+every task of the group was merged. `cutGroups` counts the groups actually cut, `oversizedGroups` the groups that
+exceed `maxEntities` or `maxSidecarRows` and got a chunk of their own. The worst-case chunk is therefore about 1,500
+queue tasks, measured at 1,619 statements (`apply-chunked.scale.test.ts`: a project of 5,000 planned tasks, 4,980
+completed, is 13 chunks of at most 400; 5,000 active ones are 5 chunks, none above that bound). Before the cap and the
+terminal-task rule such a project was one 5,315-statement slot. The groups that are never cut are not unbounded in
+practice (a transaction has a handful of splits, an objective one result per week, a session a few segments) but they
+do grow with the data; there is no cap on them by design. Collisions that only appear after an alias rewrote an account
+id (two transactions that become one statement line) are found by the second chunk against the first chunk's rows, the
+same path as a collision with a local row. `apply-chunked.cap.test.ts` pins all of it at a cap of 1.
+
+**Declared residuals** (valid state, converges after one exchange, pinned by `apply-chunked.order.test.ts`):
+- A task that leaves a project's queue by moving to ANOTHER project is in the destination project's group only,
+  and the splitter cannot know the old queue from the incoming row alone. If the old project's remaining tasks are
+  merged in an earlier chunk while the task still sits in their queue, and that queue has a duplicate or missing
+  order, the renumbering differs from the whole apply (the queue repair writes orders without a clock and is not a
+  join). The same holds inside a group cut by the cap.
+- Because of the same repair, re-applying a `gtd` bundle that carries such a queue may renumber it again, in one
+  call or in chunks alike: "re-applying changes nothing" holds for every other domain and table, tombstones are
+  never applied twice, and the state after a re-apply equals the first pass except for `planned_order` (the test
+  helper compares exactly that).
+
+**Equivalence is proven by tests, not argued.** `apply-chunked.equivalence.test.ts` runs seeded random
+operations on three senders and a target with local edits of its own (collisions, tombstones,
+resurrections, cascades, recurring instances, finance units with splits, Pomodoro, proposals, settings, and the
+two shapes the first review found: tasks leaving a Planned queue while the app renumbers the rest, and pending
+proposals / suggestions cleared and regenerated; odd seeds keep the target stale until the end). It then applies
+the senders' final bundles to two clones of the target, whole on one and in chunks of 1 to 3 entities on the
+other, in the natural and in a shuffled order, and compares every row, clock, snapshot, alias, setting and logged
+conflict. A third clone applies chunk by chunk and must pass `PRAGMA foreign_key_check`, have the apply flag down
+and no mark left after EACH chunk; applying all chunks again must change nothing (except the `gtd` queue renumbering
+above: no tombstone is re-applied, the state equals the first pass with `planned_order` masked, and one more pass
+changes nothing else). A separate property (`expectGroupsIntact`) checks on every random bundle, with a cap of 1 and 2,
+that no group other than a project's queue is ever cut. `apply-chunked.scenarios.test.ts` and
+`apply-chunked.order.test.ts` build each group and each review repro deliberately; with the splitter as it was
+(queue key on planned tasks only, proposals grouped by message) 11 and 39 of 40 random seeds, and those tests, fail.
+The one declared tolerance of the comparison: a clock that the applying laptop INVENTS for a cascade or orphan
+tombstone (`ReferenceGuard.freshClock`) is a counter of its own clock issued in the order the work happens, so
+its value can differ between the two strategies (both are valid clocks above everything in the bundle); the
+comparison normalises exactly those clocks.
+
+**Every prefix is a valid state.** Each chunk is a complete change set merged by the same joins, so a
+failure, a stop or a quit after any chunk leaves a database a smaller bundle could have produced; a child
+never precedes its parent. The engine records the peer's applied hash only after the LAST chunk.
+
+**Engine behaviour** (`engine-pull.ts`). `EngineOptions.applyLimits` (default `DEFAULT_APPLY_LIMITS`)
+and `yieldBetweenChunks` configure it; the chunked apply lives in `applyStage` (stage 2 of the two-stage pull
+above). The safety backup is decided in stage 1, from every decoded bundle, and taken once before anything is
+applied, i.e. before the first chunk of the first bundle. After a bundle has been read the budget
+(`PullOptions.budgetMs`) is checked ONLY between the chunks of that bundle, never inside one, and not before
+its first chunk, so every read bundle gets its first chunk and every pull makes progress however tight the
+budget. The bundle's hash and its `mergedSchemas` pair are recorded together, by `record`, only after its LAST
+chunk. A pull that runs out of budget half way keeps
+the chunks it applied, reports that bundle as `deferred` (shown as a `pending` peer) with the rest in
+`remaining`, and remembers in
+memory how far it got (keyed by peer, domain, bundle hash and limits): the next pull continues from there. After
+a restart, or after a failed chunk, the bundle is applied again from its first chunk. **That repeat is not
+cheap**: every chunk re-reads and re-compares its entities, measured at 60 to 95 percent of the cost of
+applying them for the first time (below), because the merge has no persisted per-chunk "done" marker. It is correct
+and bounded (each chunk is its own short slot), only slow; a persisted resume cursor is a follow-up. A chunk failure is reported as
+a `bundle_failed` / `bundle_rejected` issue naming the part ("part 3 of 12 failed; the 2 earlier part(s) were
+kept") and the bundle is retried whole at the next pull. `PullTotals` gains `chunksApplied` and `maxChunkMs`,
+`DomainPullResult.chunks` gives `{ total, applied, maxMs }`. `republish` is passed to every chunk, so each
+chunk that changed anything bumps `change_counter` in its own transaction (a crash between chunks cannot lose
+the obligation to publish).
+
+#### Limits
+
+| Limit | Default | Meaning |
+|---|---|---|
+| backfill `rowsPerChunk` | 1,000 | rows (plus live clock rows) looked at per writer slot |
+| backfill `statementsPerChunk` | 200 | statements the scan part of a chunk may issue |
+| apply `maxEntities` | 400 | entities per chunk (a group above it gets its own chunk) |
+| apply `maxUnionRows` | 4,000 | grow-only-union rows per chunk (`gtd_task_events`, `ai_messages`) |
+| apply `maxAliases` | 400 | alias rows per chunk |
+| apply `maxSidecarRows` | 2,000 | recurrence occurrence/clear rows per chunk |
+| apply `maxGroupEntities` | 1,500 | a group above this is cut into slices by id; the worst-case chunk (about 1,600 statements measured for 1,500 tasks) |
+
+#### Measured numbers
+
+`src/lib/sync/scale-measure.test.ts` (off unless `SYNC_SCALE_MEASURE=1`; the header documents the
+command) over `test-support/synthetic-db.ts`: 5,000 tasks, 3,000 events, 50,000 finance transactions with
+about 14,300 splits, 1,100 daily entries (about 70,400 entities, "1x") and twice that ("2x"), in-process
+`node:sqlite` on an otherwise idle laptop (macOS, Node 22). A "slot" is one writer slot (one backfill
+chunk or one `applySyncBundle` call). "+0.3 ms" means every SQL statement busy-waits 0.3 ms, standing in
+for the Tauri IPC round trip that the in-process adapter does not have; the statements per slot are counted, so a real latency L gives a slot of about
+`compute + statements x L`.
+
+| Capture backfill (default limits) | 1x (70.4k entities) | 2x (140.8k) |
+|---|---|---|
+| single transaction, before this slice | 8.6 s, ONE slot, 5,146 statements | 17.1 s, ONE slot, 10,026 statements |
+| chunked, in process | 7.6 s in 141 chunks | 15.7 s in 282 chunks |
+| longest slot, in process | 110 ms | 325 ms (p95 111 ms) |
+| statements per chunk | 63 median, 180 max | 74 median, 180 max |
+| total statements | 7,538 | 14,857 |
+| chunked, +0.3 ms per statement | 10.1 s, longest slot 151 ms | 19.8 s, longest slot 172 ms |
+
+| First merge of a peer bundle whose transactions collide with the target's (chunks of 400) | 5,000 collisions | 20,000 collisions |
+|---|---|---|
+| chunks | 13 | 51 |
+| statements per chunk | 1,727 median, 1,741 max | 2,078 median, 2,091 max |
+| total statements | 21,678 | 104,073 |
+| in process: total / longest slot | 2.5 s / 188 ms | 13.6 s / 331 ms (median 266 ms) |
+| +0.3 ms per statement: total / longest slot | 9.2 s / 742 ms | 45.8 s / 955 ms (median 904 ms) |
+
+The 20,000-collision merge (target of 70,400 entities, 25,000 aliases created) is about 8 s of work in one
+slot before this slice; chunked, no slot exceeds a third of a second in process. A run on a machine that was busy
+with other work saw one 2.3 s slot at +0.3 ms, so treat the longest slot as "about one second, up to a few
+under load". **Projection for the real app:** a slot lasts about 0.3 s plus 2,091 statements times the IPC
+latency per statement, i.e. about 0.9 s at 0.3 ms, 2.4 s at 1 ms, and stays under the 3 s target up to about
+1.3 ms per statement. The backfill slot (180 statements at most) stays under half a second even at 1 ms.
+Measure the real latency before changing the limits.
+
+| Whole `finance` domain into an empty database (`applyChunked`, defaults) | 1x (64.3k entities) | 2x (128.6k) |
+|---|---|---|
+| chunks / total / longest slot | 161 / 9.9 s / 140 ms | 322 / 19.7 s / 87 ms |
+| statements per chunk | 450 median, 1,230 max | 450 median, 1,230 max |
+| the same bundle applied AGAIN (every chunk unchanged) | 6.1 s (62 %), longest 61 ms | 12.3 s (63 %), longest 66 ms |
+
+The repeat is the cost of an interrupted run that restarts, and of nothing else: after a complete run the
+peer's hash is recorded and the bundle is not read at all.
+
+**Memory of the big `finance` bundle** (fresh process per stage group; `heapUsed` sampled every 4 ms where the
+event loop runs, resident set from a helper process sampling `ps` every 20 ms; Node 22 / V8, NOT measured inside
+the WKWebView):
+
+| Stage | 1x | 2x |
+|---|---|---|
+| `listSyncChanges("finance")`: change set kept in memory | 80 MB heap, +174 to +207 MB resident while reading | 133 MB heap, +376 to +394 MB resident |
+| encode (gzip): sampled heap peak | 110 MB | 167 MB |
+| decode + validate: sampled heap peak | 83 MB | 132 MB |
+| chunked apply of that set | flat at the set's size (80 MB), no growth per chunk | flat (130 MB) |
+| bundle on disk: gzip / uncompressed | 1.7 MB / 48.7 MB | 3.4 MB / 97.4 MB |
+| smallest `--max-old-space-size` the stages ran in (vitest itself uses about 30 MB) | between 160 and 224 MB | between 320 and 448 MB |
+
+**Go / no-go for the webview.** The chunked apply adds no memory of its own: sub-change-sets share the rows of
+the decoded set, so a 2x domain costs the decoded set (about 130 MB) plus the chunk being merged. The transient
+peak is in READING the domain for a publish (`listSyncChanges`): a 2x finance domain needs 350 to 450 MB of
+JavaScript heap at that moment, a 1x one stays under 224 MB. That is acceptable for a manual "Synchroniser maintenant"
+on a desktop WebKit view, and it is the number to watch before publishes become frequent: the lifecycle slice
+should pair automatic publishing with per-domain change detection (one `change_counter` still republishes every
+domain after any edit) and measure inside the real webview. Memory of a work laptop (`gtd` only) is an order of
+magnitude lower (the `gtd` domain of the 2x database is about 10,000 entities).
+
+**Honest limits of the measurement.** The adapter is in-process and synchronous; the per-statement delay is
+busy waiting, not a real IPC and not the real SQLite file; one idle laptop; the data is synthetic and regular
+(compresses 29x, real data compresses about 12x: [Sync bundle format and folder transport](#sync-bundle-format-and-folder-transport)).
+The statement counts are exact and machine independent; `canonical-identity.scale.test.ts` pins the statements per
+collision.
+
+#### Not done here, on purpose
+
+- A persisted per-chunk resume cursor for the apply (the in-memory one covers a budget stop; a restart repeats
+  the bundle from its first chunk at about 60 % of the cost).
+- Running a backfill chunk or a chunked apply from any automatic trigger, and the rest of the lifecycle
+  (startup, focus, timer, quit).
+- Per-domain change detection for publishing.
 
 ### Sync folder commands
 

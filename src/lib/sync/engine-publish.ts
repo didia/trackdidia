@@ -127,6 +127,17 @@ export const runPublish = async (
     skip("Sync is not set up on this device (identity or change capture missing).");
     return finish(0, false);
   }
+  if (!status.backfillComplete) {
+    // Entities without clocks would be left out of the bundle, and the peers would take the gap
+    // for deletions never made: publish nothing until the first pass has finished.
+    issues.push({
+      severity: "warning",
+      code: "backfill_incomplete",
+      message:
+        "Change tracking is still being initialized on this device; nothing is published until it has finished.",
+    });
+    return finish(0, false);
+  }
 
   // The COMMITTED counters, through the writer queue: `status` came from outside it and may hold
   // another operation's uncommitted (and perhaps later rolled back) counter.

@@ -6946,6 +6946,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(typeof repository.getSyncStatus).toBe("function");
         expect(typeof repository.ensureSyncIdentity).toBe("function");
         expect(typeof repository.enableSyncCapture).toBe("function");
+        expect(typeof repository.continueSyncCaptureBackfill).toBe("function");
         expect(typeof repository.listSyncChanges).toBe("function");
         expect(typeof repository.applySyncBundle).toBe("function");
         expect(typeof repository.recordSyncPeerApplied).toBe("function");
@@ -7136,9 +7137,13 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           await expect(repository.enableSyncCapture()).rejects.toThrow(
             /unavailable in browser preview/,
           );
+          await expect(repository.continueSyncCaptureBackfill()).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
           await expect(repository.getSyncStatus()).resolves.toEqual({ supported: false });
           return;
         }
+        await expect(repository.continueSyncCaptureBackfill()).rejects.toThrow(/not enabled/);
         await expect(repository.enableSyncCapture()).rejects.toThrow(
           /sync identity has not been created/,
         );
@@ -7149,9 +7154,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         const first = await repository.enableSyncCapture();
         expect(first.installed).toBe(true);
         expect(first.backfilled).toBeGreaterThan(0);
-        await expect(repository.enableSyncCapture()).resolves.toEqual({
+        await expect(repository.enableSyncCapture()).resolves.toMatchObject({
           installed: false,
           backfilled: 0,
+          backfillComplete: true,
+          remaining: 0,
         });
 
         const enabled = await repository.getSyncStatus();
@@ -7180,6 +7187,8 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           lastPublishCounter: 0,
           pendingChanges: 0,
           captureEnabled: false,
+          backfillComplete: false,
+          backfillProgress: null,
           peers: [],
         });
         // Before the identity exists there are no counters to read, and no snapshot to take.

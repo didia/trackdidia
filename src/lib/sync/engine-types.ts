@@ -1,3 +1,4 @@
+import type { SyncBackfillProgress } from "./backfill-state";
 import type { SyncApplyResult } from "./change-set";
 import type { DeviceProfile } from "./profile";
 import type { SyncDomain } from "./registry";
@@ -32,6 +33,12 @@ export type SyncIssueSeverity = "info" | "warning" | "error";
 export type SyncIssueCode =
   /** Sync cannot run here: browser preview, no identity yet, or change capture not enabled. */
   | "sync_not_ready"
+  /**
+   * Change capture is installed but its first pass over the database has not finished (an interrupted
+   * enable): nothing is published or applied until it has. Continuing it is the user's or the
+   * lifecycle's job (`runSyncCaptureBackfill`).
+   */
+  | "backfill_incomplete"
   | "transport_unreachable"
   | "transport_timeout"
   /** A transport failed in a way that is neither of the above. */
@@ -103,8 +110,20 @@ export interface DomainPullResult {
   outcome: DomainPullOutcome;
   generation?: number;
   sha256?: string;
-  /** Present when `outcome` is `applied`. */
+  /**
+   * Present when `outcome` is `applied`, and for a `deferred` bundle whose pieces were partly applied
+   * (then it sums the pieces that were).
+   */
   apply?: SyncApplyResult;
+  /** Present when the bundle was large enough to be applied as several pieces. */
+  chunks?: {
+    /** Pieces the bundle was split into. */
+    total: number;
+    /** Pieces applied by this pull. */
+    applied: number;
+    /** Slowest piece of this pull, in milliseconds. */
+    maxMs: number;
+  };
 }
 
 /** Why a peer's manifest as a whole was or was not acted on. */
@@ -157,6 +176,10 @@ export interface PullTotals {
   skipped: number;
   tombstonesApplied: number;
   conflictsLogged: number;
+  /** Writer slots used to apply bundles (one per bundle, more for a large one). */
+  chunksApplied: number;
+  /** Duration of the slowest slot, in milliseconds. */
+  maxChunkMs: number;
 }
 
 export interface PullReport {
@@ -176,7 +199,10 @@ export interface PullReport {
 export interface PullOptions {
   /**
    * Stop starting new peer/domain work once this many milliseconds (on the engine's clock) have
-   * passed since the pull began. An apply that has begun always finishes: it is one transaction.
+   * passed since the pull began. An apply that has begun always finishes: it is one transaction. A
+   * large bundle is applied as several transactions and the budget is checked BETWEEN them (after at
+   * least one per pull), so the pull can end half way through a bundle; the pieces done are kept, the
+   * bundle is reported as deferred, and the next pull continues.
    */
   budgetMs?: number;
   /**
@@ -257,8 +283,13 @@ export interface PeerStatus {
 export type EngineActivity = "pull" | "publish" | "syncNow";
 
 export interface EngineStatus {
-  /** Whether sync can run here at all (identity created and capture enabled). */
+  /** Whether sync can run here at all (identity created, capture enabled and its backfill done). */
   ready: boolean;
+  /**
+   * The capture backfill: `complete` false means a pass is still running (an interrupted enable) and
+   * the engine publishes and applies nothing. `progress` is the running or last pass.
+   */
+  backfill: { complete: boolean; progress: SyncBackfillProgress | null };
   running: EngineActivity | null;
   profile: DeviceProfile;
   pendingChanges: number;

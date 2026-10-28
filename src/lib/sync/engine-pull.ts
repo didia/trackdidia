@@ -16,10 +16,12 @@ import type {
   PendingPull,
   PullOptions,
   PullReport,
+  PullTotals,
   SafetyBackupReason,
   SafetyBackupReport,
   SyncIssue,
 } from "./engine-types";
+import { ChunkedApplyError, applyChunked } from "./apply-chunked";
 import { domainsReadable } from "./profile";
 import { assertDomainAllowed } from "./change-set";
 import { SYNC_DOMAINS, type SyncDomain } from "./registry";
@@ -42,10 +44,14 @@ import type { PeerManifest, SyncTransport } from "./transport";
  * about to be applied, by the bundle's own schema, while the database is still untouched.
  *
  * Time. The budget is checked before each `listPeers` and before each `readBundle`, i.e. before
- * starting new work; never mid-apply, and never between a read and its apply: a bundle that was read is
- * always applied (an apply is one transaction), so a run makes progress however small the budget. A
- * read has the transport's own timeout. What was left undone is reported in `remaining` so the caller
- * can pull again.
+ * starting new work; never mid-apply, and never between a read and the START of its apply: every bundle
+ * that was read gets at least its first apply transaction, so a run makes progress however small the
+ * budget. A bundle above the apply limits is applied as several transactions (chunks, see
+ * `apply-chunked.ts`) and the budget is also checked BETWEEN those chunks of one bundle (never
+ * mid-chunk): when it runs out there, the chunks already applied stay, the bundle is `deferred` and
+ * listed in `remaining`, its hash is not recorded, and the next pull continues. A read has the
+ * transport's own timeout. What was left undone is reported in `remaining` so the caller can pull
+ * again.
  */
 
 /** A contact with an otherwise unchanged peer is recorded at most this often. */
@@ -87,12 +93,14 @@ interface PeerPlan {
   incomplete: boolean;
 }
 
-const emptyTotals = () => ({
+const emptyTotals = (): PullTotals => ({
   bundlesApplied: 0,
   applied: 0,
   skipped: 0,
   tombstonesApplied: 0,
   conflictsLogged: 0,
+  chunksApplied: 0,
+  maxChunkMs: 0,
 });
 
 /** Deterministic peer order; tolerates the garbage a hostile or broken transport may hand back. */
@@ -148,6 +156,10 @@ export const runPull = async (
   }
   if (!status.captureEnabled) {
     issues.push(notReady("Change capture is not enabled on this device."));
+    return finish();
+  }
+  if (!status.backfillComplete) {
+    issues.push(backfillIncomplete());
     return finish();
   }
   const selfId = status.identity.deviceId;
@@ -279,7 +291,7 @@ export const runPull = async (
     }
   }
 
-  // ---- Stage 2: apply what was read. A bundle that was read is always applied (never budget-gated) -
+  // ---- Stage 2: apply what was read. Every bundle gets its first chunk; the budget is asked only between chunks -
   for (const item of ready) {
     if (halted) {
       item.plan.incomplete = true;
@@ -458,27 +470,89 @@ export const runPull = async (
     return { result: { ...base, outcome: "applied" }, changeSet };
   }
 
+  /**
+   * Applies one bundle that stage 1 read. A bundle above the apply limits is applied as several
+   * transactions (`applyChunked`), each its own writer slot; every read bundle gets at least its FIRST
+   * chunk whatever the budget (a run always makes progress), and the budget is checked only BETWEEN
+   * chunks of the same bundle, never mid-chunk. When it runs out half way the chunks already applied
+   * stay (a valid state), the bundle is reported `deferred` with its domain in `remaining`, its hash is
+   * NOT recorded, and the next pull continues from the same chunk (an in-memory index keyed by peer,
+   * domain, bundle hash and limits; after a restart the bundle simply starts over, which merges the
+   * applied chunks as no-ops). The hash and the (local, bundle) schema pair are recorded together, by
+   * `record`, only once the LAST chunk was applied. The safety backup, if one was needed, was taken in
+   * stage 1 before anything was applied, i.e. before the first chunk of the first bundle.
+   */
   async function applyStage(item: ReadyBundle): Promise<void> {
     const { plan, allowed, changeSet, result } = item;
     const { domain, entry } = allowed;
     const { manifest } = plan;
+    const resumeKey = [
+      manifest.deviceId,
+      domain,
+      entry.sha256,
+      JSON.stringify(ctx.applyLimits),
+    ].join("\u0000");
+    const count = (sums: {
+      applied: number;
+      skipped: number;
+      tombstonesApplied: number;
+      conflictsLogged: number;
+      chunksApplied: number;
+      maxChunkMs: number;
+    }) => {
+      totals.applied += sums.applied;
+      totals.skipped += sums.skipped;
+      totals.tombstonesApplied += sums.tombstonesApplied;
+      totals.conflictsLogged += sums.conflictsLogged;
+      totals.chunksApplied += sums.chunksApplied;
+      totals.maxChunkMs = Math.max(totals.maxChunkMs, sums.maxChunkMs);
+    };
     try {
-      const applied = await ctx.repo.applySyncBundle(domain, changeSet, { republish: true });
+      const applied = await applyChunked(ctx.repo, domain, changeSet, {
+        limits: ctx.applyLimits,
+        republish: true,
+        startAt: ctx.chunkResume.get(resumeKey) ?? 0,
+        shouldStop: overBudget,
+        ...(ctx.yieldBetweenChunks ? { yieldBetweenChunks: ctx.yieldBetweenChunks } : {}),
+      });
+      count(applied);
+      result.apply = applied;
+      if (applied.chunks > 1) {
+        result.chunks = {
+          total: applied.chunks,
+          applied: applied.chunksApplied,
+          maxMs: applied.maxChunkMs,
+        };
+      }
+      if (applied.stopped) {
+        ctx.chunkResume.set(resumeKey, applied.nextChunk ?? 0);
+        plan.incomplete = true;
+        remaining.push({
+          transport: plan.transport.id,
+          domain,
+          peerId: manifest.deviceId,
+          peerName: manifest.deviceName,
+        });
+        result.outcome = "deferred";
+        return;
+      }
+      ctx.chunkResume.delete(resumeKey);
       plan.appliedThisRun[domain] = entry.sha256;
       plan.mergedThisRun[domain] = { local: ctx.localSchemaVersion, peer: changeSet.schemaVersion };
       totals.bundlesApplied += 1;
-      totals.applied += applied.applied;
-      totals.skipped += applied.skipped;
-      totals.tombstonesApplied += applied.tombstonesApplied;
-      totals.conflictsLogged += applied.conflictsLogged;
       result.outcome = "applied";
-      result.apply = applied;
     } catch (error) {
       plan.incomplete = true;
+      // The chunks before the failing one stay applied (a valid state); the next pull applies the
+      // whole bundle again from its first chunk, which merges them as no-ops.
+      ctx.chunkResume.delete(resumeKey);
+      const failedPiece = error instanceof ChunkedApplyError ? error : null;
+      if (failedPiece) count(failedPiece.partial);
+      const cause = failedPiece ? failedPiece.cause : error;
       const known =
-        error instanceof SyncApplyError ||
-        error instanceof SyncClockError ||
-        error instanceof SyncChangeSetError;
+        cause instanceof SyncApplyError ||
+        cause instanceof SyncClockError ||
+        cause instanceof SyncChangeSetError;
       issues.push({
         transport: plan.transport.id,
         peerId: manifest.deviceId,
@@ -486,8 +560,10 @@ export const runPull = async (
         domain,
         severity: "error",
         code: known ? "bundle_rejected" : "bundle_failed",
-        message: `The ${domain} data of ${manifest.deviceName} could not be merged and nothing was kept: ${messageOf(error)}`,
-        detail: known ? (error as { code: string }).code : messageOf(error),
+        message: failedPiece
+          ? `The ${domain} data of ${manifest.deviceName} could not be merged: part ${failedPiece.chunk + 1} of ${failedPiece.chunks} failed (${messageOf(cause)}); the ${failedPiece.chunk} earlier part(s) were kept and the whole bundle is tried again next time`
+          : `The ${domain} data of ${manifest.deviceName} could not be merged and nothing was kept: ${messageOf(error)}`,
+        detail: known ? (cause as { code: string }).code : messageOf(cause),
       });
       result.outcome = "rejected";
     }
@@ -575,6 +651,13 @@ export const runPull = async (
     }
   }
 };
+
+const backfillIncomplete = (): SyncIssue => ({
+  severity: "warning",
+  code: "backfill_incomplete",
+  message:
+    "Change tracking is still being initialized on this device; nothing is merged until it has finished.",
+});
 
 const notReady = (message: string): SyncIssue => ({
   severity: "warning",

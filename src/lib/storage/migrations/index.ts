@@ -1204,6 +1204,29 @@ export const migrations: Migration[] = [
       ],
     },
   },
+  {
+    id: 45,
+    name: "add_sync_backfill_state",
+    // Resumable change-capture backfill for multi-laptop sync: ONE new device-local table. No ALTER
+    // TABLE, no trigger, no data change to any existing table, no seed row (the repository writes the
+    // row when `enableSyncCapture` starts a pass). A database that enabled capture before this
+    // migration has no row, which the repository reads as "backfill complete". Safe to re-run.
+    sql: `
+      CREATE TABLE IF NOT EXISTS sync_backfill_state (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        pass INTEGER NOT NULL DEFAULT 1,
+        status TEXT NOT NULL CHECK (status IN ('running', 'complete')),
+        step TEXT NOT NULL DEFAULT '',
+        cursor_key TEXT,
+        total_rows INTEGER NOT NULL DEFAULT 0,
+        scanned_rows INTEGER NOT NULL DEFAULT 0,
+        stamped INTEGER NOT NULL DEFAULT 0,
+        started_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        completed_at TEXT
+      );
+    `,
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */

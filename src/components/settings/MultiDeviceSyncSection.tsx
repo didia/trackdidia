@@ -177,7 +177,7 @@ export const MultiDeviceSyncSection = () => {
               {sync.phase === "disabling" ? t("card.disabling") : t("card.disable")}
             </button>
           </>
-        ) : (
+        ) : sync.backfill && !busy ? null : (
           <button
             className="button button--primary"
             type="button"
@@ -201,6 +201,36 @@ export const MultiDeviceSyncSection = () => {
         <p role="status" aria-live="polite">
           {t(`card.step.${sync.enableStep}`)}
         </p>
+      ) : null}
+      {sync.backfill ? (
+        <div>
+          <progress
+            max={100}
+            value={sync.backfill.percent}
+            aria-label={t("card.backfill.progressLabel")}
+          />
+          <p role="status" aria-live="polite">
+            {busy
+              ? t("card.backfill.progress", {
+                  percent: sync.backfill.percent,
+                  scanned: sync.backfill.scannedRows,
+                  total: sync.backfill.totalRows,
+                })
+              : t("card.backfill.interrupted", { percent: sync.backfill.percent })}
+          </p>
+          {busy ? null : (
+            <div className="form-actions">
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={unavailable}
+                onClick={() => void sync.resumeBackfill()}
+              >
+                {t("card.backfill.resume")}
+              </button>
+            </div>
+          )}
+        </div>
       ) : null}
       {sync.enableResult ? (
         <>

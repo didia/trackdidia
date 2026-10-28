@@ -108,7 +108,7 @@ const PROPOSAL_TYPES = [
 
 export const dayKey = (n: number): string => `2026-10-${String(Math.min(28, n)).padStart(2, "0")}`;
 
-const template = (
+export const template = (
   id: string,
   overrides: Partial<RecurringTaskTemplate>,
 ): RecurringTaskTemplate => ({
@@ -137,7 +137,7 @@ const template = (
   ...overrides,
 });
 
-const project = (id: string, title: string): Project => ({
+export const project = (id: string, title: string): Project => ({
   id,
   title,
   status: "active",
@@ -626,6 +626,167 @@ const financeOps: Op[] = [
     return `suggest ${suggestion.id}`;
   },
 ];
+
+/**
+ * Operations with the SHAPES that a chunk boundary can change, kept out of `OPS` so the established
+ * property tests keep their sequences: tasks that LEAVE a Planned queue (the app renumbers the rest),
+ * and pending proposals / suggestions that are cleared and regenerated (a tombstone next to a new
+ * pending row of the same key). Used by the chunked-apply equivalence test.
+ */
+const plannedTasks = async (device: SyncDevice) =>
+  (await openTasks(device)).filter(
+    (task) => task.bucket === "planned" && !task.isRecurringInstance && task.projectId,
+  );
+
+const shapeOps: Op[] = [
+  async (device, ctx) => {
+    const id = next(ctx, `q-${device.name}-`);
+    await device.repo.createTask({
+      id,
+      title: id,
+      bucket: "planned",
+      projectId: pickOf(ctx.rand, ["p1", "p2"]),
+    });
+    return `createPlanned ${id}`;
+  },
+  async (device, ctx) => {
+    const planned = await plannedTasks(device);
+    if (planned.length === 0) return undefined;
+    const task = pickOf(ctx.rand, planned);
+    await device.repo.moveTask(task.id, "next_action", task.contextIds);
+    return `leaveQueue ${task.id}`;
+  },
+  async (device, ctx) => {
+    const planned = await plannedTasks(device);
+    if (planned.length === 0) return undefined;
+    const task = pickOf(ctx.rand, planned);
+    await device.repo.completeTask(task.id, new Date(device.clock.now).toISOString());
+    return `completePlanned ${task.id}`;
+  },
+  async (device, ctx) => {
+    // Clear this laptop's own pending proposal and regenerate one of the same message and type.
+    const own = await device.db.select<{ id: string; message_id: string; type: string }[]>(
+      "SELECT id, message_id, type FROM ai_proposals WHERE status = 'pending' AND id LIKE $1 ORDER BY id",
+      [`p-${device.name}-%`],
+    );
+    if (own.length === 0) return undefined;
+    const old = pickOf(ctx.rand, own);
+    await device.db.execute("DELETE FROM ai_proposals WHERE id = $1", [old.id]);
+    await device.stamp();
+    const replacement: AiProposal = {
+      id: next(ctx, `p-${device.name}-`),
+      messageId: old.message_id,
+      type: old.type as AiProposal["type"],
+      payloadJson: "{}",
+      status: "pending",
+      appliedEntityId: null,
+      decidedAt: null,
+      createdAt: "2026-10-04T12:00:00.000Z",
+    };
+    await device.repo.saveAiProposal(replacement);
+    return `regenerateProposal ${old.id} -> ${replacement.id}`;
+  },
+  async (device, ctx) => {
+    const own = await device.db.select<{ id: string; transaction_id: string }[]>(
+      "SELECT id, transaction_id FROM finance_category_suggestions WHERE status = 'pending' AND id LIKE $1 ORDER BY id",
+      [`sug-${device.name}-%`],
+    );
+    if (own.length === 0) return undefined;
+    const old = pickOf(ctx.rand, own);
+    await device.db.execute("DELETE FROM finance_category_suggestions WHERE id = $1", [old.id]);
+    await device.stamp();
+    const replacement: FinanceCategorySuggestion = {
+      id: next(ctx, `sug-${device.name}-`),
+      transactionId: old.transaction_id,
+      merchantKey: "SUGGESTED",
+      suggestedCategoryId: pickOf(ctx.rand, CATEGORIES),
+      confidence: 0.6,
+      origin: "ai",
+      rationale: null,
+      model: null,
+      promptVersion: null,
+      status: "pending",
+      decidedAt: null,
+      createdAt: "2026-10-01T00:00:00.000Z",
+    };
+    await device.repo.saveFinanceCategorySuggestions([replacement]);
+    return `regenerateSuggestion ${old.id} -> ${replacement.id}`;
+  },
+];
+
+/**
+ * A baseline for the shapes above, built on a sender BEFORE the laptops are synchronized (so the
+ * target holds the old state when the sender later leaves a queue or regenerates a proposal): four
+ * planned tasks in project `p1`, one pending proposal and one pending suggestion owned by `device`.
+ */
+export const seedShapes = async (device: SyncDevice, ctx: OpContext): Promise<void> => {
+  const types = { A: "commitment", B: "gtd_action", C: "intention_draft" } as Record<
+    string,
+    string
+  >;
+  for (let i = 0; i < 4; i += 1) {
+    const id = `q-${device.name}-seed${i}`;
+    await device.repo.createTask({ id, title: id, bucket: "planned", projectId: "p1" });
+  }
+  await device.repo.saveAiProposal({
+    id: `p-${device.name}-seed`,
+    messageId: MESSAGES[0] as string,
+    type: (types[device.name] ?? "commitment") as AiProposal["type"],
+    payloadJson: "{}",
+    status: "pending",
+    appliedEntityId: null,
+    decidedAt: null,
+    createdAt: "2026-10-04T12:00:00.000Z",
+  });
+  await device.repo.importFinanceTransactions(
+    importRequest(
+      [
+        importRow({
+          amountMinor: -(2000 + ctx.counter.value),
+          descriptionRaw: `SEED ${device.name}#0`,
+          merchantKey: "SEEDED",
+        }),
+      ],
+      { fileHash: `seed-${device.name}` },
+    ),
+  );
+  const owned = (await device.repo.listFinanceTransactions({})).find((txn) =>
+    txn.descriptionRaw.includes(` ${device.name}#0`),
+  );
+  if (owned) {
+    await device.repo.saveFinanceCategorySuggestions([
+      {
+        id: `sug-${device.name}-seed`,
+        transactionId: owned.id,
+        merchantKey: "SEEDED",
+        suggestedCategoryId: CATEGORIES[0] as string,
+        confidence: 0.6,
+        origin: "ai",
+        rationale: null,
+        model: null,
+        promptVersion: null,
+        status: "pending",
+        decidedAt: null,
+        createdAt: "2026-10-01T00:00:00.000Z",
+      },
+    ]);
+  }
+};
+
+/** Runs one random operation from {@link shapeOps}; refusals are recorded like `runRandomOp`. */
+export const runShapeOp = async (device: SyncDevice, ctx: OpContext): Promise<void> => {
+  device.clock.advance(1 + Math.floor(ctx.rand() * 90_000));
+  const op = pickOf(ctx.rand, shapeOps);
+  const name = `shape#${shapeOps.indexOf(op)}`;
+  try {
+    const label = await op(device, ctx);
+    if (label !== undefined) ctx.log.push(`${device.name}: ${label}`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    ctx.refused.push(`${device.name}: ${name}: ${message}`);
+    ctx.log.push(`${device.name}: (refused ${name}) ${message.slice(0, 80)}`);
+  }
+};
 
 export const OPS: Record<OpFamily, readonly Op[]> = {
   gtd: gtdOps,

@@ -225,7 +225,11 @@ describe("objectives and results through applySyncBundle (foreign keys on)", () 
       applied: 0,
       conflictsLogged: 0,
     });
-    expect(await b.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await b.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   });
 
   it("a parent tombstone tombstones the cascaded children in the same transaction, with the parent's deletedAt", async () => {
@@ -261,7 +265,11 @@ describe("objectives and results through applySyncBundle (foreign keys on)", () 
       await b.db.select("SELECT 1 FROM sync_entity_snapshot WHERE entity_type LIKE 'weekly%'"),
     ).toEqual([]);
     expect(await b.db.select("SELECT 1 FROM sync_dirty")).toEqual([]);
-    expect(await b.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await b.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   });
 
   it("rolls everything back, including cascaded tombstones, when a later part of the bundle fails", async () => {

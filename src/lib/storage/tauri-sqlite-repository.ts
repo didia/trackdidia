@@ -170,8 +170,23 @@ import {
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
 import { CalendarSyncSqliteStore } from "./calendar-sync-sqlite-store";
 import { applyChangeSet, prepareApply, type SyncSettingsAccess } from "../sync/apply-bundle";
+import {
+  type SyncBackfillContinueOptions,
+  type SyncBackfillOptions,
+  type SyncBackfillOutcome,
+  type SyncCaptureEnableResult,
+  isBackfillComplete,
+  progressOf,
+  readBackfillRow,
+  resolveBackfillLimits,
+} from "../sync/backfill-state";
+import {
+  assertBackfillComplete,
+  runBackfillChunk,
+  startOrResumeBackfill,
+} from "../sync/backfill-run";
 import { ensureSyncCapture, installSyncCapture } from "../sync/capture-install";
-import { backfillSyncCapture, stampDirtyEntities } from "../sync/capture-stamp";
+import { stampDirtyEntities } from "../sync/capture-stamp";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 import { getDeviceId } from "../sync/device-id";
 import { SyncApplyError } from "../sync/errors";
@@ -3331,7 +3346,12 @@ export class TauriSqliteRepository implements AppRepository {
       `SELECT peer_id, peer_name, last_manifest_json, last_synced_at, last_applied_sha_by_domain
       FROM sync_peers ORDER BY peer_name, peer_id`,
     );
-    return buildSupportedSyncStatus(identity[0] ?? null, peers, this.captureEnabled);
+    // Zero extra queries while capture was never enabled.
+    const backfill = this.captureEnabled ? await readBackfillRow(db) : null;
+    return buildSupportedSyncStatus(identity[0] ?? null, peers, this.captureEnabled, {
+      complete: isBackfillComplete(backfill),
+      progress: progressOf(backfill),
+    });
   }
 
   async ensureSyncIdentity(input: {
@@ -3392,14 +3412,16 @@ export class TauriSqliteRepository implements AppRepository {
     return { deviceId: input.deviceId, deviceName: nextName, created: false, repaired };
   }
 
-  async enableSyncCapture(): Promise<{ installed: boolean; backfilled: number }> {
-    // One writer slot for the whole operation, including the flag flip, so no queued write can
-    // run after the triggers exist but before the stamper is switched on.
-    return this.writeQueue.run(async () => {
+  async enableSyncCapture(options: SyncBackfillOptions = {}): Promise<SyncCaptureEnableResult> {
+    // Validate before queueing so garbage never takes a writer slot.
+    const limits = resolveBackfillLimits(options.limits);
+    // A short first slot for the whole install, including the flag flip, so no queued write can run
+    // after the triggers exist but before the stamper is switched on. The backfill is NOT part of it.
+    const installed = await this.writeQueue.run(async () => {
       const db = await this.getDb();
       const result = await runSqliteTransaction(
         db,
-        (tx) => this.enableSyncCaptureInternal(tx),
+        (tx) => this.installSyncCaptureInternal(tx),
         (rollbackError) => {
           logDebug("error", "storage.sqlite", "Echec ROLLBACK (ignore)", rollbackError);
         },
@@ -3407,17 +3429,22 @@ export class TauriSqliteRepository implements AppRepository {
       this.captureEnabled = true;
       return result;
     });
+    const first = await this.continueSyncCaptureBackfill({ limits, maxChunks: 1 });
+    return {
+      installed,
+      backfilled: first.stamped,
+      backfillComplete: first.complete,
+      remaining: first.remaining,
+      maxChunkStatements: first.maxChunkStatements,
+    };
   }
 
   /**
    * Must run inside a write transaction; never re-enters the writer queue. Installs (or repairs)
-   * the capture triggers, then backfills with `verify` so rows edited while capture was off are
-   * restamped too. On a first enable there are no clocks yet, so every row is simply stamped as a
-   * creation.
+   * the capture triggers and starts a backfill pass, or keeps the one that is running. Returns
+   * whether the trigger set was installed by this call. No row is scanned here.
    */
-  private async enableSyncCaptureInternal(
-    tx: TxContext,
-  ): Promise<{ installed: boolean; backfilled: number }> {
+  private async installSyncCaptureInternal(tx: TxContext): Promise<boolean> {
     const db = transactionDb(tx);
     const identity = await db.select<{ id: number }[]>("SELECT id FROM sync_identity WHERE id = 1");
     if (identity.length === 0) {
@@ -3430,8 +3457,52 @@ export class TauriSqliteRepository implements AppRepository {
     if (ensured.state === "disabled") {
       await installSyncCapture(db);
     }
-    const backfilled = await backfillSyncCapture(db, this.now(), { verify: true });
-    return { installed, backfilled };
+    await startOrResumeBackfill(db, new Date(this.now()).toISOString());
+    return installed;
+  }
+
+  async continueSyncCaptureBackfill(
+    options: SyncBackfillContinueOptions = {},
+  ): Promise<SyncBackfillOutcome> {
+    const limits = resolveBackfillLimits(options.limits);
+    const maxChunks = options.maxChunks ?? 1;
+    if (!Number.isInteger(maxChunks) || maxChunks < 1) {
+      throw new Error("Invalid maxChunks: expected a positive integer");
+    }
+    if (!this.captureEnabled) {
+      throw new Error(
+        "Cannot continue the capture backfill: change capture is not enabled (call enableSyncCapture first)",
+      );
+    }
+    const startedAt = this.now();
+    const outcome: SyncBackfillOutcome = {
+      complete: false,
+      chunks: 0,
+      stamped: 0,
+      scanned: 0,
+      maxChunkStatements: 0,
+      remaining: 0,
+      cursor: null,
+      progress: null,
+    };
+    while (outcome.chunks < maxChunks) {
+      // One writer slot per chunk. The queue is FIFO: a write queued while a chunk runs is served
+      // before the next chunk, which only joins the queue after this one has finished.
+      const chunk = await this.writeTransaction((tx) =>
+        runBackfillChunk(transactionDb(tx), this.now(), limits),
+      );
+      if (chunk.ran) outcome.chunks += 1;
+      outcome.stamped += chunk.stamped;
+      outcome.scanned += chunk.scanned;
+      outcome.maxChunkStatements = Math.max(outcome.maxChunkStatements, chunk.statements);
+      outcome.remaining = chunk.remaining;
+      outcome.cursor = chunk.cursor;
+      outcome.progress = chunk.progress;
+      outcome.complete = chunk.complete;
+      if (chunk.complete) break;
+      if (options.deadlineMs !== undefined && this.now() - startedAt >= options.deadlineMs) break;
+    }
+    return outcome;
   }
 
   /** The settings reader / writer the sync read and apply paths share with the normal settings path. */
@@ -3448,9 +3519,12 @@ export class TauriSqliteRepository implements AppRepository {
     }
     // The writer slot is what makes this a consistent read: no write transaction can interleave
     // between the SELECTs below. Nothing is written.
-    return this.writeQueue.run(async () =>
-      readChangeSet(await this.getDb(), domain, this.syncSettingsAccess()),
-    );
+    return this.writeQueue.run(async () => {
+      const db = await this.getDb();
+      // Entities without clocks would be silently left out of the bundle.
+      if (this.captureEnabled) await assertBackfillComplete(db);
+      return readChangeSet(db, domain, this.syncSettingsAccess());
+    });
   }
 
   async applySyncBundle(
@@ -3468,13 +3542,16 @@ export class TauriSqliteRepository implements AppRepository {
     }
     // One transaction, internal helpers only: re-entering the writer queue from inside it would
     // deadlock. Any error rolls back every row, meta, snapshot, conflict and the `applying` flag.
-    return this.writeTransaction((tx) =>
-      applyChangeSet(transactionDb(tx), prepared, {
+    return this.writeTransaction(async (tx) => {
+      // Checked inside the transaction, against the stored state: a peer's rows must not be merged
+      // while some local entities still lack the clocks and snapshots the merge compares against.
+      await assertBackfillComplete(transactionDb(tx));
+      return applyChangeSet(transactionDb(tx), prepared, {
         nowMs: this.now(),
         settings: this.syncSettingsAccess(),
         republish: options.republish === true,
-      }),
-    );
+      });
+    });
   }
 
   async recordSyncPeerApplied(input: SyncPeerAppliedInput): Promise<void> {

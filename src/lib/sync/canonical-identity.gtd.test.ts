@@ -28,7 +28,11 @@ const aliasRows = (device: SyncDevice) =>
 
 const expectNothingToStamp = async (device: SyncDevice): Promise<void> => {
   const before = await syncState(device.db);
-  expect(await device.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+  expect(await device.repo.enableSyncCapture()).toMatchObject({
+    installed: false,
+    backfilled: 0,
+    backfillComplete: true,
+  });
   expect(await syncState(device.db)).toEqual(before);
 };
 

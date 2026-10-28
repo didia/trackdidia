@@ -16,6 +16,7 @@ export const SyncErrorMessage = ({ error }: { error: SyncUiError }) => {
     "device_name_invalid",
     "no_device_id",
     "capture_failed",
+    "backfill_incomplete",
     "no_folders",
     "already_running",
   ] as const;

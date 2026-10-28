@@ -143,6 +143,12 @@ import {
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
+import type {
+  SyncBackfillContinueOptions,
+  SyncBackfillOptions,
+  SyncBackfillOutcome,
+  SyncCaptureEnableResult,
+} from "../sync/backfill-state";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 import type { SyncDomain } from "../sync/registry";
 import {
@@ -2214,7 +2220,13 @@ export class MemoryRepository implements AppRepository {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 
-  async enableSyncCapture(): Promise<{ installed: boolean; backfilled: number }> {
+  async enableSyncCapture(_options?: SyncBackfillOptions): Promise<SyncCaptureEnableResult> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async continueSyncCaptureBackfill(
+    _options?: SyncBackfillContinueOptions,
+  ): Promise<SyncBackfillOutcome> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 

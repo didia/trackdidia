@@ -1,3 +1,4 @@
+import type { SyncBackfillProgress } from "./backfill-state";
 import type { SyncChangeSet } from "./change-set";
 import { SYNC_DOMAINS } from "./registry";
 
@@ -86,6 +87,14 @@ export type SyncStatus =
        * no repository method to turn it off yet). While false, local edits are not tracked at all.
        */
       captureEnabled: boolean;
+      /**
+       * False while the capture backfill is still running (and before capture is enabled): the engine
+       * neither publishes nor applies until it is true. A database that enabled capture before the
+       * backfill was chunked reports true.
+       */
+      backfillComplete: boolean;
+      /** The running (or last) pass; `null` when capture was never enabled or predates the table. */
+      backfillProgress: SyncBackfillProgress | null;
       peers: SyncPeerSummary[];
     };
 
@@ -175,6 +184,10 @@ export const buildSupportedSyncStatus = (
   identityRow: SyncIdentityRow | null,
   peerRows: SyncPeerRow[],
   captureEnabled = false,
+  backfill: { complete: boolean; progress: SyncBackfillProgress | null } = {
+    complete: false,
+    progress: null,
+  },
 ): Extract<SyncStatus, { supported: true }> => {
   const changeCounter = toCounter(identityRow?.change_counter);
   const lastPublishCounter = toCounter(identityRow?.last_publish_counter);
@@ -187,6 +200,8 @@ export const buildSupportedSyncStatus = (
     lastPublishCounter,
     pendingChanges: Math.max(0, changeCounter - lastPublishCounter),
     captureEnabled,
+    backfillComplete: captureEnabled && backfill.complete,
+    backfillProgress: captureEnabled ? backfill.progress : null,
     peers: peerRows.map(syncPeerFromRow),
   };
 };

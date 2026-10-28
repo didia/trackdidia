@@ -1,5 +1,11 @@
 import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
 import type { ReconcileDayResult } from "../gtd/reconcile";
+import type {
+  SyncBackfillContinueOptions,
+  SyncBackfillOptions,
+  SyncBackfillOutcome,
+  SyncCaptureEnableResult,
+} from "../sync/backfill-state";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 import type { SyncDomain } from "../sync/registry";
 import type {
@@ -588,14 +594,28 @@ export interface AppRepository {
    */
   ensureSyncIdentity(input: { deviceId: string; deviceName: string }): Promise<SyncIdentityResult>;
   /**
-   * Turns on change capture for this database: installs the capture triggers and stamps every
-   * existing synced row that has no clock yet (and re-checks the ones that do, so edits made while
-   * capture was off are not lost), all in one write transaction. Idempotent. Requires an existing
-   * sync identity (`ensureSyncIdentity`) and rejects otherwise. Returns whether the trigger set was
-   * (re)installed by this call and how many entities were stamped by the backfill. Memory rejects:
-   * sync is unavailable in browser preview. Nothing in the app calls this yet.
+   * Turns on change capture for this database. A short first transaction installs the capture
+   * triggers and starts a backfill pass; the backfill itself (stamping every existing synced row
+   * that has no clock yet, and re-checking the ones that do, so edits made while capture was off are
+   * not lost) then runs as bounded chunks, each its own writer slot, so other writes interleave. This
+   * call runs at most the FIRST chunk and returns quickly: `backfillComplete` says whether that was
+   * enough (always, for a small database), `remaining` how many rows are left. Finish with
+   * `continueSyncCaptureBackfill` (or `runSyncCaptureBackfill`). A pass that was interrupted
+   * (a quit, a crash, a failed chunk) is resumed, not restarted; a call after a completed pass starts
+   * a new verifying one. While a pass is incomplete the engine neither publishes nor applies, and
+   * local edits are captured by the triggers as usual. Idempotent. Requires an existing sync
+   * identity (`ensureSyncIdentity`) and rejects otherwise. Memory rejects: sync is unavailable in
+   * browser preview.
    */
-  enableSyncCapture(): Promise<{ installed: boolean; backfilled: number }>;
+  enableSyncCapture(options?: SyncBackfillOptions): Promise<SyncCaptureEnableResult>;
+  /**
+   * Runs further chunks of the capture backfill (default one; `maxChunks` and `deadlineMs` bound a
+   * longer call), each in its own writer slot with the queue free to serve other writes in between.
+   * Resumes from the persisted cursor, so it is safe after a restart and when two callers overlap.
+   * A no-op returning `complete: true` when no pass is running. Rejects when capture is not enabled.
+   * Memory rejects: sync is unavailable in browser preview.
+   */
+  continueSyncCaptureBackfill(options?: SyncBackfillContinueOptions): Promise<SyncBackfillOutcome>;
   /**
    * The full synced state of one domain (not a log): every live entity of the tables this build can
    * merge with its field clocks, tombstones, the full row sets of grow-only-union tables, and the

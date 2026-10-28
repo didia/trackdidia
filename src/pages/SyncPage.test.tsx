@@ -70,6 +70,89 @@ describe("SyncPage gates", () => {
   });
 });
 
+describe("SyncPage while the capture backfill is unfinished", () => {
+  const unfinished = () =>
+    status({
+      ready: false,
+      backfill: {
+        complete: false,
+        progress: {
+          pass: 1,
+          scannedRows: 30,
+          totalRows: 100,
+          stamped: 12,
+          startedAt: "2026-10-27T12:00:00.000Z",
+        },
+      },
+    });
+
+  it("explains that sync is paused, shows the percentage and resumes on request", async () => {
+    const sync = syncController({ status: unfinished() });
+    await renderPage(sync);
+    const banner = screen.getByText("Initialisation du suivi des changements").closest(".banner");
+    expect(banner).toHaveTextContent("(30 %)");
+    expect(banner).toHaveTextContent("La synchronisation reste en pause");
+    // The generic "not ready" message would be misleading here.
+    expect(screen.queryByText(/identité ou suivi des changements manquant/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reprendre l'initialisation" }));
+    expect(sync.resumeBackfill).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers the live percentage of a running resume and disables the button while busy", async () => {
+    await renderPage(
+      syncController({
+        status: unfinished(),
+        phase: "resuming",
+        backfill: { percent: 77, scannedRows: 77, totalRows: 100 },
+      }),
+    );
+    expect(screen.getByText(/\(77 %\)/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reprise de l'initialisation…" })).toBeDisabled();
+  });
+
+  it("shows no backfill banner once it is complete", async () => {
+    await renderPage(syncController({ status: status() }));
+    expect(screen.queryByText("Initialisation du suivi des changements")).toBeNull();
+  });
+});
+
+describe("SyncPage chunked merges", () => {
+  const runWith = (domains: never[]) => ({
+    finishedAtMs: Date.UTC(2026, 9, 27, 12, 0, 6),
+    error: null,
+    report: {
+      pull: pullReport({
+        peers: [
+          {
+            peerId: "dev:00000000-0000-4000-8000-000000000002",
+            peerName: "Portable bureau",
+            transport: "folder:personal",
+            status: "ok",
+            domains,
+          },
+        ],
+      }),
+      publish: publishReport(),
+    },
+  });
+
+  it("says how many steps a large bundle took, and where a cut one stopped", async () => {
+    const domains = [
+      { domain: "finance", outcome: "applied", chunks: { total: 12, applied: 12, maxMs: 188 } },
+      { domain: "gtd", outcome: "deferred", chunks: { total: 9, applied: 3, maxMs: 40 } },
+    ] as never[];
+    await renderPage(syncController({ status: status(), run: runWith(domains) }));
+    expect(screen.getByText(/fusion en 12 étapes \(la plus longue : 188 ms\)/)).toBeInTheDocument();
+    expect(screen.getByText(/fusion interrompue après 3 étapes sur 9/)).toBeInTheDocument();
+  });
+
+  it("says nothing about steps for a bundle applied in one piece", async () => {
+    const domains = [{ domain: "gtd", outcome: "applied" }] as never[];
+    await renderPage(syncController({ status: status(), run: runWith(domains) }));
+    expect(screen.queryByText(/fusion en/)).toBeNull();
+  });
+});
+
 describe("SyncPage states", () => {
   it("shows a loading state while the first status is read", async () => {
     await renderPage(syncController({ phase: "checking", status: null }));
@@ -181,6 +264,8 @@ describe("Sync now", () => {
             skipped: 30,
             tombstonesApplied: 4,
             conflictsLogged: 1,
+            chunksApplied: 2,
+            maxChunkMs: 5,
           },
           safetyBackup: {
             reasons: ["first_merge"],
@@ -409,6 +494,7 @@ describe("stale peers", () => {
 // file stop compiling until the page has copy for it (and the tests below render it).
 const ALL_ISSUE_CODES: Record<SyncIssueCode, true> = {
   sync_not_ready: true,
+  backfill_incomplete: true,
   transport_unreachable: true,
   transport_timeout: true,
   transport_failed: true,

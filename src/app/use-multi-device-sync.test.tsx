@@ -65,7 +65,7 @@ const setup = async () => {
     }),
   );
   let current = await repository.getSettings();
-  return { host, repository, hook, deps, published, counts, settings: () => current };
+  return { host, repository, raw, hook, deps, published, counts, settings: () => current };
 };
 
 beforeEach(() => {
@@ -121,6 +121,71 @@ describe("useMultiDeviceSync", () => {
     ]);
     expect(hook.result.current.status?.pendingChanges).toBe(0);
     expect(host.filesOf(GTD).some((file) => file.endsWith("gtd-1.bundle"))).toBe(true);
+  });
+
+  it("shows an interrupted backfill after a restart and resumes it, then turns sync on", async () => {
+    const { hook, settings, repository, raw } = await setup();
+    // More rows than one default chunk (1,000 rows): the enable needs several writer slots.
+    await raw.execute("BEGIN");
+    for (let i = 0; i < 2300; i += 1) {
+      await raw.execute(
+        "INSERT INTO gtd_tasks (id, title, notes, status, bucket, context_ids_json, source, created_at, updated_at) VALUES ($1, 'T', '', 'open', 'inbox', '[]', 'manual', 'x', 'x')",
+        [`bulk-${i}`],
+      );
+    }
+    await raw.execute("COMMIT");
+
+    // The enable dies after the first chunks (a crash, or the app is quit).
+    const original = repository.continueSyncCaptureBackfill.bind(repository);
+    let calls = 0;
+    repository.continueSyncCaptureBackfill = async (options) => {
+      calls += 1;
+      if (calls > 1) throw new Error("the app quit");
+      return original(options);
+    };
+    await act(async () => {
+      await hook.result.current.enable();
+    });
+    expect(hook.result.current.setupError?.code).toBe("capture_failed");
+    expect(settings().multiDeviceSyncEnabled).toBe(false);
+    expect(hook.result.current.backfill).not.toBeNull();
+    expect(hook.result.current.backfill?.percent).toBeGreaterThan(0);
+    expect(hook.result.current.backfill?.percent).toBeLessThan(100);
+
+    // A later session: the page reads the unfinished pass, and resuming finishes the enable.
+    repository.continueSyncCaptureBackfill = original;
+    await act(async () => {
+      await hook.result.current.refresh();
+    });
+    expect(hook.result.current.backfill).not.toBeNull();
+    await act(async () => {
+      await hook.result.current.resumeBackfill();
+    });
+    expect(hook.result.current.setupError).toBeNull();
+    expect(hook.result.current.backfill).toBeNull();
+    expect(settings().multiDeviceSyncEnabled).toBe(true);
+    expect(await repository.getSyncStatus()).toMatchObject({ backfillComplete: true });
+  });
+
+  it("resumes only the chunks when sync is already on", async () => {
+    const { hook, settings, repository } = await setup();
+    await act(async () => {
+      await hook.result.current.enable();
+    });
+    expect(settings().multiDeviceSyncEnabled).toBe(true);
+    // A new verifying pass was started elsewhere and left unfinished.
+    await repository.enableSyncCapture({ limits: { rowsPerChunk: 1 } });
+    await act(async () => {
+      await hook.result.current.refresh();
+    });
+    expect(hook.result.current.status?.backfill.complete).toBe(false);
+    expect(hook.result.current.status?.ready).toBe(false);
+    await act(async () => {
+      await hook.result.current.resumeBackfill();
+    });
+    expect(hook.result.current.backfill).toBeNull();
+    expect(hook.result.current.status?.backfill.complete).toBe(true);
+    expect(hook.result.current.status?.ready).toBe(true);
   });
 
   it("ignores another action while one is running", async () => {
