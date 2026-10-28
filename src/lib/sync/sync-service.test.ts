@@ -515,6 +515,41 @@ describe("Sync now between two laptops, built from the settings", () => {
     expect(prune?.[1]).toMatchObject({ deviceId: b.deviceId });
   });
 
+  it("merges nothing and surfaces the native refusal when backups[-dev] leads to the shared folder", async () => {
+    const { laptops } = await world(2);
+    const [a, b] = laptops as [Laptop, Laptop];
+    for (const laptop of laptops) await enable(laptop);
+    await a.repository.createTask({ id: "t1", title: "x", bucket: "inbox" });
+    const built = async (laptop: Laptop) =>
+      buildSyncEngine({
+        repository: laptop.repository,
+        settings: await laptop.settings(),
+        getSettings: () => ({ backupDestinationDir: PERSONAL }) as AppSettings,
+        deps: laptop.deps,
+      });
+    await (await built(a)).engine.syncNow();
+    vi.mocked(invoke).mockImplementation(async (command: string) => {
+      if (command === "resolve_storage_paths") {
+        return { databasePath: "/x", connectionString: "sqlite:x", environment: "production" };
+      }
+      if (command === "ensure_backup_dir") {
+        throw "overlaps_sync_folder: Le dossier de backups est un lien symbolique vers le dossier GTD partage";
+      }
+      throw new Error(`unexpected command ${command}`);
+    });
+    const { pull } = await (await built(b)).engine.syncNow();
+    expect(pull.safetyBackup.status).toBe("failed");
+    expect(pull.issues).toContainEqual(
+      expect.objectContaining({
+        code: "safety_backup_required",
+        severity: "error",
+        detail: expect.stringContaining("lien symbolique"),
+      }),
+    );
+    expect(b.events).not.toContain("backup");
+    expect(b.events).not.toContain("apply");
+  });
+
   it("merges nothing when the backup folder is gone, and says why", async () => {
     const host = createFakeFolderHost();
     host.mount(PERSONAL);

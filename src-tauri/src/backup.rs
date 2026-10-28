@@ -117,6 +117,58 @@ pub fn select_backups_to_prune(names: &[String], keep: usize) -> Vec<String> {
     select_backups_to_prune_for(names, keep, None)
 }
 
+/// Prefix of every refusal that protects the shared GTD sync folder. The TypeScript side turns a
+/// rejection starting with it into a typed `BackupDestinationError` (`overlaps_sync_folder`).
+pub const SYNC_FOLDER_REFUSAL: &str = "overlaps_sync_folder:";
+
+/// Validates the directory that will ACTUALLY receive the database: `<root>/backups[-dev]` after the
+/// root itself was checked. The root check cannot see an alias there: a `backups` that is a symlink
+/// (or, on Windows, a junction) to the shared GTD folder would pass it and `VACUUM INTO` would follow
+/// the link. So:
+/// - a symlink at that name is refused outright, whatever it points to (a dangling one included): a
+///   backup folder is a real directory, and aliasing it is rare enough that refusing is simpler and
+///   safer than judging every target;
+/// - an existing directory there must not be, lie inside, or directly contain a folder carrying a
+///   `gtd` role marker (canonical paths);
+/// - what the name resolves to must be exactly `<canonical root>/<name>`, which also catches the
+///   aliases `is_symlink` does not report. A root that is itself a symlink is followed once (the
+///   existing root-alias behavior) and is judged by its canonical target in `gtd_marker_around`.
+fn refuse_aliased_backup_dir(root: &Path, backup_dir: &Path) -> Result<(), String> {
+    let refused = |detail: String| format!("{SYNC_FOLDER_REFUSAL} {detail}");
+    match fs::symlink_metadata(backup_dir) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(refused(format!(
+            "Le dossier de backups {} est un lien symbolique: il pourrait mener au dossier GTD \
+             partage. Remplace-le par un vrai dossier ou choisis un autre dossier de backup.",
+            backup_dir.display()
+        ))),
+        Ok(metadata) if metadata.is_dir() => {
+            if let Some(marked) = crate::sync_folder::gtd_folder_marker_around(backup_dir) {
+                return Err(refused(format!(
+                    "Le dossier de backups {} chevauche le dossier GTD partage {}: les backups \
+                     contiennent toute la base et seraient partages.",
+                    backup_dir.display(),
+                    marked.display()
+                )));
+            }
+            let expected = root.canonicalize().ok().and_then(|canonical_root| {
+                backup_dir.file_name().map(|name| canonical_root.join(name))
+            });
+            if backup_dir.canonicalize().ok() != expected {
+                return Err(refused(format!(
+                    "Le dossier de backups {} n'est pas un vrai sous-dossier de {} (alias): refuse.",
+                    backup_dir.display(),
+                    root.display()
+                )));
+            }
+            Ok(())
+        }
+        // A file, or nothing yet: `create_dir_all` creates it or fails with its own message.
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(format!("Impossible de lire le dossier de backups: {error}")),
+    }
+}
+
 pub fn ensure_backup_directory(destination_dir: &str, environment: &str) -> Result<String, String> {
     let trimmed = destination_dir.trim().trim_end_matches(['/', '\\']);
     if trimmed.is_empty() {
@@ -136,16 +188,21 @@ pub fn ensure_backup_directory(destination_dir: &str, environment: &str) -> Resu
     // anything is created. (The TypeScript side refuses the same overlap from the settings first.)
     if let Some(marked) = crate::sync_folder::gtd_folder_marker_around(&root) {
         return Err(format!(
-            "Le dossier de backup {} chevauche le dossier GTD partage {}: les backups contiennent \
-             toute la base et seraient partages. Choisis un autre dossier de backup.",
+            "{SYNC_FOLDER_REFUSAL} Le dossier de backup {} chevauche le dossier GTD partage {}: les \
+             backups contiennent toute la base et seraient partages. Choisis un autre dossier de \
+             backup.",
             root.display(),
             marked.display()
         ));
     }
 
     let backup_dir = root.join(backup_subdir(environment)?);
+    // Before creating anything, and again after: the directory that gets the database is judged,
+    // not just the root it hangs from.
+    refuse_aliased_backup_dir(&root, &backup_dir)?;
     fs::create_dir_all(&backup_dir)
         .map_err(|error| format!("Impossible de creer le dossier de backups: {error}"))?;
+    refuse_aliased_backup_dir(&root, &backup_dir)?;
     Ok(backup_dir.to_string_lossy().into_owned())
 }
 
@@ -220,6 +277,10 @@ pub fn prune_backups(
     device_id: Option<String>,
 ) -> Result<PruneResult, String> {
     let dir = resolve_backup_dir(&destination_dir, &environment)?;
+    // Retention deletes files: never through an alias of the backup folder either.
+    if let Some(root) = dir.parent() {
+        refuse_aliased_backup_dir(root, &dir)?;
+    }
     let tag = device_id.as_deref().map(device_backup_tag).transpose()?;
     match tag {
         Some(tag) => prune_backup_directory_for(&dir, BACKUP_RETENTION_COUNT, Some(&tag)),
@@ -360,6 +421,161 @@ mod tests {
         let result = ensure_backup_directory(dir.path().to_str().unwrap(), "production");
         assert!(result.is_err());
         assert!(!dir.path().join("backups").exists());
+    }
+
+    /// The reviewer's scenario: separate personal and shared-GTD roots, with the personal
+    /// `backups[-dev]` being a link to the marked shared folder.
+    #[cfg(unix)]
+    fn linked_backups_setup(subdir: &str) -> (tempfile::TempDir, PathBuf, PathBuf) {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let shared = dir.path().join("GTD");
+        let personal = dir.path().join("Perso");
+        fs::create_dir(&shared).expect("shared");
+        fs::create_dir(&personal).expect("personal");
+        write_gtd_marker(&shared);
+        std::os::unix::fs::symlink(&shared, personal.join(subdir)).expect("link");
+        (dir, shared, personal)
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_backups_link_to_the_gtd_sync_folder_in_both_environments() {
+        for (environment, subdir) in [("production", "backups"), ("development", "backups-dev")] {
+            let (_dir, shared, personal) = linked_backups_setup(subdir);
+            // The root check alone passes: the roots are separate.
+            assert!(crate::sync_folder::gtd_folder_marker_around(&personal).is_none());
+            let result = ensure_backup_directory(personal.to_str().unwrap(), environment);
+            let message = result.expect_err("a backups link to the shared folder must be refused");
+            assert!(message.starts_with("overlaps_sync_folder:"), "{message}");
+            // Nothing was written into the shared folder, and the link is left as it was.
+            let entries: Vec<_> = fs::read_dir(&shared).unwrap().flatten().collect();
+            assert_eq!(entries.len(), 1, "only the marker");
+            assert!(fs::symlink_metadata(personal.join(subdir))
+                .unwrap()
+                .file_type()
+                .is_symlink());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_backups_link_to_an_ordinary_folder_too() {
+        // Decision: a backup folder is a real directory. Judging every link target is more
+        // fragile than refusing the alias, and aliasing `backups` is rare.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let personal = dir.path().join("Perso");
+        let elsewhere = dir.path().join("Elsewhere");
+        fs::create_dir(&personal).expect("personal");
+        fs::create_dir(&elsewhere).expect("elsewhere");
+        std::os::unix::fs::symlink(&elsewhere, personal.join("backups")).expect("link");
+        assert!(ensure_backup_directory(personal.to_str().unwrap(), "production").is_err());
+        assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn refuses_a_dangling_backups_link() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let personal = dir.path().join("Perso");
+        fs::create_dir(&personal).expect("personal");
+        std::os::unix::fs::symlink(dir.path().join("Gone"), personal.join("backups-dev"))
+            .expect("link");
+        let result = ensure_backup_directory(personal.to_str().unwrap(), "development");
+        assert!(result
+            .expect_err("dangling")
+            .starts_with(SYNC_FOLDER_REFUSAL));
+        assert!(!dir.path().join("Gone").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn retention_never_deletes_through_an_aliased_backups_folder() {
+        let (_dir, shared, personal) = linked_backups_setup("backups");
+        for index in 1..=32 {
+            File::create(shared.join(format!(
+                "trackdidia-auto-backup-2026-03-{index:02}T10-15-22-456Z.db"
+            )))
+            .expect("backup-like file");
+        }
+        let result = prune_backups(
+            personal.to_str().unwrap().to_string(),
+            "production".into(),
+            None,
+        );
+        assert!(result.is_err());
+        assert_eq!(fs::read_dir(&shared).unwrap().count(), 33);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn follows_a_root_link_to_a_harmless_folder_and_refuses_one_to_the_gtd_folder() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let real = dir.path().join("Real");
+        let shared = dir.path().join("GTD");
+        fs::create_dir(&real).expect("real");
+        fs::create_dir(&shared).expect("shared");
+        write_gtd_marker(&shared);
+        let harmless = dir.path().join("DriveAlias");
+        let marked = dir.path().join("SharedAlias");
+        std::os::unix::fs::symlink(&real, &harmless).expect("link");
+        std::os::unix::fs::symlink(&shared, &marked).expect("link");
+
+        let created = ensure_backup_directory(harmless.to_str().unwrap(), "production").unwrap();
+        assert!(Path::new(&created).is_dir());
+        assert!(real.join("backups").is_dir());
+        assert!(ensure_backup_directory(marked.to_str().unwrap(), "production").is_err());
+        assert!(!shared.join("backups").exists());
+    }
+
+    #[test]
+    fn refuses_a_real_backups_folder_that_is_itself_a_gtd_folder() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let backups = dir.path().join("backups");
+        fs::create_dir(&backups).expect("backups");
+        write_gtd_marker(&backups);
+        let result = ensure_backup_directory(dir.path().to_str().unwrap(), "production");
+        assert!(result
+            .expect_err("marked")
+            .starts_with("overlaps_sync_folder:"));
+    }
+
+    #[test]
+    fn refuses_a_real_backups_folder_that_holds_a_gtd_folder() {
+        // The root check sees one level below the root; the folder that receives the database is
+        // judged on its own, so a shared folder one level below `backups` is caught too.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let shared = dir.path().join("backups-dev").join("Shared");
+        fs::create_dir_all(&shared).expect("shared");
+        write_gtd_marker(&shared);
+        assert!(crate::sync_folder::gtd_folder_marker_around(dir.path()).is_none());
+        let result = ensure_backup_directory(dir.path().to_str().unwrap(), "development");
+        assert!(result
+            .expect_err("holds a shared folder")
+            .starts_with("overlaps_sync_folder:"));
+    }
+
+    #[test]
+    fn a_regular_backups_folder_still_works_new_or_existing_in_both_environments() {
+        for (environment, subdir) in [("production", "backups"), ("development", "backups-dev")] {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let created =
+                ensure_backup_directory(dir.path().to_str().unwrap(), environment).unwrap();
+            assert!(Path::new(&created).ends_with(subdir));
+            // Existing real directory, with a backup in it: accepted again, and pruning works.
+            File::create(
+                Path::new(&created).join("trackdidia-auto-backup-2026-03-01T10-15-22-456Z.db"),
+            )
+            .expect("backup");
+            let again = ensure_backup_directory(dir.path().to_str().unwrap(), environment).unwrap();
+            assert_eq!(created, again);
+            let pruned = prune_backups(
+                dir.path().to_str().unwrap().to_string(),
+                environment.into(),
+                None,
+            )
+            .unwrap();
+            assert_eq!(pruned.kept_count, 1);
+        }
     }
 
     #[test]

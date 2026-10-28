@@ -1,6 +1,7 @@
 import { defaultAppSettings } from "../domain/daily-entry";
 import {
   BACKUP_RETENTION_COUNT,
+  BackupDestinationError,
   backupDestinationOverlap,
   buildBackupFileName,
   deviceBackupTag,
@@ -8,6 +9,7 @@ import {
   isBackupDestinationConfigured,
   isBackupDestinationMissing,
   resolveBackupDir,
+  toBackupDirError,
 } from "./backup";
 import { mergeAppSettingsWithDefaults } from "./relationship-draws";
 
@@ -153,5 +155,18 @@ describe("backupDestinationOverlap", () => {
         syncGtdFolderDir: "/Drive/GTD",
       }),
     ).toBeNull();
+  });
+});
+
+describe("toBackupDirError", () => {
+  it("types the refusals that protect the shared folder and keeps other messages", () => {
+    const refused = toBackupDirError("overlaps_sync_folder: Le dossier est un lien symbolique");
+    expect(refused).toBeInstanceOf(BackupDestinationError);
+    expect(refused.message).toBe("Le dossier est un lien symbolique");
+    const other = toBackupDirError("Le dossier est introuvable");
+    expect(other).not.toBeInstanceOf(BackupDestinationError);
+    expect(other.message).toBe("Le dossier est introuvable");
+    const plain = new Error("boom");
+    expect(toBackupDirError(plain)).toBe(plain);
   });
 });

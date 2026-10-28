@@ -1833,7 +1833,13 @@ refuse it as `domain_not_allowed` too).
   (`formatVersion`, `deviceId`, `deviceName`, `appVersion`, `schemaVersion`, `writtenAt`, `hlcHigh` (the highest clock published to
   this folder across domains), `profile`, `calendarSyncEnabled`; the host merges the domain entry) and serializes this
   device's publishes. The encoder enforces the decoder's 16 MiB line cap: one record over it fails at publish with
-  `line_too_long`, reported as a persistent `too_large` failure (no IPC), not as a bundle every reader would reject.
+  `line_too_long`, reported as a persistent `too_large` failure (no IPC), not as a bundle every reader would reject. The same
+  holds for the total: the encoder counts the uncompressed body while it streams and stops at the decoder's own cap
+  (`MAX_DECODED_BUNDLE_BYTES`, 512 MiB; `EncodeBundleOptions.maxBodyBytes` lowers it for tests) with `body_too_large`,
+  mapped to the same persistent `too_large` failure with no IPC. Before this, a highly compressible domain (513 records of
+  about 1 MiB encode to well under a megabyte) was published successfully and then rejected by every reader
+  (`decoded_too_large`). Property-style tests sweep sets just under and just over the cap and assert that exactly the
+  accepted ones decode under it.
 - `ownGeneration` reads the device's own manifest from `sync_list_peers`.
 - Error mapping: `folder_not_found`, `folder_not_prepared`, `io` -> `SyncTransportError("unreachable")` (a retryable warning: an
   unmounted Drive, or a marker still downloading); `timeout` -> `"timeout"`; `role_mismatch`, `nested_folder` ->
@@ -1993,6 +1999,17 @@ picker). The Settings backup-folder picker refuses such a choice, and an app-wid
 stored settings overlap (so the scheduler does not fail silently). With no GTD folder set nothing changes. The native
 `ensure_backup_dir` also refuses a destination that is, lies inside, or directly contains a directory carrying a `gtd`
 `.trackdidia-folder-role` marker, before creating `backups/` (`gtd_marker_around` in `sync_folder/folder.rs`).
+The directory that actually receives the database is judged too, not only the root it hangs from
+(`refuse_aliased_backup_dir` in `backup.rs`): a `backups` / `backups-dev` that is a **symlink is refused whatever it
+points to** (a link to the shared folder would pass the root check and `VACUUM INTO` would follow it; a link to an
+ordinary folder, or a dangling one, is refused too, by decision: a backup folder is a real directory); an existing real
+one must not be or contain a `gtd`-marked folder; and what the name resolves to must be exactly `<canonical root>/<name>`
+(which also catches aliases `is_symlink` does not report, such as a Windows junction), checked before and after
+`create_dir_all`. A destination ROOT that is a symlink is still followed once, and is judged by its canonical target. The
+same check guards `prune_backups`, so retention never deletes through an alias. Refusals start with
+`overlaps_sync_folder:`; `createBackup` turns that rejection into the typed `BackupDestinationError` (`toBackupDirError`),
+and any other native rejection stays an `Error` with its message, so Settings, the scheduler log and the safety backup
+(`/sync`: `safety_backup_required`, nothing merged) show the real reason instead of a generic fallback.
 
 Backups include all AI tables (`ai_messages`, `ai_proposals`, `ai_memories`) plus
 settings JSON (OpenRouter and RescueTime keys). Distilled personal statements in

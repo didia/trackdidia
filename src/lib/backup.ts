@@ -80,6 +80,25 @@ export const backupDestinationOverlap = (settings: {
   syncGtdFolderDir: string;
 }): FolderOverlap | null => folderOverlap(settings.backupDestinationDir, settings.syncGtdFolderDir);
 
+/** The prefix `backup.rs` puts on a refusal that protects the shared GTD sync folder. */
+export const SYNC_FOLDER_REFUSAL_PREFIX = "overlaps_sync_folder:";
+
+/**
+ * What a rejection of the native `ensure_backup_dir` becomes: the native host rejects with a plain
+ * string, which a UI catch would otherwise replace by a generic fallback. A refusal that protects the
+ * shared GTD folder (the destination, or the `backups[-dev]` folder in it, is or leads there) is a
+ * typed {@link BackupDestinationError}; any other message is kept as an `Error` so it stays visible.
+ */
+export const toBackupDirError = (error: unknown): Error => {
+  const message =
+    typeof error === "string" ? error : error instanceof Error ? error.message : String(error);
+  return message.startsWith(SYNC_FOLDER_REFUSAL_PREFIX)
+    ? new BackupDestinationError(message.slice(SYNC_FOLDER_REFUSAL_PREFIX.length).trim())
+    : error instanceof Error
+      ? error
+      : new Error(message);
+};
+
 /** A backup was refused because its destination overlaps the shared GTD sync folder. */
 export class BackupDestinationError extends Error {
   readonly code = "overlaps_sync_folder";

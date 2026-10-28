@@ -199,4 +199,43 @@ describe("createBackup names and prunes per device", () => {
       expect(none.vacuums).toHaveLength(1);
     });
   });
+
+  describe("a refusal from the native host", () => {
+    const rejectEnsure = (message: unknown) =>
+      vi.mocked(invoke).mockImplementation(async (command: string) => {
+        if (command === "resolve_storage_paths") {
+          return { databasePath: "/x", connectionString: "sqlite:x", environment: "development" };
+        }
+        if (command === "ensure_backup_dir") throw message;
+        throw new Error(`unexpected command ${command}`);
+      });
+
+    it("surfaces a backups[-dev] link to the shared folder as a typed error and writes nothing", async () => {
+      const { repository, vacuums } = await open();
+      rejectEnsure(
+        "overlaps_sync_folder: Le dossier de backups /Drive/Perso/backups-dev est un lien symbolique",
+      );
+      for (const kind of ["manual", "auto"] as const) {
+        const error = await repository.createBackup(kind).catch((caught) => caught);
+        expect(error).toBeInstanceOf(BackupDestinationError);
+        expect(error.code).toBe("overlaps_sync_folder");
+        expect(error.message).toContain("lien symbolique");
+        expect(error.message).not.toContain("overlaps_sync_folder:");
+      }
+      expect(vacuums).toEqual([]);
+      expect(
+        vi.mocked(invoke).mock.calls.filter(([command]) => command === "prune_backups"),
+      ).toEqual([]);
+    });
+
+    it("keeps any other native message visible instead of a generic fallback", async () => {
+      const { repository, vacuums } = await open();
+      rejectEnsure("Le dossier de backup /Drive/Perso est introuvable.");
+      const error = await repository.createBackup("manual").catch((caught) => caught);
+      expect(error).toBeInstanceOf(Error);
+      expect(error).not.toBeInstanceOf(BackupDestinationError);
+      expect(error.message).toBe("Le dossier de backup /Drive/Perso est introuvable.");
+      expect(vacuums).toEqual([]);
+    });
+  });
 });

@@ -100,6 +100,7 @@ import {
   buildBackupFileName,
   isBackupDestinationConfigured,
   resolveBackupDir,
+  toBackupDirError,
 } from "../backup";
 import { getTodayDate } from "../date";
 import { formatUnknownError, logDebug } from "../debug";
@@ -1596,10 +1597,15 @@ export class TauriSqliteRepository implements AppRepository {
       const deviceId = await this.backupDeviceId(settings, options);
 
       const storageInfo = await invoke<NativeStoragePaths>("resolve_storage_paths");
-      const backupDir = await invoke<string>("ensure_backup_dir", {
-        destinationDir: settings.backupDestinationDir,
-        environment: storageInfo.environment,
-      });
+      let backupDir: string;
+      try {
+        backupDir = await invoke<string>("ensure_backup_dir", {
+          destinationDir: settings.backupDestinationDir,
+          environment: storageInfo.environment,
+        });
+      } catch (error) {
+        throw toBackupDirError(error);
+      }
       const createdAt = new Date().toISOString();
       const backupPath = `${backupDir}/${buildBackupFileName(createdAt, kind, deviceId)}`;
       const escapedPath = backupPath.replace(/'/g, "''");

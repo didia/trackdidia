@@ -62,6 +62,11 @@ export type SyncBundleErrorCode =
   | "bad_gzip"
   /** Inflated beyond the cap (a decompression bomb) or an uncompressed body over the cap. */
   | "decoded_too_large"
+  /**
+   * Raised by the ENCODER: the uncompressed body exceeds {@link MAX_DECODED_BUNDLE_BYTES}, the limit
+   * every reader enforces while inflating. Writing it would publish a bundle nobody can read.
+   */
+  | "body_too_large"
   | "line_too_long"
   /** The text is not UTF-8 or a line is not JSON of the expected shape. */
   | "bad_line"
@@ -90,6 +95,12 @@ export interface EncodeBundleOptions {
    * `none`: write the text as it is. Tests and runtimes without `CompressionStream`.
    */
   compression?: BundleCompression;
+  /**
+   * Largest uncompressed body the encoder will produce; default {@link MAX_DECODED_BUNDLE_BYTES},
+   * the decoder's own default limit, so everything the encoder accepts is readable. Tests lower it
+   * (together with the decoder's `maxDecodedBytes`) to exercise the boundary cheaply.
+   */
+  maxBodyBytes?: number;
 }
 
 export interface EncodedBundle {
@@ -243,11 +254,20 @@ export const encodeBundle = async (
 ): Promise<EncodedBundle> => {
   const requested = options.compression ?? "gzip";
   const compression: BundleCompression = requested === "gzip" && hasCompression() ? "gzip" : "none";
+  const limit = options.maxBodyBytes ?? MAX_DECODED_BUNDLE_BYTES;
   let uncompressedBytes = 0;
-  // Counted while the batches stream by: with gzip nothing but the compressed output is kept.
+  // Counted while the batches stream by: with gzip nothing but the compressed output is kept. The
+  // moment the running total passes the limit the stream stops (the throw aborts the compressor), so
+  // a huge compressible change set is never fully produced, and never reaches the folder.
   const batches = (function* () {
     for (const batch of bodyBatches(changeSet)) {
       uncompressedBytes += batch.length;
+      if (uncompressedBytes > limit) {
+        fail(
+          "body_too_large",
+          `The bundle body passes ${limit} bytes uncompressed, the most a reader inflates; not written`,
+        );
+      }
       yield batch;
     }
   })();

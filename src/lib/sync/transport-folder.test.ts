@@ -492,6 +492,29 @@ describe("sizes", () => {
     expect(host.calls).toEqual([]);
   });
 
+  it("a compressible body over the readers' inflate cap is a persistent too_large, with no IPC", async () => {
+    const { host, make } = setup();
+    await prepare(host);
+    host.calls.length = 0;
+    // 513 records of about 1 MiB: tiny once compressed, but past the 512 MiB every reader refuses.
+    const shared = "x".repeat(1024 * 1024);
+    const entities = Array.from({ length: 513 }, (_, index) => ({
+      table: "gtd_contexts",
+      entityId: `context:${index}`,
+      row: { id: `context:${index}`, name: shared },
+      fieldClocks: {},
+      rowHlc: hlc(1000),
+      deletedAt: null,
+    }));
+    const error = await make("gtd")
+      .publish("gtd", changeSet("gtd", { entities }), meta())
+      .catch((caught) => caught);
+    expect(error).toBeInstanceOf(SyncTransportFailure);
+    expect(error.kind).toBe("too_large");
+    expect(error.reason).toBe("body_too_large");
+    expect(host.calls).toEqual([]);
+  }, 60_000);
+
   it("maps the host's own too_large to the same persistent failure", async () => {
     const { host, make } = setup();
     await prepare(host);

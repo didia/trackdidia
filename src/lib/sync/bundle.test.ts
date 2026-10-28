@@ -222,6 +222,86 @@ describe("the encoder enforces the line cap every reader enforces", () => {
   });
 });
 
+describe("everything the encoder accepts is readable under the decoder's limits", () => {
+  /** A highly compressible set whose body is about `megabytes` MiB over several 1 MiB records. */
+  const compressible = (records: number, size: number) =>
+    base({
+      entities: Array.from({ length: records }, (_, index) =>
+        task(index, { name: "a".repeat(size) }),
+      ),
+      hlcHigh: hlc(100_000),
+    });
+
+  it("refuses a body over the total cap while encoding, naming the persistent cause", async () => {
+    const set = compressible(40, 100_000);
+    const probe = await encodeBundle(set, {
+      compression: "none",
+      maxBodyBytes: Number.MAX_SAFE_INTEGER,
+    });
+    const exact = probe.uncompressedBytes;
+    expect(exact).toBeGreaterThan(4_000_000);
+    expect(await codeOf(encodeBundle(set, { maxBodyBytes: exact - 1 }))).toBe("body_too_large");
+    expect(await codeOf(encodeBundle(set, { compression: "none", maxBodyBytes: exact - 1 }))).toBe(
+      "body_too_large",
+    );
+    expect(await codeOf(encodeBundle(set, { maxBodyBytes: exact }))).toBe("no error");
+  });
+
+  it("boundary sweep: just under and just over the total cap, accepted exactly when readable", async () => {
+    for (const [records, size] of [
+      [1, 10],
+      [3, 700_000],
+      [12, 400_000],
+      [40, 100_000],
+    ] as const) {
+      const set = compressible(records, size);
+      const exact = (
+        await encodeBundle(set, { compression: "none", maxBodyBytes: Number.MAX_SAFE_INTEGER })
+      ).uncompressedBytes;
+      for (const cap of [exact - 1, exact, exact + 1]) {
+        let encoded: Awaited<ReturnType<typeof encodeBundle>> | null = null;
+        try {
+          encoded = await encodeBundle(set, { maxBodyBytes: cap });
+        } catch (error) {
+          expect((error as SyncBundleError).code).toBe("body_too_large");
+        }
+        // Accepted <=> the body fits; and an accepted bundle always decodes under the same cap.
+        expect(encoded !== null).toBe(exact <= cap);
+        if (encoded !== null) {
+          const decoded = await decodeBundle(encoded.bytes, { maxDecodedBytes: cap });
+          expect(validateChangeSet(decoded)).toStrictEqual(set);
+        } else if (exact > cap) {
+          // And the same bytes, written without the guard, are refused by the reader.
+          const unguarded = await encodeBundle(set, { maxBodyBytes: Number.MAX_SAFE_INTEGER });
+          expect(await codeOf(decodeBundle(unguarded.bytes, { maxDecodedBytes: cap }))).toBe(
+            "decoded_too_large",
+          );
+        }
+      }
+    }
+  });
+
+  it("stops streaming at the cap instead of producing the whole body", async () => {
+    // 300 records of 1 MiB: the encoder gives up after a handful of batches.
+    const set = compressible(300, 1024 * 1024);
+    const started = Date.now();
+    expect(await codeOf(encodeBundle(set, { maxBodyBytes: 3 * 1024 * 1024 }))).toBe(
+      "body_too_large",
+    );
+    expect(Date.now() - started).toBeLessThan(5_000);
+  });
+
+  it("uses the decoder's own default total cap", async () => {
+    // 513 records of about 1 MiB compress to well under a megabyte but inflate past 512 MiB.
+    const shared = "x".repeat(1024 * 1024);
+    const set = base({
+      entities: Array.from({ length: 513 }, (_, index) => task(index, { name: shared })),
+      hlcHigh: hlc(100_000),
+    });
+    expect(await codeOf(encodeBundle(set))).toBe("body_too_large");
+  }, 60_000);
+});
+
 describe("bundle limits", () => {
   it("states the caps relative to the folder transport's 64 MiB", () => {
     expect(MAX_ENCODED_BUNDLE_BYTES).toBe(64 * 1024 * 1024);

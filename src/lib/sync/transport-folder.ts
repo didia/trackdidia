@@ -97,8 +97,9 @@ export const mapFolderError = (error: unknown, what: string): Error => {
     return new SyncTransportFailure(
       error.code === "compression_unavailable"
         ? "unsupported"
-        : // One record over the line cap every reader enforces: it can never be published.
-          error.code === "line_too_long"
+        : // A record over the line cap, or a body over the inflate cap, that every reader enforces:
+          // it can never be read, so it can never be published.
+          error.code === "line_too_long" || error.code === "body_too_large"
           ? "too_large"
           : "internal",
       `${what}: ${error.message}`,

@@ -148,7 +148,11 @@ laptop), so two laptops sharing one backup folder never prune each other's snaps
 is visible to other accounts. While a GTD folder is set, choosing a backup folder that is the GTD folder, inside it or
 around it is refused in Settings, every backup (manual, automatic, safety) is refused with a French error if the stored
 settings overlap, an app-wide banner says backups are stopped, and Sync now refuses to start (`/sync` shows the folder
-overlap). The native `ensure_backup_dir` refuses a destination that carries or touches a `gtd` role marker too. Users who
+overlap). The native `ensure_backup_dir` refuses a destination that carries or touches a `gtd` role marker too, and it
+judges the `backups` / `backups-dev` folder that really receives the database: a symlink there is refused whatever it points
+to (a link to the shared folder would otherwise let the backup follow it into that folder), and `prune_backups` applies the
+same check. The refusal reaches the user as a typed error (Settings, and `/sync` for the safety backup, which then merges
+nothing). Users who
 never set a GTD folder see no change.
 
 One action runs at a time; a second request while one runs is ignored.
@@ -184,8 +188,9 @@ One action runs at a time; a second request while one runs is ignored.
 - Timeouts: the engine abandons a folder call after 30 s, the native publish and read timeouts are 45 s; a publish that was
   abandoned may still commit. The engine gives up first (30 s), so the transport's later reconciliation result is discarded and the
   next run republishes the same data as one extra generation (harmless); the transport only reconciles host-reported timeouts.
-- A bundle over 64 MiB (the folder protocol's cap) cannot be published or read. Measured encoded sizes stay far below
-  it (see [Sync bundle format and folder transport](storage-and-backups.md#sync-bundle-format-and-folder-transport)).
+- A bundle over 64 MiB (the folder protocol's cap), or whose uncompressed body passes 512 MiB (what readers inflate),
+  cannot be published or read: both are refused when publishing, as the persistent "données trop volumineuses" error,
+  before anything is written. Measured encoded sizes stay far below the first cap (see [Sync bundle format and folder transport](storage-and-backups.md#sync-bundle-format-and-folder-transport)).
 - Publish serialization is in-process: running two instances of the app with one device identity is not supported.
 - Conflicts are logged in `sync_conflicts` but not listed anywhere; calendar sync on two laptops is not warned about.
 - Settings merged from a peer reach the running app after a run that applied something; other open pages refresh when
