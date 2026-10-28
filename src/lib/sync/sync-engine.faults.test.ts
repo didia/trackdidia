@@ -691,7 +691,7 @@ describe("the safety backup before the first merge", () => {
     expect(await hasTask(a, "from-b")).toBe(true);
   });
 
-  it("a peer whose schema differs triggers one after the first merge, then not again", async () => {
+  it("a bundle written under another schema triggers one backup after the first merge, then not again", async () => {
     const reasonsSeen: string[][] = [];
     const { world, a, b } = await twoWithHook(async (reasons) => {
       reasonsSeen.push([...reasons]);
@@ -701,19 +701,78 @@ describe("the safety backup before the first merge", () => {
     await a.engine.pull();
     expect(reasonsSeen).toEqual([["first_merge"]]);
 
-    // B now reports an older schema than A's with fresh content.
-    await b.repo.createTask({ id: "two", title: "two", bucket: "inbox" });
-    await b.engine.publish();
-    world.folders.patchManifest("gtd", b.deviceId, { schemaVersion: 42 });
+    // B now publishes a gtd bundle written under an older schema than A's.
+    const olderGtd = async (id: string) => {
+      await b.repo.createTask({ id, title: id, bucket: "inbox" });
+      await b.engine.publish();
+      const forged = JSON.parse(
+        world.folders.bundleText("gtd", b.deviceId, "gtd"),
+      ) as SyncChangeSet;
+      forged.schemaVersion = 42;
+      world.folders.plantBundle("gtd", b.deviceId, "gtd", forged);
+    };
+    await olderGtd("two");
     await a.engine.pull();
     expect(reasonsSeen).toEqual([["first_merge"], ["schema_skew"]]);
 
-    await b.repo.createTask({ id: "three", title: "three", bucket: "inbox" });
-    await b.engine.publish();
-    world.folders.patchManifest("gtd", b.deviceId, { schemaVersion: 42 });
+    await olderGtd("three");
     await a.engine.pull();
     expect(reasonsSeen).toHaveLength(2);
     expect(await hasTask(a, "three")).toBe(true);
+  });
+
+  it("decides from each bundle's own schema: an upgraded peer that still holds an older finance bundle", async () => {
+    const reasonsSeen: string[][] = [];
+    const { world, a, b } = await twoWithHook(async (reasons) => {
+      reasonsSeen.push([...reasons]);
+      return undefined;
+    });
+    await publishedByB(world, "one");
+    await a.engine.pull();
+    expect(reasonsSeen).toEqual([["first_merge"]]);
+
+    // B's folder-level schema is A's (43), but its finance bundle was written before B upgraded
+    // (older schema) and is only now replaced by content A has not merged.
+    const finance = JSON.parse(
+      world.folders.bundleText("personal", b.deviceId, "finance"),
+    ) as SyncChangeSet;
+    finance.schemaVersion = 42;
+    world.folders.plantBundle("personal", b.deviceId, "finance", finance);
+    expect(world.folders.manifestFor("personal", b.deviceId)?.schemaVersion).toBe(
+      LATEST_MIGRATION_ID,
+    );
+    const report = await a.engine.pull();
+    expect(reasonsSeen).toEqual([["first_merge"], ["schema_skew"]]);
+    expect(report.safetyBackup).toMatchObject({ status: "taken", reasons: ["schema_skew"] });
+    expect(report.totals.bundlesApplied).toBe(1);
+  });
+
+  it("one backup covers a later domain with its own pair in the same run, taken before anything is applied", async () => {
+    const events: string[] = [];
+    let a!: EngineDevice;
+    const { world, ...rest } = await twoWithHook(async (reasons) => {
+      events.push(`backup ${reasons.join("+")} after ${applies(a).length} applies`);
+      return undefined;
+    });
+    a = rest.a;
+    const b = rest.b;
+    await publishedByB(world, "one");
+    await a.engine.pull();
+    events.length = 0;
+
+    // gtd changes under A's own schema; finance (applied later in registry order) under an older one.
+    await b.repo.createTask({ id: "two", title: "two", bucket: "inbox" });
+    await b.engine.publish();
+    const finance = JSON.parse(
+      world.folders.bundleText("personal", b.deviceId, "finance"),
+    ) as SyncChangeSet;
+    finance.schemaVersion = 42;
+    world.folders.plantBundle("personal", b.deviceId, "finance", finance);
+    a.calls.length = 0;
+    await a.engine.pull();
+    expect(events).toEqual(["backup schema_skew after 0 applies"]);
+    expect(applies(a).length).toBeGreaterThanOrEqual(2);
+    expect(await hasTask(a, "two")).toBe(true);
   });
 });
 
@@ -949,6 +1008,23 @@ describe("the time budget", () => {
     expect(await hasTask(a, "from-c")).toBe(true);
   });
 
+  it("is checked before each listPeers and each readBundle, never between a read and its apply", async () => {
+    const { world, a } = await pair();
+    await publishedByB(world);
+    // The budget runs out DURING the (only) read: that bundle is still applied; nothing is left over.
+    world.folders.onOperation("gtd", "readBundle", () => a.clock.advance(10_000));
+    world.folders.onOperation("personal", "readBundle", () => a.clock.advance(10_000));
+    const report = await a.engine.pull({ budgetMs: 1 });
+    // gtd was read first (inside the budget) and applied after the budget was gone; the personal and
+    // finance reads, which would START after it, were deferred.
+    expect(report.peers.find((p) => p.transport === "folder:gtd")?.domains[0]?.outcome).toBe(
+      "applied",
+    );
+    expect(await hasTask(a, "from-b")).toBe(true);
+    expect(report.remaining.map((item) => item.domain)).toEqual(["personal", "finance"]);
+    expect(report.complete).toBe(false);
+  });
+
   it("a budget of zero lists every readable transport as remaining and touches nothing", async () => {
     const { world, a } = await pair();
     await publishedByB(world);
@@ -962,6 +1038,57 @@ describe("the time budget", () => {
     ]);
     expect(world.folders.calls(a.deviceId, "gtd").listPeers).toBe(0);
     expect(applies(a)).toEqual([]);
+  });
+});
+
+describe("what getStatus says about work that did not happen", () => {
+  it("a peer whose bundles were deferred by the budget is pending, not synced", async () => {
+    const { world, a } = await pair();
+    await publishedByB(world);
+    // Listing the peers uses up the whole budget before the first bundle is read.
+    world.folders.onOperation("gtd", "listPeers", () => a.clock.advance(2_000));
+    world.folders.resetCalls();
+    const report = await a.engine.pull({ budgetMs: 1_000 });
+    expect(report.complete).toBe(false);
+    expect(report.remaining.length).toBeGreaterThan(0);
+    expect(world.folders.calls(a.deviceId, "gtd").readBundle).toBe(0);
+    expect(applies(a)).toEqual([]);
+
+    const status = await a.engine.getStatus();
+    expect(status.peers).toEqual([
+      expect.objectContaining({ peerName: "B", state: "pending", lastSyncedAt: null }),
+    ]);
+    expect(status.peers[0]?.message).toContain("time budget");
+  });
+
+  it("a first merge halted for want of a backup is an error naming the backup, not synced", async () => {
+    const world = await createEngineWorld([
+      { name: "A", engine: { beforeFirstMerge: undefined } },
+      { name: "B" },
+    ]);
+    const [a] = [world.device("A")];
+    await publishedByB(world);
+    const report = await a.engine.pull();
+    expect(issuesOf(report, "safety_backup_required")).toHaveLength(1);
+
+    const status = await a.engine.getStatus();
+    expect(status.peers).toEqual([
+      expect.objectContaining({ peerName: "B", state: "error", lastSyncedAt: null }),
+    ]);
+    expect(status.peers[0]?.message).toContain("backup");
+  });
+
+  it("a peer unreachable while reading its bundle is unreachable, not synced", async () => {
+    const { world, a } = await pair();
+    await publishedByB(world);
+    // The folder answers the listing, then goes away before the first read.
+    world.folders.onOperation("gtd", "listPeers", () => {
+      world.folders.setMode("gtd", "unreachable");
+    });
+    const report = await a.engine.pull();
+    expect(report.complete).toBe(true);
+    const status = await a.engine.getStatus();
+    expect(status.peers[0]?.state).toBe("unreachable");
   });
 });
 

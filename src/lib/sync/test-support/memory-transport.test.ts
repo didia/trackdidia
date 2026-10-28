@@ -7,12 +7,14 @@ import { SyncTransportError, type PublishMeta } from "../transport";
 
 /** The in-memory folders are the engine's only transport in tests: pin their protocol behavior. */
 
-const meta = (writtenAtMs = Date.UTC(2026, 9, 1)): PublishMeta => ({
+const meta = (writtenAtMs = Date.UTC(2026, 9, 1), publishSeq = 1): PublishMeta => ({
   deviceName: "Test",
   appVersion: "0.0.0",
   profile: "personal",
   calendarSyncEnabled: false,
   writtenAtMs,
+  engineId: "engine-1",
+  publishSeq,
 });
 
 const setup = async () => {
@@ -161,5 +163,23 @@ describe("memory folders", () => {
     await expect(
       ta.publish("personal", { ...changeSet, domain: "personal" }, meta()),
     ).rejects.toThrow(/does not carry/);
+  });
+
+  it("fences a stale publish at commit time, per engine and domain", async () => {
+    const { ta, folders, a, changeSet } = await setup();
+    // seq 2 commits first (the retry); the held seq 1 then reaches its commit point.
+    expect(await ta.publish("gtd", changeSet, meta(undefined, 2))).toEqual({ generation: 1 });
+    await expect(ta.publish("gtd", changeSet, meta(undefined, 1))).rejects.toMatchObject({
+      code: "stale_publish",
+    });
+    expect(folders.manifestFor("gtd", a.deviceId)?.domains.gtd?.generation).toBe(1);
+    // Another engine instance has its own sequence; with fencing off the old call commits.
+    expect(
+      await ta.publish("gtd", changeSet, { ...meta(undefined, 1), engineId: "other" }),
+    ).toEqual({
+      generation: 2,
+    });
+    folders.setFencing(false);
+    expect(await ta.publish("gtd", changeSet, meta(undefined, 1))).toEqual({ generation: 3 });
   });
 });

@@ -213,16 +213,20 @@ export class SyncEngine {
         issues.find((issue) => issue.severity === "error") ??
         issues.find((issue) => issue.severity === "warning") ??
         issues[0];
-      const state = stateOf(
-        peer.status,
-        peer.domains.map((domain) => domain.outcome),
-        pull,
-        peer.transport,
-        worst,
-      );
+      const outcomes = peer.domains.map((domain) => domain.outcome);
+      const state = stateOf(peer.status, outcomes, pull, peer.transport, worst);
+      // Run-wide reasons carry no peer id: a backup that could not be made halts every peer.
+      const message =
+        worst?.message ??
+        (outcomes.includes("halted")
+          ? pull.issues.find((issue) => issue.code === "safety_backup_required")?.message
+          : outcomes.includes("deferred")
+            ? "Not merged yet: the time budget ran out; the next sync continues"
+            : undefined) ??
+        null;
       const known = worstByPeer.get(peer.peerId);
       if (!known || PEER_STATE_RANK[state] > PEER_STATE_RANK[known.state]) {
-        worstByPeer.set(peer.peerId, { state, message: worst?.message ?? null });
+        worstByPeer.set(peer.peerId, { state, message });
       }
       const entry: PeerStatus = seen.get(peer.peerId) ?? {
         peerId: peer.peerId,
@@ -255,13 +259,14 @@ export class SyncEngine {
 const PEER_STATE_RANK: Record<PeerState, number> = {
   unknown: 0,
   synced: 1,
-  not_ready: 2,
-  unreachable: 3,
-  error: 4,
-  stale: 5,
-  update_required: 6,
-  format_unsupported: 7,
-  invalid_manifest: 8,
+  pending: 2,
+  not_ready: 3,
+  unreachable: 4,
+  error: 5,
+  stale: 6,
+  update_required: 7,
+  format_unsupported: 8,
+  invalid_manifest: 9,
 };
 
 const stateOf = (
@@ -276,7 +281,12 @@ const stateOf = (
     return "unreachable";
   }
   if (outcomes.some((outcome) => outcome === "rejected" || outcome === "refused")) return "error";
+  // Work that never ran is not "synced": a halted merge (the required backup could not be made) needs
+  // the user, a deferred one (time budget) simply continues on the next run.
+  if (outcomes.includes("halted")) return "error";
+  if (outcomes.includes("unreachable")) return "unreachable";
   if (outcomes.includes("not_ready")) return "not_ready";
+  if (outcomes.includes("deferred")) return "pending";
   if (worst?.severity === "error") return "error";
   return "synced";
 };

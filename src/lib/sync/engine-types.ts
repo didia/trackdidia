@@ -64,7 +64,9 @@ export type SyncIssueCode =
   /** A safety backup was required before merging and could not be made; nothing was applied. */
   | "safety_backup_required"
   | "publish_failed"
-  | "publish_skipped";
+  | "publish_skipped"
+  /** Local changes stay pending because a domain this device may publish has no transport right now. */
+  | "pending_unpublished_domain";
 
 export interface SyncIssue {
   severity: SyncIssueSeverity;
@@ -233,6 +235,8 @@ export type PeerState =
   | "format_unsupported"
   | "invalid_manifest"
   | "not_ready"
+  /** Work for this peer was left for the next run (time budget): nothing wrong, nothing merged yet. */
+  | "pending"
   | "error"
   | "unreachable"
   /** Known from an earlier session; not seen in the last pull. */

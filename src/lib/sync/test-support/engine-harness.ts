@@ -75,6 +75,7 @@ const recordingRepo = (device: SyncDevice, calls: RepoCall[]): SyncEngineReposit
     calls.push({ method: "recordSyncPeerApplied" });
     return device.repo.recordSyncPeerApplied(input);
   },
+  queueSyncRepublish: () => device.repo.queueSyncRepublish(),
   markSyncPublished: (counter) => {
     calls.push({ method: "markSyncPublished" });
     return device.repo.markSyncPublished(counter);

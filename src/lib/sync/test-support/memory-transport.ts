@@ -90,6 +90,9 @@ export class MemoryFolders {
   private readonly attachments = new Map<string, Set<FolderRole>>();
   private readonly counts = new Map<string, OperationCounts>();
   private readonly offline = new Set<string>();
+  private fencing = true;
+  /** The highest `publishSeq` committed per (role, device, engine, domain). */
+  private readonly committedSeq = new Map<string, number>();
 
   // ---- Attaching devices ----------------------------------------------------------------------
 
@@ -149,6 +152,23 @@ export class MemoryFolders {
   /** `unreachable` and `timeout` make every operation throw that error; `hang` never answers. */
   setMode(role: FolderRole, mode: FolderMode): void {
     this.folders[role].mode = mode;
+  }
+
+  /**
+   * Turns commit-time fencing (`PublishMeta.publishSeq`) on or off. On by default, like a transport
+   * that honours the contract; off models one that lets an old, slow publish commit after a newer one.
+   */
+  setFencing(enabled: boolean): void {
+    this.fencing = enabled;
+  }
+
+  /** @internal Rejects (by returning false) a commit older than one already committed. */
+  admitCommit(role: FolderRole, deviceId: string, domain: SyncDomain, meta: PublishMeta): boolean {
+    const key = `${role}|${deviceId}|${meta.engineId}|${domain}`;
+    const newest = this.committedSeq.get(key) ?? 0;
+    if (this.fencing && meta.publishSeq < newest) return false;
+    this.committedSeq.set(key, Math.max(newest, meta.publishSeq));
+    return true;
   }
 
   /** A device that is offline reaches no folder at all (its laptop is closed or has no network). */
@@ -398,6 +418,13 @@ class MemoryTransport implements SyncTransport {
     await this.enter("publish");
     if (!this.domains.includes(domain)) {
       throw new Error(`The ${this.folder.role} folder does not carry the ${domain} domain`);
+    }
+    // Commit point: an operation that was held past a newer one must not overwrite it.
+    if (!this.world.admitCommit(this.folder.role, this.deviceId, domain, meta)) {
+      throw new SyncTransportError(
+        "stale_publish",
+        `A newer ${domain} publish has already committed`,
+      );
     }
     const previous = this.world.manifestOf(this.folder, this.deviceId);
     const generation = (previous?.domains[domain]?.generation ?? 0) + 1;

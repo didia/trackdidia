@@ -70,9 +70,30 @@ export interface PublishMeta {
   calendarSyncEnabled: boolean;
   /** Epoch milliseconds the publish started (the manifest's `writtenAt`). */
   writtenAtMs: number;
+  /**
+   * Identifies the engine instance that issues the call. Fencing is per (engine, domain): another
+   * instance (a restarted app) starts a new sequence.
+   */
+  engineId: string;
+  /**
+   * Increases with every `publish` call of this engine instance (across domains; strictly per domain).
+   * THE FENCING CONTRACT: a transport must not let an older `publishSeq` commit after a newer one for
+   * the same (device, domain, `engineId`). The engine gives up on a call that times out and may then
+   * publish a newer snapshot while the old operation is still running in the transport; when that old
+   * operation finally reaches its commit point it must be rejected with
+   * `SyncTransportError("stale_publish")` instead of overwriting the newer bundle and manifest. A
+   * transport that serializes ALL publishes of a device in one queue, in call order, and runs each
+   * to completion before the next, satisfies the contract without looking at the number. A rejected
+   * stale commit is not a user-visible failure.
+   */
+  publishSeq: number;
 }
 
-export type SyncTransportErrorCode = "unreachable" | "timeout";
+export type SyncTransportErrorCode =
+  | "unreachable"
+  | "timeout"
+  /** A newer publish of the same domain has already committed (see {@link PublishMeta.publishSeq}). */
+  | "stale_publish";
 
 /**
  * The folder is not there (an unmounted Drive path, a missing role marker), or did not answer in
@@ -110,7 +131,8 @@ export interface SyncTransport {
   readBundle(peer: PeerManifest, domain: SyncDomain): Promise<BundleRead>;
   /**
    * Writes this device's bundle for `domain`: bundle file first, manifest last (the commit point).
-   * Returns the new generation. Rejects with a {@link SyncTransportError} when unreachable.
+   * Returns the new generation. Rejects with a {@link SyncTransportError} when unreachable, or `stale_publish` when fenced
+   * (see {@link PublishMeta.publishSeq}).
    */
   publish(
     domain: SyncDomain,

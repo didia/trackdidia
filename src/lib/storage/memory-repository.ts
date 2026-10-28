@@ -2235,4 +2235,8 @@ export class MemoryRepository implements AppRepository {
   async markSyncPublished(_changeCounterAtRead: number): Promise<SyncPublishMark> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
+
+  async queueSyncRepublish(): Promise<void> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
 }

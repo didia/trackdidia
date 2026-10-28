@@ -623,6 +623,14 @@ export interface AppRepository {
    * Memory rejects: sync is unavailable in browser preview.
    */
   markSyncPublished(changeCounterAtRead: number): Promise<SyncPublishMark>;
+  /**
+   * Makes the whole synced state pending again: bumps `change_counter` by one, durably, without
+   * touching any row. The sync engine uses it when a publish that it had given up on (timed out)
+   * eventually settles, because that late write may have replaced a newer snapshot in the folder:
+   * the next publish then rewrites the current state. Requires the sync identity. Memory rejects:
+   * sync is unavailable in browser preview.
+   */
+  queueSyncRepublish(): Promise<void>;
 }
 
 export type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";

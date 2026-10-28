@@ -10,7 +10,7 @@ import {
 } from "./engine-types";
 import { domainsPublishable } from "./profile";
 import type { SyncDomain } from "./registry";
-import type { SyncTransport } from "./transport";
+import { SyncTransportError, type SyncTransport } from "./transport";
 
 /**
  * One publish: for every domain this device's profile may publish and a transport carries, write the
@@ -35,6 +35,10 @@ import type { SyncTransport } from "./transport";
 
 /** State that outlives one publish: what was already written in this process. */
 export interface PublishMemory {
+  /** Identifies this engine instance in the fencing contract (`PublishMeta.engineId`). */
+  engineId: string;
+  /** The last `publishSeq` handed to a transport. */
+  seq: number;
   /** The change counter each domain was last published at. */
   publishedAt: Map<SyncDomain, number>;
   /** Domains a transport is known to hold a bundle of (no need to ask it again). */
@@ -42,6 +46,8 @@ export interface PublishMemory {
 }
 
 export const newPublishMemory = (): PublishMemory => ({
+  engineId: globalThis.crypto.randomUUID(),
+  seq: 0,
   publishedAt: new Map(),
   knownPublished: new Set(),
 });
@@ -64,6 +70,22 @@ export const assertRouted = (
       `Refusing to hand a "${changeSet.domain}" bundle for "${domain}" to ${transport.id}, which carries ${transport.domains.join(", ")}`,
     );
   }
+};
+
+/**
+ * A publish that the engine gave up on (timeout) has now settled inside the transport. Whatever it
+ * wrote may have replaced a NEWER bundle (a transport that does not fence), so the whole state is made
+ * pending again, durably, and this process forgets what it had published for the domain: the next
+ * publish rewrites the current snapshot. Best effort: a failure only means the repair waits for the
+ * next local change.
+ */
+const repairAfterLatePublish = (
+  ctx: EngineContext,
+  memory: PublishMemory,
+  domain: SyncDomain,
+): void => {
+  memory.publishedAt.delete(domain);
+  void ctx.repo.queueSyncRepublish().catch(() => undefined);
 };
 
 export const runPublish = async (
@@ -158,14 +180,33 @@ export const runPublish = async (
       const changeSet = await ctx.repo.listSyncChanges(domain);
       assertRouted(transport, domain, changeSet);
       const { generation } = await withTimeout(
-        () => transport.publish(domain, changeSet, meta),
+        () =>
+          transport.publish(domain, changeSet, {
+            ...meta,
+            engineId: memory.engineId,
+            publishSeq: (memory.seq += 1),
+          }),
         ctx.transportTimeoutMs,
         `Publishing the ${domain} data`,
+        () => repairAfterLatePublish(ctx, memory, domain),
       );
       memory.publishedAt.set(domain, counterAtRead);
       memory.knownPublished.add(domain);
       domains.push({ domain, outcome: "published", transport: transport.id, generation });
     } catch (error) {
+      if (error instanceof SyncTransportError && error.code === "stale_publish") {
+        // A newer publish of this domain has already committed: nothing was lost, nothing to show.
+        domains.push({ domain, outcome: "clean", transport: transport.id });
+        issues.push({
+          severity: "info",
+          code: "publish_skipped",
+          transport: transport.id,
+          domain,
+          message: `The ${domain} publish was superseded by a newer one`,
+          detail: "stale_publish",
+        });
+        continue;
+      }
       failed += 1;
       domains.push({ domain, outcome: "failed", transport: transport.id });
       if (error instanceof SyncEngineError) {
@@ -194,11 +235,26 @@ export const runPublish = async (
   }
 
   let counterAdvanced = false;
+  // A domain this profile may publish but no transport carries (a folder that is not connected right
+  // now) is still owed: the counter stays where it is, so reconnecting the folder publishes every
+  // change made in its absence even though its manifest says a bundle exists. (The personal profile
+  // is configured with both folders; a deliberately single-folder personal setup stays "pending".)
+  const unpublished = domains.filter((result) => result.outcome === "no_transport");
+  if (dirty && unpublished.length > 0) {
+    issues.push({
+      severity: "info",
+      code: "pending_unpublished_domain",
+      message: `Changes stay pending because nothing carries the ${unpublished
+        .map((result) => result.domain)
+        .join(", ")} data on this device (is the folder connected?)`,
+      detail: unpublished.map((result) => result.domain).join(","),
+    });
+  }
   const alreadyCurrent = domains.some(
     (result) =>
       result.outcome === "clean" && (memory.publishedAt.get(result.domain) ?? -1) >= counterAtRead,
   );
-  if ((attempted > 0 || alreadyCurrent) && failed === 0 && dirty) {
+  if ((attempted > 0 || alreadyCurrent) && failed === 0 && dirty && unpublished.length === 0) {
     try {
       counterAdvanced = (await ctx.repo.markSyncPublished(counterAtRead)).advanced;
     } catch (error) {

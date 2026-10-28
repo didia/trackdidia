@@ -37,13 +37,42 @@ import type { PeerManifest, SyncTransport } from "./transport";
  * goes on. The one run-wide stop is a required safety backup that could not be made, because that
  * protects the whole database.
  *
- * Time. The budget is checked before each step that starts new work (a `listPeers`, a `readBundle`,
- * an apply). A step that has begun is never abandoned: an apply is one transaction, and a read has the
- * transport's own timeout. What was left undone is reported in `remaining` so the caller can pull again.
+ * Two stages. Stage 1 reads and validates every bundle that changed; stage 2 applies what was read.
+ * The safety backup (when one is needed) sits between them, so it is decided from every bundle that is
+ * about to be applied, by the bundle's own schema, while the database is still untouched.
+ *
+ * Time. The budget is checked before each `listPeers` and before each `readBundle`, i.e. before
+ * starting new work; never mid-apply, and never between a read and its apply: a bundle that was read is
+ * always applied (an apply is one transaction), so a run makes progress however small the budget. A
+ * read has the transport's own timeout. What was left undone is reported in `remaining` so the caller
+ * can pull again.
  */
 
 /** A contact with an otherwise unchanged peer is recorded at most this often. */
 const CONTACT_RECORD_INTERVAL_MS = 24 * 60 * 60_000;
+
+interface SchemaPair {
+  local: number;
+  peer: number;
+}
+
+interface ReadyBundle {
+  plan: PeerPlan;
+  allowed: AllowedDomain;
+  changeSet: SyncChangeSet;
+  /** The report entry, filled in once the bundle is applied (or refused). */
+  result: DomainPullResult;
+}
+
+/** The pair recorded with the peer when `domain` was last merged, or `undefined`. */
+const recordedPair = (plan: PeerPlan, domain: string): SchemaPair | undefined => {
+  const merged = plan.stored?.lastManifest?.mergedSchemas;
+  if (typeof merged !== "object" || merged === null) return undefined;
+  const pair = (merged as Record<string, unknown>)[domain];
+  if (typeof pair !== "object" || pair === null) return undefined;
+  const { local, peer } = pair as Record<string, unknown>;
+  return typeof local === "number" && typeof peer === "number" ? { local, peer } : undefined;
+};
 
 interface PeerPlan {
   transport: SyncTransport;
@@ -52,6 +81,8 @@ interface PeerPlan {
   allowed: AllowedDomain[];
   report: PeerPullReport;
   appliedThisRun: Record<string, string>;
+  /** The (local schema, bundle schema) pair of each domain applied in this run. */
+  mergedThisRun: Record<string, SchemaPair>;
   /** A domain of this peer failed or is not ready: its manifest must not be recorded as handled. */
   incomplete: boolean;
 }
@@ -200,67 +231,15 @@ export const runPull = async (
     }
   }
 
-  // ---- Safety backup decision (lazily executed before the first apply) ------------------------
-  const candidateReasons = (): SafetyBackupReason[] => {
-    const reasons: SafetyBackupReason[] = [];
-    if (!mergedBefore) reasons.push("first_merge");
-    const skewed = plans.some(
-      (plan) =>
-        plan.manifest.schemaVersion !== ctx.localSchemaVersion &&
-        // The (local, peer) schema pair must differ from the one recorded at the last merge with
-        // this peer: a peer upgrade OR a local upgrade is a new skew.
-        (plan.stored?.lastManifest?.schemaVersion !== plan.manifest.schemaVersion ||
-          plan.stored?.lastManifest?.localSchemaVersion !== ctx.localSchemaVersion) &&
-        plan.allowed.some(({ domain, entry }) => isChanged(plan, domain, entry.sha256)),
-    );
-    if (skewed) reasons.push("schema_skew");
-    return reasons;
-  };
-
-  let backupDecided = false;
-  const ensureBackupBeforeApply = async (): Promise<boolean> => {
-    if (backupDecided) return !halted;
-    backupDecided = true;
-    const reasons = candidateReasons();
-    safetyBackup.reasons = reasons;
-    if (reasons.length === 0) {
-      safetyBackup.status = "not_needed";
-      return true;
-    }
-    if (options.verifiedEmptyJoiner === true) {
-      safetyBackup.status = "skipped_empty_joiner";
-      return true;
-    }
-    const fail = (why: string, cause?: unknown) => {
-      safetyBackup.status = "failed";
-      halted = true;
-      issues.push({
-        severity: "error",
-        code: "safety_backup_required",
-        message: `A backup of this laptop is required before merging (${reasons.join(", ")}) and could not be made: ${why}. Nothing was merged`,
-        ...(cause === undefined ? {} : { detail: messageOf(cause) }),
-      });
-      return false;
-    };
-    if (!ctx.beforeFirstMerge) return fail("no backup destination is available");
-    try {
-      const result = await ctx.beforeFirstMerge(reasons);
-      safetyBackup.status = "taken";
-      if (result?.path !== undefined) safetyBackup.path = result.path;
-      return true;
-    } catch (error) {
-      return fail(messageOf(error), error);
-    }
-  };
-
-  // ---- Apply, domain by domain ----------------------------------------------------------------
+  // ---- Stage 1: read and validate every bundle that changed (budget checked before each read) ----
+  const ready: ReadyBundle[] = [];
   for (const domain of SYNC_DOMAINS) {
     for (const plan of plans) {
       const allowed = plan.allowed.find((entry) => entry.domain === domain);
       if (!allowed) continue;
-      let result: DomainPullResult;
+      let staged: { result: DomainPullResult; changeSet?: SyncChangeSet };
       try {
-        result = await pullBundle(plan, allowed);
+        staged = await readStage(plan, allowed);
       } catch (error) {
         plan.incomplete = true;
         issues.push({
@@ -273,10 +252,47 @@ export const runPull = async (
           message: `Unexpected failure while syncing the ${domain} data of ${plan.manifest.deviceName}: ${messageOf(error)}`,
           detail: messageOf(error),
         });
-        result = { domain, outcome: "rejected" };
+        staged = { result: { domain, outcome: "rejected" } };
       }
-      plan.report.domains.push(result);
+      plan.report.domains.push(staged.result);
+      if (staged.changeSet) {
+        ready.push({ plan, allowed, changeSet: staged.changeSet, result: staged.result });
+      }
     }
+  }
+
+  // ---- Safety backup: once, before the first apply, if ANY bundle about to be applied needs it ----
+  // Deciding after the reads (not lazily at the first apply) is what lets a bundle that arrives
+  // later in the run, with its own schema pair, be covered by the same backup: the database is still
+  // untouched when the hook runs.
+  if (ready.length > 0) {
+    const reasons: SafetyBackupReason[] = [];
+    if (!mergedBefore) reasons.push("first_merge");
+    if (ready.some((item) => needsSchemaBackup(item))) reasons.push("schema_skew");
+    safetyBackup.reasons = reasons;
+    if (reasons.length === 0) {
+      safetyBackup.status = "not_needed";
+    } else if (options.verifiedEmptyJoiner === true) {
+      safetyBackup.status = "skipped_empty_joiner";
+    } else {
+      await takeSafetyBackup(reasons);
+    }
+  }
+
+  // ---- Stage 2: apply what was read. A bundle that was read is always applied (never budget-gated) -
+  for (const item of ready) {
+    if (halted) {
+      item.plan.incomplete = true;
+      remaining.push({
+        transport: item.plan.transport.id,
+        domain: item.allowed.domain,
+        peerId: item.plan.manifest.deviceId,
+        peerName: item.plan.manifest.deviceName,
+      });
+      item.result.outcome = "halted";
+      continue;
+    }
+    await applyStage(item);
   }
 
   // ---- Bookkeeping: remember what was applied --------------------------------------------------
@@ -289,7 +305,47 @@ export const runPull = async (
     return plan.stored?.lastAppliedShaByDomain[domain] !== sha256;
   }
 
-  async function pullBundle(plan: PeerPlan, allowed: AllowedDomain): Promise<DomainPullResult> {
+  /**
+   * A bundle written under another schema than ours needs a backup unless the (local schema, bundle
+   * schema) pair is the one recorded when this domain of this peer was last merged. The bundle's own
+   * `schemaVersion` decides, not the manifest's: a peer may legitimately keep an older domain
+   * bundle in a folder whose manifest already reports a newer schema.
+   */
+  function needsSchemaBackup(item: ReadyBundle): boolean {
+    const bundleSchema = item.changeSet.schemaVersion;
+    if (bundleSchema === ctx.localSchemaVersion) return false;
+    const recorded = recordedPair(item.plan, item.allowed.domain);
+    return recorded?.local !== ctx.localSchemaVersion || recorded?.peer !== bundleSchema;
+  }
+
+  async function takeSafetyBackup(reasons: SafetyBackupReason[]): Promise<void> {
+    const fail = (why: string, cause?: unknown) => {
+      safetyBackup.status = "failed";
+      halted = true;
+      issues.push({
+        severity: "error",
+        code: "safety_backup_required",
+        message: `A backup of this laptop is required before merging (${reasons.join(", ")}) and could not be made: ${why}. Nothing was merged`,
+        ...(cause === undefined ? {} : { detail: messageOf(cause) }),
+      });
+    };
+    if (!ctx.beforeFirstMerge) {
+      fail("no backup destination is available");
+      return;
+    }
+    try {
+      const result = await ctx.beforeFirstMerge(reasons);
+      safetyBackup.status = "taken";
+      if (result?.path !== undefined) safetyBackup.path = result.path;
+    } catch (error) {
+      fail(messageOf(error), error);
+    }
+  }
+
+  async function readStage(
+    plan: PeerPlan,
+    allowed: AllowedDomain,
+  ): Promise<{ result: DomainPullResult; changeSet?: SyncChangeSet }> {
     const { domain, entry } = allowed;
     const { transport, manifest } = plan;
     const base = { domain, generation: entry.generation, sha256: entry.sha256 };
@@ -299,7 +355,8 @@ export const runPull = async (
       peerName: manifest.deviceName,
       domain,
     };
-    const defer = (outcome: "deferred" | "halted"): DomainPullResult => {
+    const done = (outcome: DomainPullResult["outcome"]) => ({ result: { ...base, outcome } });
+    const defer = () => {
       plan.incomplete = true;
       remaining.push({
         transport: transport.id,
@@ -307,17 +364,17 @@ export const runPull = async (
         peerId: manifest.deviceId,
         peerName: manifest.deviceName,
       });
-      return { ...base, outcome };
+      return done("deferred");
+    };
+    const reject = (outcome: DomainPullResult["outcome"] = "rejected") => {
+      plan.incomplete = true;
+      return done(outcome);
     };
 
     // The cheap path: the hash we applied last time is the one on offer. Nothing is read.
-    if (!isChanged(plan, domain, entry.sha256)) return { ...base, outcome: "unchanged" };
-    if (halted) return defer("halted");
-    if (down.has(transport.id)) {
-      plan.incomplete = true;
-      return { ...base, outcome: "unreachable" };
-    }
-    if (overBudget()) return defer("deferred");
+    if (!isChanged(plan, domain, entry.sha256)) return done("unchanged");
+    if (down.has(transport.id)) return reject("unreachable");
+    if (overBudget()) return defer();
 
     let read: Awaited<ReturnType<SyncTransport["readBundle"]>>;
     try {
@@ -327,7 +384,6 @@ export const runPull = async (
         `Reading the ${domain} data of ${manifest.deviceName}`,
       );
     } catch (error) {
-      plan.incomplete = true;
       const issue = transportIssue(
         transport,
         error,
@@ -339,19 +395,18 @@ export const runPull = async (
         down.add(transport.id);
         const report = transportReports.find((item) => item.id === transport.id);
         if (report) report.reachable = false;
-        return { ...base, outcome: "unreachable" };
+        return reject("unreachable");
       }
-      return { ...base, outcome: "rejected" };
+      return reject();
     }
     if ("notReady" in read) {
-      plan.incomplete = true;
       issues.push({
         ...peerInfo,
         severity: "info",
         code: "bundle_not_ready",
         message: `The ${domain} data of ${manifest.deviceName} is not ready yet (still uploading?); will retry`,
       });
-      return { ...base, outcome: "not_ready" };
+      return reject("not_ready");
     }
 
     // Untrusted from here until validated.
@@ -359,7 +414,6 @@ export const runPull = async (
     try {
       changeSet = validateChangeSet(read.changeSet);
     } catch (error) {
-      plan.incomplete = true;
       issues.push({
         ...peerInfo,
         severity: "error",
@@ -367,10 +421,9 @@ export const runPull = async (
         message: `The ${domain} data of ${manifest.deviceName} is not valid and was rejected as a whole: ${messageOf(error)}`,
         detail: error instanceof SyncChangeSetError ? error.code : messageOf(error),
       });
-      return { ...base, outcome: "rejected" };
+      return reject();
     }
     if (changeSet.domain !== domain) {
-      plan.incomplete = true;
       issues.push({
         ...peerInfo,
         severity: "error",
@@ -378,10 +431,9 @@ export const runPull = async (
         message: `${manifest.deviceName} published "${changeSet.domain}" data where its manifest promised "${domain}" (${transport.id}); never applied`,
         detail: changeSet.domain,
       });
-      return { ...base, outcome: "rejected" };
+      return reject();
     }
     if (changeSet.deviceId !== manifest.deviceId) {
-      plan.incomplete = true;
       issues.push({
         ...peerInfo,
         severity: "error",
@@ -389,35 +441,38 @@ export const runPull = async (
         message: `The ${domain} bundle in the folder of ${manifest.deviceName} was written by another device (${changeSet.deviceId}); never applied`,
         detail: changeSet.deviceId,
       });
-      return { ...base, outcome: "rejected" };
+      return reject();
     }
     // The last line of defence before the repository: the profile, not the manifest, decides.
     try {
       assertDomainAllowed(domain, readable);
     } catch (error) {
-      plan.incomplete = true;
       issues.push({
         ...peerInfo,
         severity: "error",
         code: "domain_not_allowed",
         message: messageOf(error),
       });
-      return { ...base, outcome: "rejected" };
+      return reject();
     }
+    return { result: { ...base, outcome: "applied" }, changeSet };
+  }
 
-    if (!(await ensureBackupBeforeApply())) return defer("halted");
-
+  async function applyStage(item: ReadyBundle): Promise<void> {
+    const { plan, allowed, changeSet, result } = item;
+    const { domain, entry } = allowed;
+    const { manifest } = plan;
     try {
-      const result = await ctx.repo.applySyncBundle(domain, changeSet, {
-        republish: true,
-      });
+      const applied = await ctx.repo.applySyncBundle(domain, changeSet, { republish: true });
       plan.appliedThisRun[domain] = entry.sha256;
+      plan.mergedThisRun[domain] = { local: ctx.localSchemaVersion, peer: changeSet.schemaVersion };
       totals.bundlesApplied += 1;
-      totals.applied += result.applied;
-      totals.skipped += result.skipped;
-      totals.tombstonesApplied += result.tombstonesApplied;
-      totals.conflictsLogged += result.conflictsLogged;
-      return { ...base, outcome: "applied", apply: result };
+      totals.applied += applied.applied;
+      totals.skipped += applied.skipped;
+      totals.tombstonesApplied += applied.tombstonesApplied;
+      totals.conflictsLogged += applied.conflictsLogged;
+      result.outcome = "applied";
+      result.apply = applied;
     } catch (error) {
       plan.incomplete = true;
       const known =
@@ -425,13 +480,16 @@ export const runPull = async (
         error instanceof SyncClockError ||
         error instanceof SyncChangeSetError;
       issues.push({
-        ...peerInfo,
+        transport: plan.transport.id,
+        peerId: manifest.deviceId,
+        peerName: manifest.deviceName,
+        domain,
         severity: "error",
         code: known ? "bundle_rejected" : "bundle_failed",
         message: `The ${domain} data of ${manifest.deviceName} could not be merged and nothing was kept: ${messageOf(error)}`,
         detail: known ? (error as { code: string }).code : messageOf(error),
       });
-      return { ...base, outcome: "rejected" };
+      result.outcome = "rejected";
     }
   }
 
@@ -467,13 +525,19 @@ export const runPull = async (
 
       // What is stored about a peer is what passed the gates: the manifest's own fields and the
       // domain entries this device may read, never a domain it refused (a work device must not
-      // keep the size or hash of a personal bundle). The local schema version is recorded only
-      // when something was merged: it is the pair the next skew check compares against.
+      // keep the size or hash of a personal bundle).
       const entries: Record<string, unknown> = {};
       for (const plan of group) {
         for (const { domain, entry } of plan.allowed) entries[domain] = entry;
       }
-      const previousLocal = first.stored?.lastManifest?.localSchemaVersion;
+      // The (local, bundle) schema pair of every domain merged so far, per domain: what the next
+      // skew check compares each decoded bundle against. A contact that merged nothing keeps it.
+      const mergedSchemas: Record<string, SchemaPair> = {};
+      for (const domain of SYNC_DOMAINS) {
+        const previous = recordedPair(first, domain);
+        if (previous) mergedSchemas[domain] = previous;
+      }
+      for (const plan of group) Object.assign(mergedSchemas, plan.mergedThisRun);
       const manifest = {
         formatVersion: first.manifest.formatVersion,
         deviceId: first.manifest.deviceId,
@@ -485,11 +549,7 @@ export const runPull = async (
         profile: first.manifest.profile,
         calendarSyncEnabled: first.manifest.calendarSyncEnabled,
         domains: entries,
-        ...(applied
-          ? { localSchemaVersion: ctx.localSchemaVersion }
-          : typeof previousLocal === "number"
-            ? { localSchemaVersion: previousLocal }
-            : {}),
+        mergedSchemas,
       };
       // A peer with a domain that is not ready or was rejected is not "in contact" yet: its hashes
       // are remembered, its last contact time is left alone.
@@ -545,6 +605,7 @@ const planOf = (
     allowed: [],
     report,
     appliedThisRun: {},
+    mergedThisRun: {},
     incomplete: false,
   };
   void ctx;

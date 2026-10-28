@@ -6950,6 +6950,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(typeof repository.applySyncBundle).toBe("function");
         expect(typeof repository.recordSyncPeerApplied).toBe("function");
         expect(typeof repository.markSyncPublished).toBe("function");
+        expect(typeof repository.queueSyncRepublish).toBe("function");
       });
 
       const PEER = "dev:7d1e2c3b-4a5f-4e6d-8c7b-9a0b1c2d3e4f";
@@ -6971,6 +6972,9 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             /unavailable in browser preview/,
           );
           await expect(repository.markSyncPublished(1)).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.queueSyncRepublish()).rejects.toThrow(
             /unavailable in browser preview/,
           );
           return;
@@ -7056,6 +7060,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         const clean = await repository.getSyncStatus();
         expect(clean.supported && clean.pendingChanges).toBe(0);
         await expect(repository.markSyncPublished(-1)).rejects.toThrow(/Invalid change counter/);
+
+        // A republish request makes everything pending again, without touching any row.
+        await expect(repository.queueSyncRepublish()).resolves.toBeUndefined();
+        const requeued = await repository.getSyncStatus();
+        expect(requeued.supported && requeued.pendingChanges).toBe(1);
+        await expect(repository.listTasks({})).resolves.toHaveLength(2);
         await expect(repository.markSyncPublished(1.5)).rejects.toThrow(/Invalid change counter/);
       });
 

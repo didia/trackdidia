@@ -12,6 +12,7 @@ export type SyncEngineRepository = Pick<
   | "applySyncBundle"
   | "recordSyncPeerApplied"
   | "markSyncPublished"
+  | "queueSyncRepublish"
 >;
 
 export interface SafetyBackupResult {
@@ -70,23 +71,33 @@ export interface EngineContext {
 export const messageOf = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
-/** Awaits `operation`, giving up after `timeoutMs` with a `timeout` {@link SyncTransportError}. */
+/**
+ * Awaits `operation`, giving up after `timeoutMs` with a `timeout` {@link SyncTransportError}.
+ *
+ * Giving up does not cancel the operation: it keeps running inside the transport. `onLate` is called
+ * when such an abandoned operation finally settles (either way), so the caller can repair whatever
+ * the late effect may have undone. It is never called for an operation that finished in time.
+ */
 export const withTimeout = async <T>(
   operation: () => Promise<T>,
   timeoutMs: number,
   what: string,
+  onLate?: () => void,
 ): Promise<T> => {
   const pending = operation();
   if (!Number.isFinite(timeoutMs)) return pending;
+  let timedOut = false;
   // The loser of the race must not surface later as an unhandled rejection.
-  pending.catch(() => undefined);
+  const settled = () => {
+    if (timedOut) onLate?.();
+  };
+  pending.then(settled, settled);
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(
-      () =>
-        reject(new SyncTransportError("timeout", `${what} did not answer within ${timeoutMs} ms`)),
-      timeoutMs,
-    );
+    timer = setTimeout(() => {
+      timedOut = true;
+      reject(new SyncTransportError("timeout", `${what} did not answer within ${timeoutMs} ms`));
+    }, timeoutMs);
   });
   try {
     return await Promise.race([pending, timeout]);

@@ -52,6 +52,7 @@ describe("routing", () => {
         applySyncBundle: (domain, changeSet) => a.repo.applySyncBundle(domain, changeSet),
         recordSyncPeerApplied: (input) => a.repo.recordSyncPeerApplied(input),
         markSyncPublished: (counter) => a.repo.markSyncPublished(counter),
+        queueSyncRepublish: () => a.repo.queueSyncRepublish(),
         listSyncChanges: async (domain) =>
           domain === "gtd" ? a.repo.listSyncChanges("personal") : a.repo.listSyncChanges(domain),
       },
@@ -104,7 +105,7 @@ describe("what a device profile publishes", () => {
     expect(world.folders.filesOf("personal")).toEqual([]);
   });
 
-  it("a folder configured later receives this device's bundles although nothing changed", async () => {
+  it("a folder configured later receives this device's bundles: the changes stayed pending", async () => {
     const world = await createEngineWorld([{ name: "A", roles: ["gtd"] }]);
     const a = world.device("A");
     await a.repo.createTask({ id: "t1", title: "Plan", bucket: "inbox" });
@@ -114,6 +115,7 @@ describe("what a device profile publishes", () => {
       "no_transport",
       "no_transport",
     ]);
+    // Nothing carried personal and finance, so what was published is not "everything".
 
     // The personal folder is set up afterwards: a new engine over both folders.
     const later = createSyncEngine({
@@ -126,13 +128,14 @@ describe("what a device profile publishes", () => {
       now: a.clock.read,
     });
     const status = await a.repo.getSyncStatus();
-    expect(status.supported && status.pendingChanges).toBe(0);
+    expect(status.supported && status.pendingChanges).toBeGreaterThan(0);
     const report = await later.publish();
     expect(report.domains.map((d) => [d.domain, d.outcome])).toEqual([
-      ["gtd", "clean"],
+      ["gtd", "published"],
       ["personal", "published"],
       ["finance", "published"],
     ]);
+    expect(report.counterAdvanced).toBe(true);
     expect(world.folders.manifestFor("personal", a.deviceId)?.domains).toHaveProperty("finance");
   });
 

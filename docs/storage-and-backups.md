@@ -121,8 +121,8 @@ It groups:
 - AI messages, proposals, and memories;
 - standing weekly objectives and per-week manual results;
 - the inert multi-device sync foundation: `getSyncStatus()`, `ensureSyncIdentity()`,
-  `enableSyncCapture()`, `listSyncChanges()`, `applySyncBundle()`, `recordSyncPeerApplied()` and
-  `markSyncPublished()` (see
+  `enableSyncCapture()`, `listSyncChanges()`, `applySyncBundle()`, `recordSyncPeerApplied()`,
+  `markSyncPublished()` and `queueSyncRepublish()` (see
   [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables),
   [Multi-device sync change capture](#multi-device-sync-change-capture),
   [Multi-device sync change sets and apply](#multi-device-sync-change-sets-and-apply) and
@@ -138,8 +138,8 @@ the [atomic AI proposal acceptance operation](#atomic-ai-proposal-acceptance)
 The SQLite and memory implementations must remain behaviorally aligned, except for
 native-only storage information, backup creation, and multi-device sync (memory reports
 `{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity`,
-`enableSyncCapture`, `listSyncChanges`, `applySyncBundle`, `recordSyncPeerApplied` and
-`markSyncPublished`).
+`enableSyncCapture`, `listSyncChanges`, `applySyncBundle`, `recordSyncPeerApplied`,
+`markSyncPublished` and `queueSyncRepublish`).
 
 ## Atomic AI proposal acceptance
 
@@ -1423,10 +1423,20 @@ every read and publish by `domains`; two transports may not declare the same dom
 (`SyncEngineError("invalid_transports")` at construction). `listPeers` already excludes this device and
 ignores conflict copies. `readBundle` has verified `bytes` and `sha256`: a mismatch or partial download
 is `{ notReady: true }`, never an exception; bytes that verify but do not parse are delivered as raw text
-and rejected by the engine's validation. `SyncTransportError` has two codes, `unreachable` and `timeout`.
+and rejected by the engine's validation. `SyncTransportError` has three codes: `unreachable`, `timeout` and `stale_publish` (below).
 `PeerManifest.domains` is keyed by plain strings on purpose, so a manifest naming a domain nobody
 declared can be represented, and refused. `ownGeneration` is what lets a folder configured later receive
 bundles although the change counter is clean ("no bundle published yet").
+
+**Publish fencing contract** (`PublishMeta.engineId`, `PublishMeta.publishSeq`). Every `transport.publish` call
+carries the engine instance's id and a sequence number that grows with each call. The engine gives up on a
+call that times out, but the operation keeps running inside the transport; if the engine then publishes a
+newer snapshot and the old operation reaches its commit point afterwards, it would roll the folder back. A
+transport must therefore refuse to commit an older `publishSeq` after a newer one for the same
+(device, domain, `engineId`), rejecting with `SyncTransportError("stale_publish")` (which the engine treats
+as "superseded", not as a failure), or serialize all publishes of a device in call order and run each to
+completion before the next. The in-memory simulation fences at commit time (`setFencing(false)` models a
+transport that does not).
 
 **Device profile** (`profile.ts`). `DeviceProfile` is `"personal" | "work"`. `domainsReadable` and
 `domainsPublishable` come from the registry: `personal` handles every domain, `work` only
@@ -1466,29 +1476,36 @@ day for peers whose domains are all unchanged, so a quiet peer never counts as "
 (a refused stray domain entry does not prevent it). A peer with a domain that is not ready or was rejected
 keeps its previous contact time (the hashes of what did apply are still remembered). What is stored of a
 peer's manifest is what passed the gates: its own fields and the domain entries this device may read
-(never the hash, size or row count of a refused domain), plus `localSchemaVersion`, the local schema at the
-last merge. Every peer, domain and transport fails alone; a failed
+(never the hash, size or row count of a refused domain), plus `mergedSchemas`, the (local schema, bundle schema) pair at the
+last merge, per domain (`mergedSchemas`). Every peer, domain and transport fails alone; a failed
 `listPeers` marks the transport unreachable for the run (`transport_unreachable` / `transport_timeout`
 warnings, never a crash, nothing written) and its remaining reads are skipped.
 
-**Safety backup.** The `beforeFirstMerge` option is called AT MOST ONCE per pull, right before the first
-apply, with the reasons: `first_merge` (no peer has ever been applied here; the engine takes any database
-that is not a `verifiedEmptyJoiner` for one holding user rows) and `schema_skew` (a peer whose
-`schemaVersion` differs from ours AND the (local schema, peer schema) pair differs from the pair recorded in
-`sync_peers` at the last merge with it, so it is asked once per new skew, not on every pull; a peer upgrade
-and a local upgrade are both new skews, and a contact that merged nothing does not update the recorded pair).
+**Two stages and the safety backup.** A pull first READS and validates every bundle that changed (stage 1),
+then APPLIES what was read (stage 2); the safety backup sits between them, so it is decided from every
+bundle about to be applied while the database is still untouched. The `beforeFirstMerge` option is called AT
+MOST ONCE per pull, before the first apply, with the reasons: `first_merge` (no peer has ever been applied
+here; the engine takes any database that is not a `verifiedEmptyJoiner` for one holding user rows) and
+`schema_skew`. The skew is decided from each decoded bundle's OWN `schemaVersion`, not from the manifest's
+(a peer may keep an older domain bundle in a folder whose manifest already reports a newer schema): a bundle
+whose schema differs from ours needs a backup unless its (local schema, bundle schema) pair is the one recorded
+for that domain of that peer at the last merge (`sync_peers` manifest `mergedSchemas`). A peer upgrade and a
+local upgrade are both new skews; a contact that merged nothing does not update the recorded pairs. One
+backup covers every domain of the run, whatever its pair: the hook runs before anything is applied.
 `verifiedEmptyJoiner: true` (a pull option, decided by the join flow) skips it and the skip is recorded
 (`safetyBackup.status = "skipped_empty_joiner"`). With no hook, or when it throws, NO bundle is applied: the
 pull reports `safety_backup_required`, `complete: false`, `safetyBackup.status = "failed"` and the work in
-`remaining`. A throttle for the hook, if wanted, belongs to its implementation.
+`remaining`; `getStatus()` shows those peers as `error` with that message. A throttle for the hook, if
+wanted, belongs to its implementation.
 
-**Budget.** `budgetMs` (measured on the engine's injected clock) stops the engine STARTING new work: it is
-checked before each `listPeers`, `readBundle` and apply. An apply that has begun always finishes (one
-transaction). What was left is in `PullReport.remaining` (`{ transport, domain, peerId | null, peerName }`),
-`complete` is false, and a later `pull()` finishes it (unchanged bundles cost nothing). The apply right after
-a safety backup is not re-checked against the budget. `transportTimeoutMs` (default 30 s, `Infinity`
-disables it) cuts off a single transport call that never answers, so a hung folder cannot hold the run slot
-forever (`transport_timeout`).
+**Budget.** `budgetMs` (measured on the engine's injected clock) stops the engine STARTING new work. It is
+checked before each `listPeers` and before each `readBundle`; it is never checked mid-apply, nor between a
+read and its apply: a bundle that has been read is always applied (an apply is one transaction), so a run
+makes progress however small the budget. What was left is in `PullReport.remaining`
+(`{ transport, domain, peerId | null, peerName }`), `complete` is false, `getStatus()` shows such a peer as
+`pending`, and a later `pull()` finishes it (unchanged bundles cost nothing). `transportTimeoutMs`
+(default 30 s, `Infinity` disables it) cuts off a single transport call that never answers, so a hung folder
+cannot hold the run slot forever (`transport_timeout`).
 
 **Publish** (`engine.publish({ force })`). For each domain the profile can publish AND a transport carries
 (registry order), when `change_counter > last_publish_counter`, or no bundle exists in that folder
@@ -1500,14 +1517,22 @@ with `markSyncPublished(counterAtRead)` only if every attempted domain succeeded
 being written stays pending. A domain already published in this process at the current counter is not
 written again when a retry follows a partial failure. Failures are reported (`publish_failed`, or the
 `transport_*` warnings), never thrown, and do not advance the counter. A domain with no transport is
-`no_transport` and is never read from the repository.
+`no_transport` and is never read from the repository; while the profile may publish a domain that nothing
+carries (a folder that is not connected right now), the counter does NOT advance past the changes
+(`pending_unpublished_domain`, info), so reconnecting the folder publishes everything edited in its absence
+even though its manifest already lists a bundle. The personal profile is configured with both folders; a
+deliberately single-folder personal setup therefore keeps showing pending changes. When a publish that timed
+out eventually settles inside the transport (success or failure), the engine forgets what it had published for
+that domain and calls `queueSyncRepublish()` (a durable counter bump), so the next publish rewrites the newest
+snapshot even if that late commit rolled the folder back; a fencing transport rejects the late commit
+(`stale_publish`) and the repair is just one extra publish.
 
 **One run at a time.** `pull()`, `publish()` and `syncNow()` (pull, then publish; publishing is not
 stopped by a failed or incomplete pull) share one slot. Asking again for the same kind while it runs
 returns the in-flight promise (the second call's options are ignored); a different kind rejects with
 `SyncEngineError("already_running")`. `getStatus()` returns readiness, pending changes, one state per known
-peer (`synced`, `update_required`, `stale`, `format_unsupported`, `invalid_manifest`, `not_ready`, `error`,
-`unreachable`, `unknown`; the most serious across the folders a peer appears in) and the warnings and
+peer (`synced`, `update_required`, `stale`, `format_unsupported`, `invalid_manifest`, `not_ready`, `pending`,
+`error`, `unreachable`, `unknown`; the most serious across the folders a peer appears in) and the warnings and
 errors of the last pull and publish.
 
 Reports are plain data matched on `code`, never on `message`: `PullReport` (per-peer, per-domain outcomes
@@ -1519,7 +1544,8 @@ Reports are plain data matched on `code`, never on `message`: `PullReport` (per-
 `sync_peers` row, merging the per-domain hashes into the stored map and replacing the manifest and the
 contact time (`syncedAt: null` keeps the stored one)
 (rejects an invalid device id, an unknown domain or a malformed hash); `markSyncPublished(counter)` is
-the compare-and-set described above and returns `{ lastPublishCounter, advanced }`. Both go through the
+the compare-and-set described above and returns `{ lastPublishCounter, advanced }`; `queueSyncRepublish()`
+bumps `change_counter` by one without touching any row. All go through the
 writer queue (`writeTransaction`), with no nested public calls.
 
 **Known limits.**

@@ -3436,6 +3436,21 @@ export class TauriSqliteRepository implements AppRepository {
     });
   }
 
+  async queueSyncRepublish(): Promise<void> {
+    await this.writeTransaction(async (tx) => {
+      const db = transactionDb(tx);
+      const identity = await db.select<{ id: number }[]>(
+        "SELECT id FROM sync_identity WHERE id = 1",
+      );
+      if (identity.length === 0) {
+        throw new Error(
+          "Cannot queue a republish: the sync identity has not been created (call ensureSyncIdentity first)",
+        );
+      }
+      await db.execute("UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1");
+    });
+  }
+
   async markSyncPublished(changeCounterAtRead: number): Promise<SyncPublishMark> {
     // Validate before queueing, like the other sync writers.
     nextPublishCounter(changeCounterAtRead, Number.MAX_SAFE_INTEGER, -1);
