@@ -102,8 +102,10 @@ French, keyboard-operable like the other pages. It reads its state when opened a
 - **Pending changes** not yet published.
 - **Autres ordinateurs**: one row per known peer with name and short id, last sync time, app version and
   database (schema) version, profile, a state (`À jour`, `Mise à jour requise`, `Hors ligne trop longtemps`,
-  `Format non pris en charge`, `Manifeste invalide`, `Envoi en cours chez ce pair`, `Erreur`,
-  `Dossier inaccessible`, `Pas encore vu`) and the engine's detail. Files a folder listing ignored (Drive conflict
+  `Format non pris en charge`, `Manifeste invalide`, `Envoi en cours chez ce pair`, `En attente` (not merged yet
+  because the time budget ran out; the next run continues), `Erreur`, `Dossier inaccessible`, `Pas encore vu`) and
+  the engine's detail. A peer in `Erreur` whose first merge was halted because the safety backup could not be made
+  shows the run-wide reason in French with a link to Settings. Files a folder listing ignored (Drive conflict
   copies, stray files) are listed under the table.
 - **Stale peers.** A peer offline for 90 days is refused by default. Its row explains why and offers
   "Fusionner quand même", which needs a second confirming click and then approves exactly that peer for the
@@ -113,6 +115,10 @@ French, keyboard-operable like the other pages. It reads its state when opened a
   with its path, skipped peers with the reason ("mets à jour TrackDidia pour synchroniser avec cet ordinateur",
   "hors ligne trop longtemps"), clock-skew notes, and per domain whether it was published, unchanged, had no
   folder, or failed.
+- **Notes (information, not alarms).** "Dossier non connecté : …" when changes stay pending because no folder
+  carries a domain this laptop may publish (they are published on reconnection; the pending count stays above zero),
+  and "La publication des données … a été remplacée par une plus récente" when a publish that outlived the engine's
+  timeout was overtaken by a newer one (the folder transport's fencing; nothing is lost).
 - **Errors.** Failures retrying cannot fix are shown first, in an alert: a **configuration** error (the folder
   carries the other role's marker, or is nested with the other folder: "choisis un autre dossier"), a **bundle too
   large** for the folder protocol (persistent: nothing is published for that domain until the data shrinks),

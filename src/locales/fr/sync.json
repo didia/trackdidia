@@ -99,7 +99,9 @@
       "state": "État",
       "detail": "Détail",
       "versionValue": "{{app}} / v{{schema}}",
-      "unknownValue": "—"
+      "unknownValue": "—",
+      "pendingDetail": "Pas encore fusionné : le temps imparti à cette synchronisation est écoulé. La prochaine synchronisation continue.",
+      "haltedBackup": "Première fusion arrêtée : la sauvegarde de sécurité requise n'a pas pu être faite (aucun dossier de sauvegarde, ou dossier inaccessible). Rien n'a été fusionné avec cet ordinateur."
     },
     "peerState": {
       "synced": "À jour",
@@ -110,7 +112,8 @@
       "not_ready": "Envoi en cours chez ce pair",
       "error": "Erreur",
       "unreachable": "Dossier inaccessible",
-      "unknown": "Pas encore vu"
+      "unknown": "Pas encore vu",
+      "pending": "En attente"
     },
     "stale": {
       "warning": "{{name}} est resté hors ligne trop longtemps pour fusionner sans vérification : ses suppressions peuvent ne plus être fiables. Vérifie ses données avant de fusionner.",
@@ -207,8 +210,10 @@
         "bookkeeping_failed": "La fusion a réussi mais n'a pas pu être mémorisée : la prochaine synchronisation la refera sans effet.",
         "safety_backup_required": "Une sauvegarde de cet ordinateur est requise avant de fusionner et n'a pas pu être faite : rien n'a été fusionné.",
         "publish_failed": "La publication des données {{domain}} a échoué.",
-        "publish_skipped": "Publication non effectuée."
-      }
+        "publish_skipped": "Publication non effectuée.",
+        "pending_unpublished_domain": "Dossier non connecté : {{folders}}. Tes changements restent en attente et seront publiés dès la reconnexion."
+      },
+      "supersededPublish": "La publication des données {{domain}} a été remplacée par une plus récente : rien n'est perdu."
     }
   }
 }

@@ -1845,6 +1845,16 @@ refuse it as `domain_not_allowed` too).
 - Timeouts: the engine gives up on a transport call after 30 s while the host's own publish and read timeouts are 45 s
   (prepare and list 20 s). The engine's 30 s therefore usually fires first; the host call keeps running underneath, which
   is why publishes are serialized. The transport reconciles a publish through the device's own manifest only when the host itself reports the timeout; when the engine abandons the call first, that later result is discarded and the next run republishes the same data as one extra generation (harmless).
+- **Fencing** (the contract above). The folder transport implements both halves: (1) every publish of the device goes
+  through one FIFO queue that holds for the WHOLE operation (encode, `sync_publish`, the read-back after a host timeout)
+  and keeps holding when the engine abandons a call, because the abandoned operation is still in the queue and the
+  next publish waits for it, so commits happen in call order; (2) at the commit point (checked when the operation
+  starts and again right before `sync_publish`) a publish whose `publishSeq` is older than one that already
+  committed, or older than one requested since for the same (`engineId`, domain), is rejected with
+  `SyncTransportError("stale_publish")` and writes nothing: a snapshot queued behind a slow one supersedes it. A publish
+  that is already running cannot be recalled, so after the engine's timeout the older snapshot may commit first; the
+  newer one commits after it, and the engine's late-completion repair republishes if anything is still missing. Tests:
+  `transport-folder.test.ts` ("fencing"), including the engine with a publish held past its timeout.
 - A **publish that times out** may still commit in the host (it keeps running underneath). The transport reads its own manifest
   back: when the new bundle (same SHA-256) is there it reports success with that generation instead of a failure that would
   publish a second generation of the same data; otherwise it reports the timeout.

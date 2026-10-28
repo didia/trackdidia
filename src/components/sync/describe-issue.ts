@@ -13,6 +13,19 @@ export const folderLabel = (t: TFunction<"sync">, transport: string | undefined)
   }
 };
 
+const domainLabel = (t: TFunction<"sync">, domain: string | undefined): string => {
+  switch (domain) {
+    case "gtd":
+      return t("page.domain.gtd");
+    case "personal":
+      return t("page.domain.personal");
+    case "finance":
+      return t("page.domain.finance");
+    default:
+      return domain ?? "";
+  }
+};
+
 /** Pairs each issue with a React key that stays unique when the same issue is reported twice. */
 export const keyedIssues = (issues: readonly SyncIssue[]): { key: string; issue: SyncIssue }[] => {
   const seen = new Map<string, number>();
@@ -73,6 +86,27 @@ export const describeIssue = (t: TFunction<"sync">, issue: SyncIssue): Described
       title: t(`page.issues.${key}.title`),
       body: t(`page.issues.${key}.body`, { folder }),
       persistent,
+    };
+  }
+  if (issue.code === "publish_skipped" && issue.detail === "stale_publish") {
+    // A newer publish of the same domain overtook this one: information, not a problem.
+    return {
+      body: t("page.issues.supersededPublish", { domain: domainLabel(t, issue.domain) }),
+      persistent: null,
+    };
+  }
+  if (issue.code === "pending_unpublished_domain") {
+    const folders = [
+      ...new Set(
+        (issue.detail ?? "")
+          .split(",")
+          .filter((domain) => domain !== "")
+          .map((domain) => folderLabel(t, domain === "gtd" ? "folder:gtd" : "folder:personal")),
+      ),
+    ].join(" ; ");
+    return {
+      body: t("page.issues.code.pending_unpublished_domain", { folders }),
+      persistent: null,
     };
   }
   if (issue.code === "transport_unreachable" && issue.detail === "folder_not_prepared") {

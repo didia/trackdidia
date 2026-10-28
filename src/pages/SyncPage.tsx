@@ -42,8 +42,11 @@ const PeerRow = ({
   onConfirm,
   onCancel,
   disabled,
+  haltedForBackup,
 }: {
   peer: PeerStatus;
+  /** The last pull stopped this peer's merge because the required safety backup could not be made. */
+  haltedForBackup: boolean;
   onApprove: () => void;
   approving: boolean;
   onConfirm: () => void;
@@ -68,7 +71,16 @@ const PeerRow = ({
       <td>{peer.profile ?? unknown}</td>
       <td>{t(`page.peerState.${peer.state}`)}</td>
       <td>
-        {peer.message}
+        {peer.state === "pending" ? (
+          t("page.peers.pendingDetail")
+        ) : peer.state === "error" && haltedForBackup ? (
+          <>
+            {t("page.peers.haltedBackup")}{" "}
+            <Link to="/parametres">{t("page.gate.settingsLink")}</Link>
+          </>
+        ) : (
+          peer.message
+        )}
         {peer.state === "stale" ? (
           <div className="sync-stale">
             <p>{t("page.stale.warning", { name: peer.peerName || shortId(peer.peerId) })}</p>
@@ -210,10 +222,19 @@ export const SyncPage = () => {
   const allIssues = status?.issues ?? [];
   const persistent = allIssues.filter((issue) => persistentKindOf(issue) !== null);
   const ordinary = allIssues.filter((issue) => persistentKindOf(issue) === null);
-  const runIssues = (sync.run?.report?.pull.issues ?? []).filter(
-    (issue) => !allIssues.includes(issue),
-  );
+  // Issues of the last run the engine status does not carry (it leaves out notes): the pull's and the
+  // publish's, including informational ones such as a publish replaced by a newer one.
+  const runIssues = [
+    ...(sync.run?.report?.pull.issues ?? []),
+    ...(sync.run?.report?.publish.issues ?? []),
+  ].filter((issue) => !allIssues.includes(issue));
   const syncingNow = sync.phase === "syncing";
+  // Peers whose merge the last pull never started because the safety backup could not be made.
+  const haltedPeerIds = new Set(
+    (status?.lastPull?.peers ?? [])
+      .filter((peer) => peer.domains.some((domain) => domain.outcome === "halted"))
+      .map((peer) => peer.peerId),
+  );
 
   return (
     <div className="page">
@@ -301,6 +322,7 @@ export const SyncPage = () => {
                       peer={peer}
                       approving={approving === peer.peerId}
                       disabled={busy}
+                      haltedForBackup={haltedPeerIds.has(peer.peerId)}
                       onApprove={() => setApproving(peer.peerId)}
                       onCancel={() => setApproving(null)}
                       onConfirm={() => {

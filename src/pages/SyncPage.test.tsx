@@ -2,6 +2,7 @@ import { fireEvent, screen, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { describe, expect, it } from "vitest";
 import { defaultAppSettings } from "../domain/settings";
+import type { PeerState, SyncIssueCode } from "../lib/sync/engine-types";
 import {
   issue,
   peer,
@@ -401,5 +402,219 @@ describe("stale peers", () => {
   it("offers no approval for a peer that is not stale", async () => {
     await renderPage(syncController({ status: status({ peers: [peer()] }) }));
     expect(screen.queryByRole("button", { name: /Fusionner quand même/ })).toBeNull();
+  });
+});
+
+// Both records are exhaustive by type: adding an issue code or a peer state to the engine makes this
+// file stop compiling until the page has copy for it (and the tests below render it).
+const ALL_ISSUE_CODES: Record<SyncIssueCode, true> = {
+  sync_not_ready: true,
+  transport_unreachable: true,
+  transport_timeout: true,
+  transport_failed: true,
+  transport_ignored: true,
+  manifest_invalid: true,
+  format_version_unsupported: true,
+  update_required: true,
+  stale_peer: true,
+  clock_skew: true,
+  domain_not_allowed: true,
+  wrong_domain_bundle: true,
+  bundle_device_mismatch: true,
+  bundle_not_ready: true,
+  bundle_invalid: true,
+  bundle_rejected: true,
+  bundle_failed: true,
+  bookkeeping_failed: true,
+  safety_backup_required: true,
+  publish_failed: true,
+  publish_skipped: true,
+  pending_unpublished_domain: true,
+};
+const ALL_PEER_STATES: Record<PeerState, true> = {
+  synced: true,
+  update_required: true,
+  stale: true,
+  format_unsupported: true,
+  invalid_manifest: true,
+  not_ready: true,
+  pending: true,
+  error: true,
+  unreachable: true,
+  unknown: true,
+};
+
+describe("every issue code and peer state has French copy", () => {
+  it("renders every issue code without a missing translation key", async () => {
+    const issues = (Object.keys(ALL_ISSUE_CODES) as SyncIssueCode[]).map((code) =>
+      issue({
+        code,
+        severity: "warning",
+        peerName: "Pair",
+        domain: "gtd",
+        message: `engine message for ${code}`,
+        detail: code === "pending_unpublished_domain" ? "personal,finance" : undefined,
+      }),
+    );
+    await renderPage(syncController({ status: status({ issues }) }));
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/page\.issues\.|page\.peerState\.|page\.peers\./);
+    expect(screen.getAllByText("Avertissement")).toHaveLength(issues.length);
+  });
+
+  it("renders every peer state with its label", async () => {
+    const states = Object.keys(ALL_PEER_STATES) as PeerState[];
+    await renderPage(
+      syncController({
+        status: status({
+          peers: states.map((state, index) =>
+            peer({
+              peerId: `dev:00000000-0000-4000-8000-0000000001${String(index).padStart(2, "0")}`,
+              peerName: `Pair ${state}`,
+              state,
+              message: `engine detail for ${state}`,
+            }),
+          ),
+        }),
+      }),
+    );
+    expect(document.body.textContent ?? "").not.toMatch(/page\.peerState\./);
+    const rows = within(screen.getByRole("table")).getAllByRole("row");
+    expect(rows).toHaveLength(states.length + 1);
+    expect(
+      within(rows[states.indexOf("pending") + 1] as HTMLElement).getByText("En attente"),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("pending work and superseded publishes", () => {
+  it("explains a peer left for the next run without showing the engine's English message", async () => {
+    await renderPage(
+      syncController({
+        status: status({
+          peers: [
+            peer({
+              state: "pending",
+              message: "Not merged yet: the time budget ran out; the next sync continues",
+            }),
+          ],
+        }),
+      }),
+    );
+    expect(screen.getByText("En attente")).toBeInTheDocument();
+    expect(
+      screen.getByText(/le temps imparti à cette synchronisation est écoulé/),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/time budget/)).toBeNull();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows the run-wide safety-backup reason, with a link to Settings, for a halted first merge", async () => {
+    const target = peer({
+      state: "error",
+      message:
+        "A backup of this laptop is required before merging (first_merge) and could not be made",
+    });
+    await renderPage(
+      syncController({
+        status: status({
+          peers: [target],
+          lastPull: pullReport({
+            complete: false,
+            safetyBackup: { reasons: ["first_merge"], status: "failed" },
+            peers: [
+              {
+                peerId: target.peerId,
+                peerName: target.peerName,
+                transport: "folder:gtd",
+                status: "ok",
+                domains: [{ domain: "gtd", outcome: "halted" }],
+              },
+            ],
+          }),
+        }),
+      }),
+    );
+    expect(screen.getByText(/Première fusion arrêtée/)).toBeInTheDocument();
+    expect(screen.queryByText(/A backup of this laptop is required/)).toBeNull();
+    const row = screen.getByText(/Première fusion arrêtée/).closest("tr") as HTMLElement;
+    expect(within(row).getByRole("link", { name: "Ouvrir les Paramètres" })).toHaveAttribute(
+      "href",
+      "/parametres",
+    );
+  });
+
+  it("keeps the engine's message for an error that is not a halted merge", async () => {
+    await renderPage(
+      syncController({
+        status: status({ peers: [peer({ state: "error", message: "rejected bundle" })] }),
+      }),
+    );
+    expect(screen.getByText("rejected bundle")).toBeInTheDocument();
+    expect(screen.queryByText(/Première fusion arrêtée/)).toBeNull();
+  });
+
+  it("names which folder is not connected when changes stay pending, as information", async () => {
+    const run = {
+      finishedAtMs: Date.now(),
+      error: null,
+      report: {
+        pull: pullReport(),
+        publish: publishReport({
+          domains: [
+            { domain: "gtd", outcome: "clean", transport: "folder:gtd" },
+            { domain: "personal", outcome: "no_transport" },
+            { domain: "finance", outcome: "no_transport" },
+          ],
+          issues: [
+            issue({
+              severity: "info",
+              code: "pending_unpublished_domain",
+              detail: "personal,finance",
+              transport: undefined,
+              message: "Changes stay pending because nothing carries the personal, finance data",
+            }),
+          ],
+        }),
+      },
+    };
+    await renderPage(syncController({ status: status(), run }));
+    expect(
+      screen.getByText(
+        /Dossier non connecté : dossier personnel\. Tes changements restent en attente/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Info")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("shows a publish replaced by a newer one as information, not an alarm", async () => {
+    const run = {
+      finishedAtMs: Date.now(),
+      error: null,
+      report: {
+        pull: pullReport(),
+        publish: publishReport({
+          issues: [
+            issue({
+              severity: "info",
+              code: "publish_skipped",
+              detail: "stale_publish",
+              domain: "gtd",
+              transport: "folder:gtd",
+              message: "The gtd publish was superseded by a newer one",
+            }),
+          ],
+        }),
+      },
+    };
+    await renderPage(syncController({ status: status(), run }));
+    expect(
+      screen.getByText(
+        /La publication des données GTD a été remplacée par une plus récente : rien n'est perdu\./,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("Erreur")).toBeNull();
   });
 });

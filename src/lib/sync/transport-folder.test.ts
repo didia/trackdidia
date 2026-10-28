@@ -49,12 +49,17 @@ const changeSet = (
   ...overrides,
 });
 
+/** One engine instance numbering its publishes 1, 2, 3, ... like the real engine does. */
+let nextPublishSeq = 0;
+
 const meta = (overrides: Partial<PublishMeta> = {}): PublishMeta => ({
   deviceName: "Portable perso",
   appVersion: "0.2.0",
   profile: "personal",
   calendarSyncEnabled: false,
   writtenAtMs: Date.UTC(2026, 9, 14, 13, 2, 11, 482),
+  engineId: "engine-1",
+  publishSeq: (nextPublishSeq += 1),
   ...overrides,
 });
 
@@ -91,6 +96,7 @@ const manifestOf = (host: FakeFolderHost, dir: string, deviceId: string) =>
   >;
 
 afterEach(() => {
+  nextPublishSeq = 0;
   vi.mocked(bundle.encodeBundle).mockClear();
 });
 
@@ -223,9 +229,9 @@ describe("publish", () => {
     };
     const gtd = make("gtd", slow);
     const results = await Promise.all([
-      gtd.publish("gtd", changeSet(), meta()),
-      gtd.publish("gtd", changeSet(), meta()),
-      gtd.publish("gtd", changeSet(), meta()),
+      gtd.publish("gtd", changeSet(), meta({ publishSeq: 1 })),
+      gtd.publish("gtd", changeSet(), meta({ publishSeq: 1 })),
+      gtd.publish("gtd", changeSet(), meta({ publishSeq: 1 })),
     ]);
     expect(results.map((result) => result.generation)).toEqual([1, 2, 3]);
     expect(overlapped).toBe(false);
@@ -285,6 +291,163 @@ describe("a publish that times out", () => {
     host.failNext("list", "folder_not_found");
     await expect(gtd.publish("gtd", changeSet(), meta())).rejects.toMatchObject({
       code: "timeout",
+    });
+  });
+});
+
+describe("fencing: an older publish never commits after a newer one", () => {
+  const snapshotOf = (host: FakeFolderHost, deviceId = A) => {
+    const manifest = manifestOf(host, GTD_DIR, deviceId);
+    const entry = (manifest.domains as Record<string, { file: string }>).gtd as { file: string };
+    return host.read(GTD_DIR, `sync/dev-${deviceId.slice(4)}/${entry.file}`) as Uint8Array;
+  };
+  const marked = (label: string) =>
+    changeSet("gtd", { settings: [{ key: "language", value: label, rowHlc: hlc(1000) }] });
+  const labelOf = async (bytes: Uint8Array) =>
+    ((await bundle.decodeBundle(bytes)).settings[0] as { value: string }).value;
+
+  it("rejects an older sequence at the commit point and writes nothing", async () => {
+    const { host, make } = setup();
+    await prepare(host);
+    const gtd = make("gtd");
+    await gtd.publish("gtd", marked("newer"), meta({ publishSeq: 5 }));
+    host.calls.length = 0;
+    const error = await gtd
+      .publish("gtd", marked("older"), meta({ publishSeq: 3 }))
+      .catch((caught) => caught);
+    expect(error).toBeInstanceOf(SyncTransportError);
+    expect((error as SyncTransportError).code).toBe("stale_publish");
+    expect(host.calls).toEqual([]);
+    expect(await labelOf(snapshotOf(host))).toBe("newer");
+    expect(manifestOf(host, GTD_DIR, A).domains).toMatchObject({ gtd: { generation: 1 } });
+    // The same sequence again, and a newer one, are fine.
+    await expect(gtd.publish("gtd", marked("again"), meta({ publishSeq: 5 }))).resolves.toEqual({
+      generation: 2,
+    });
+    await expect(gtd.publish("gtd", marked("later"), meta({ publishSeq: 6 }))).resolves.toEqual({
+      generation: 3,
+    });
+  });
+
+  it("fences per engine instance and per domain: another instance starts a new sequence", async () => {
+    const { host, make } = setup();
+    await prepare(host);
+    const personal = make("personal");
+    await personal.publish("personal", changeSet("personal"), meta({ publishSeq: 9 }));
+    await expect(
+      personal.publish("finance", changeSet("finance"), meta({ publishSeq: 1 })),
+    ).resolves.toEqual({ generation: 1 });
+    await expect(
+      personal.publish(
+        "personal",
+        changeSet("personal"),
+        meta({ engineId: "engine-2", publishSeq: 1 }),
+      ),
+    ).resolves.toEqual({ generation: 2 });
+  });
+
+  it("skips an older publish still queued behind a held one when a newer snapshot waits", async () => {
+    const { host, make } = setup();
+    await prepare(host);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let held = false;
+    const committed: string[] = [];
+    const api: FolderApi = {
+      ...host.api,
+      publishSyncBundle: async (input) => {
+        if (!held) {
+          held = true;
+          await gate;
+        }
+        committed.push(await labelOf(input.bundle));
+        return host.api.publishSyncBundle(input);
+      },
+    };
+    const gtd = make("gtd", api);
+    const first = gtd.publish("gtd", marked("one"), meta({ publishSeq: 1 }));
+    // The first operation is running (held in the host) before the newer ones are requested.
+    await vi.waitFor(() => expect(held).toBe(true));
+    const second = gtd.publish("gtd", marked("two"), meta({ publishSeq: 2 }));
+    const third = gtd.publish("gtd", marked("three"), meta({ publishSeq: 3 }));
+    release();
+    const results = await Promise.allSettled([first, second, third]);
+    expect(results.map((result) => result.status)).toEqual(["fulfilled", "rejected", "fulfilled"]);
+    expect((results[1] as PromiseRejectedResult).reason).toMatchObject({ code: "stale_publish" });
+    expect(committed).toEqual(["one", "three"]);
+    expect(await labelOf(snapshotOf(host))).toBe("three");
+  });
+
+  describe("through the engine, when a call outlives the engine's timeout", () => {
+    it("ends with the newer snapshot: the abandoned operation keeps its place in the queue", async () => {
+      const sim = await createSyncHarness(["A"]);
+      const device = sim.devices[0] as (typeof sim.devices)[number];
+      const host = createFakeFolderHost();
+      host.mount(GTD_DIR);
+      host.mount(PERSONAL_DIR);
+      await prepare(host);
+      let release: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      let held = false;
+      const commits: number[] = [];
+      const taskCount = async (bytes: Uint8Array) =>
+        (await bundle.decodeBundle(bytes)).entities.filter(
+          (entity) => (entity as { table: string }).table === "gtd_tasks",
+        ).length;
+      const api: FolderApi = {
+        ...host.api,
+        publishSyncBundle: async (input) => {
+          if (input.domain !== "gtd") return host.api.publishSyncBundle(input);
+          if (!held) {
+            held = true;
+            await gate;
+          }
+          commits.push(await taskCount(input.bundle));
+          return host.api.publishSyncBundle(input);
+        },
+      };
+      const engine = createSyncEngine({
+        repo: device.repo,
+        transports: (["gtd", "personal"] as const).map((role) =>
+          createFolderTransport({
+            role,
+            folderDir: role === "gtd" ? GTD_DIR : PERSONAL_DIR,
+            environment: "production",
+            deviceId: device.deviceId,
+            api,
+          }),
+        ),
+        profile: "personal",
+        now: device.clock.read,
+        transportTimeoutMs: 40,
+      });
+
+      await device.repo.createTask({ id: "t1", title: "first", bucket: "inbox" });
+      const slow = await engine.publish();
+      expect(slow.domains.find((domain) => domain.domain === "gtd")?.outcome).toBe("failed");
+
+      // The first publish is still running in the transport. A newer snapshot is taken and queued.
+      device.clock.advance();
+      await device.repo.createTask({ id: "t2", title: "second", bucket: "inbox" });
+      const queued = await engine.publish();
+      expect(queued.domains.find((domain) => domain.domain === "gtd")?.outcome).toBe("failed");
+      expect(commits).toEqual([]);
+
+      release();
+      await vi.waitFor(() => expect(commits.length).toBeGreaterThanOrEqual(2));
+      // Whatever else happens, no snapshot with fewer tasks commits after one with more.
+      expect(commits).toEqual([...commits].sort((a, b) => a - b));
+      // The engine's late-completion repair republishes if needed; the folder ends with both tasks.
+      await vi.waitFor(async () => {
+        device.clock.advance();
+        await engine.publish();
+        expect(await taskCount(snapshotOf(host, device.deviceId))).toBe(2);
+      });
+      expect(commits[commits.length - 1]).toBe(2);
     });
   });
 });
@@ -509,6 +672,8 @@ describe("error mapping", () => {
   it("leaves transport errors as they are", () => {
     const timeout = new SyncTransportError("timeout", "t");
     expect(mapFolderError(timeout, "x")).toBe(timeout);
+    const stale = new SyncTransportError("stale_publish", "s");
+    expect(mapFolderError(stale, "x")).toBe(stale);
   });
 
   it("surfaces every mapped error through the real methods", async () => {

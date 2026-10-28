@@ -45,6 +45,13 @@ import {
  *   transport therefore reads its own manifest back and, when the new bundle is there, reports
  *   success instead of a failure that would republish a second generation of the same data.
  * - Publishes of one device are serialized here (the host also serializes them per device directory).
+ *   FENCING (`PublishMeta.publishSeq`). The queue holds for the WHOLE operation (encode, `sync_publish`,
+ *   the read-back after a timeout) and keeps holding when the engine gives up on a call: the abandoned
+ *   operation keeps running underneath and the next publish waits for it, so commits happen in call
+ *   order. On top of that, at the commit point an operation whose `publishSeq` is older than one that
+ *   already committed, or older than one requested since (a newer snapshot is waiting behind it and
+ *   supersedes it), is rejected with `SyncTransportError("stale_publish")` and writes nothing. The engine
+ *   treats that as "superseded", not as a failure.
  */
 
 export const FOLDER_ROLE_DOMAINS: Readonly<Record<SyncFolderRole, readonly SyncDomain[]>> = {
@@ -159,6 +166,11 @@ export class FolderTransport implements SyncTransport {
   private publishWarnings: string[] = [];
   /** The highest clock this device has published to this folder, across domains. */
   private hlcHigh: string | null = null;
+  /**
+   * Fencing state per (engine instance, domain): the highest `publishSeq` requested so far. A commit
+   * can only come from a request, so "older than one that committed" is covered by it.
+   */
+  private readonly fences = new Map<string, { latest: number }>();
 
   constructor(options: FolderTransportOptions) {
     this.role = options.role;
@@ -266,7 +278,12 @@ export class FolderTransport implements SyncTransport {
       );
     }
     const what = `Publishing the ${domain} data`;
+    const fence = this.fenceOf(domain, meta.engineId);
+    // Recorded at call time, not when the operation starts: a snapshot queued behind a slow one is
+    // already known to supersede it.
+    fence.latest = Math.max(fence.latest, meta.publishSeq);
     return this.serialized(async () => {
+      this.assertNotSuperseded(fence, meta.publishSeq, domain);
       let encoded: Awaited<ReturnType<typeof encodeBundle>>;
       try {
         encoded = await encodeBundle(changeSet);
@@ -280,6 +297,8 @@ export class FolderTransport implements SyncTransport {
           { reason: "too_large" },
         );
       }
+      // The commit point: nothing below runs for a publish that a newer one has overtaken.
+      this.assertNotSuperseded(fence, meta.publishSeq, domain);
       this.noteHlc(changeSet.hlcHigh);
       const manifest = {
         formatVersion: SYNC_FORMAT_VERSION,
@@ -331,6 +350,30 @@ export class FolderTransport implements SyncTransport {
       return generationOf(listed.own, domain);
     } catch {
       return null;
+    }
+  }
+
+  private fenceOf(domain: SyncDomain, engineId: string) {
+    const key = `${engineId}|${domain}`;
+    let fence = this.fences.get(key);
+    if (!fence) {
+      fence = { latest: 0 };
+      this.fences.set(key, fence);
+    }
+    return fence;
+  }
+
+  private assertNotSuperseded(
+    fence: { latest: number },
+    publishSeq: number,
+    domain: SyncDomain,
+  ): void {
+    if (publishSeq < fence.latest) {
+      throw new SyncTransportError(
+        "stale_publish",
+        `A newer ${domain} publish has been requested or committed; this one wrote nothing`,
+        { reason: "stale_publish" },
+      );
     }
   }
 
