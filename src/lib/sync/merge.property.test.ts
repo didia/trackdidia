@@ -186,7 +186,11 @@ const runSeed = async (seed: number, holder: { ctx: OpContext | null }) => {
     }
   }
   expect(await syncState(first.db)).toEqual(before);
-  expect(await first.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+  expect(await first.repo.enableSyncCapture()).toMatchObject({
+    installed: false,
+    backfilled: 0,
+    backfillComplete: true,
+  });
 
   // The laptops converge to the same state once they exchange everything ...
   for (let round = 0; round < 2; round += 1) {
@@ -218,7 +222,11 @@ const runSeed = async (seed: number, holder: { ctx: OpContext | null }) => {
       }
     }
     expect(await syncState(device.db)).toEqual(settled);
-    expect(await device.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await device.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   }
 };
 

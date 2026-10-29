@@ -13,6 +13,7 @@ import {
 import { SyncErrorMessage } from "../components/sync/SyncErrorMessage";
 import { formatDateTimeShort } from "../lib/date";
 import type { PeerStatus, PullReport, SyncIssue } from "../lib/sync/engine-types";
+import { backfillPercent } from "../lib/sync/backfill-driver";
 import { isSyncPageEnabled } from "../lib/sync/gate";
 
 const shortId = (deviceId: string): string => deviceId.replace(/^dev:/, "").slice(0, 8);
@@ -131,6 +132,25 @@ const PullSummary = ({ pull }: { pull: PullReport }) => {
         </p>
       )}
       {pull.complete ? null : <p>{t("page.last.incomplete", { count: pull.remaining.length })}</p>}
+      {pull.peers
+        .flatMap((peer) => peer.domains)
+        .filter((result) => result.chunks !== undefined)
+        .map((result, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: the list is rebuilt whole, never reordered
+          <p key={`chunks:${result.domain}:${index}`}>
+            {result.outcome === "deferred"
+              ? t("page.last.partial", {
+                  domain: t(`page.domain.${result.domain as "gtd"}`),
+                  done: result.chunks?.applied ?? 0,
+                  total: result.chunks?.total ?? 0,
+                })
+              : t("page.last.chunks", {
+                  domain: t(`page.domain.${result.domain as "gtd"}`),
+                  count: result.chunks?.total ?? 0,
+                  ms: Math.round(result.chunks?.maxMs ?? 0),
+                })}
+          </p>
+        ))}
       <p>
         <strong>{t("page.last.backup.title")} : </strong>
         {pull.safetyBackup.status === "taken" && pull.safetyBackup.path
@@ -173,10 +193,13 @@ export const SyncPage = () => {
   const open = isSyncPageEnabled(debugEnabled, settings) && sync.supported && !browserPreview;
   const busy = sync.phase !== "idle";
 
+  // Also while sync is not turned on yet: an enable that was interrupted (the app quit during the
+  // first pass) left a stored backfill that this page offers to resume.
+  const reachable = debugEnabled && sync.supported && !browserPreview;
   const { refresh } = sync;
   useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
+    if (reachable) void refresh();
+  }, [reachable, open, refresh]);
 
   const header = (actions?: React.ReactNode) => (
     <PageHeader
@@ -214,6 +237,22 @@ export const SyncPage = () => {
         <div className="banner" role="status">
           {t("page.gate.disabled")} <Link to="/parametres">{t("page.gate.settingsLink")}</Link>
         </div>
+        {sync.backfill ? (
+          <div className="banner" role="status">
+            <strong>{t("page.backfill.title")}</strong>
+            <p>{t("page.backfill.body", { percent: sync.backfill.percent })}</p>
+            <button
+              className="button button--primary"
+              type="button"
+              disabled={busy}
+              onClick={() => void sync.resumeBackfill()}
+            >
+              {sync.phase === "resuming" || sync.phase === "enabling"
+                ? t("page.backfill.resuming")
+                : t("page.backfill.resume")}
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }
@@ -283,7 +322,26 @@ export const SyncPage = () => {
         <p role="status">{t("page.loading")}</p>
       ) : null}
 
-      {status !== null && !status.ready ? (
+      {status !== null && !status.backfill.complete ? (
+        <div className="banner" role="status">
+          <strong>{t("page.backfill.title")}</strong>
+          <p>
+            {t("page.backfill.body", {
+              percent: sync.backfill?.percent ?? backfillPercent(status.backfill.progress, false),
+            })}
+          </p>
+          <button
+            className="button button--primary"
+            type="button"
+            disabled={busy}
+            onClick={() => void sync.resumeBackfill()}
+          >
+            {sync.phase === "resuming" ? t("page.backfill.resuming") : t("page.backfill.resume")}
+          </button>
+        </div>
+      ) : null}
+
+      {status !== null && !status.ready && status.backfill.complete ? (
         <div className="banner" role="status">
           {t("page.notReady")}
         </div>

@@ -82,7 +82,11 @@ describe("capture of the categorization unit", () => {
     await a.db.execute("UPDATE finance_transactions SET notes = notes WHERE id = $1", [current.id]);
     await a.stamp();
     expect(await syncState(a.db)).toEqual(before);
-    expect(await a.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await a.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
     expect(await syncState(a.db)).toEqual(before);
   });
 
@@ -429,7 +433,11 @@ describe("capture of the categorization unit", () => {
     expect(healed.rowHlc).toBe(stamped.rowHlc);
     expect(healed.clocks).toEqual({ categorization: stamped.rowHlc });
     // Counted as one stamped entity, and a second scan finds nothing.
-    expect(await a.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await a.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
     expect(counter[0]?.change_counter).toBeGreaterThan(0);
   });
 });

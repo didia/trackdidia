@@ -352,14 +352,22 @@ const checkConvergence = async (
       tombstonesApplied: 0,
     });
   }
-  expect(await first.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+  expect(await first.repo.enableSyncCapture()).toMatchObject({
+    installed: false,
+    backfilled: 0,
+    backfillComplete: true,
+  });
 
   // The laptops converge to the same state once they exchange everything.
   await sim.syncAll(domain);
   await sim.expectConverged(domain, { snapshots: true, exact: true });
   for (const device of sim.devices) {
     expect(JSON.parse(await stateOf(sim, device, domain))).toEqual(JSON.parse(states[0] as string));
-    expect(await device.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await device.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   }
 };
 

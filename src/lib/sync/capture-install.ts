@@ -413,7 +413,7 @@ export const ensureSyncCapture = async (
 };
 
 /**
- * Drops the capture triggers, the pending marks and the state row. Leaves `sync_entity_meta` and
+ * Drops the capture triggers, the pending marks, the state row and any backfill progress. Leaves `sync_entity_meta` and
  * `sync_entity_snapshot` alone: they are the history a later `enableSyncCapture` reconciles
  * against (its verify pass restamps anything edited while capture was off).
  */
@@ -421,5 +421,7 @@ export const disableSyncCapture = async (db: Database): Promise<{ droppedTrigger
   const droppedTriggers = await dropInstalledTriggers(db);
   await db.execute("DELETE FROM sync_dirty");
   await db.execute("DELETE FROM sync_capture_state WHERE id = 1");
+  // A pass in flight is meaningless without capture; the next enable starts a fresh one.
+  await db.execute("DELETE FROM sync_backfill_state WHERE id = 1");
   return { droppedTriggers };
 };

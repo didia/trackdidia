@@ -7,6 +7,7 @@ import type { AppSettings } from "../../domain/types";
 import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database";
 import { MemoryRepository } from "../storage/memory-repository";
 import { TauriSqliteRepository } from "../storage/tauri-sqlite-repository";
+import { backfillPercent } from "./backfill-driver";
 import { SyncFolderError } from "./folder-api";
 import {
   buildSyncEngine,
@@ -245,6 +246,8 @@ describe("enableSync", () => {
     expect(result.capture.installed).toBe(true);
     expect(result.capture.backfilled).toBeGreaterThan(0);
     expect(result.capture.durationMs).toBeGreaterThanOrEqual(0);
+    // A database that fits one chunk still reports that chunk's statements.
+    expect(result.capture.maxChunkStatements).toBeGreaterThan(0);
     expect(result.folders).toEqual({ gtd: GTD, personal: PERSONAL });
     expect((await a.settings()).multiDeviceSyncEnabled).toBe(true);
     expect(host.calls.map((call) => call.role)).toEqual(["gtd", "personal"]);
@@ -253,6 +256,112 @@ describe("enableSync", () => {
       identity: { deviceId: a.deviceId },
       captureEnabled: true,
     });
+  });
+
+  it("runs the backfill as bounded chunks with progress, and saves the setting only at the end", async () => {
+    const { laptops } = await world();
+    const [a] = laptops as [Laptop];
+    for (let i = 0; i < 70; i += 1) {
+      await a.repository.createTask({ id: `t${i}`, title: `T${i}`, bucket: "inbox" });
+    }
+    const ticks: { percent: number; chunks: number }[] = [];
+    const settingsDuring: boolean[] = [];
+    const result = await enableSync({
+      repository: a.repository,
+      settings: await a.settings(),
+      updateSettings: a.update,
+      deps: a.deps,
+      backfillLimits: { rowsPerChunk: 25, statementsPerChunk: 10_000 },
+      yieldBetweenChunks: async () => {
+        settingsDuring.push((await a.settings()).multiDeviceSyncEnabled);
+      },
+      onBackfillProgress: (tick) =>
+        ticks.push({
+          percent: backfillPercent(tick.progress, tick.complete),
+          chunks: tick.chunksSoFar,
+        }),
+    });
+    expect(result.capture.chunks).toBeGreaterThan(3);
+    expect(result.capture.maxChunkStatements).toBeGreaterThan(0);
+    expect(ticks.length).toBe(result.capture.chunks - 1);
+    // Progress only goes forward and ends at 100.
+    expect(ticks.map((tick) => tick.percent)).toEqual(
+      [...ticks.map((tick) => tick.percent)].sort((x, y) => x - y),
+    );
+    expect(ticks.at(-1)?.percent).toBe(100);
+    // The setting is not saved while chunks are still running.
+    expect(settingsDuring.every((enabled) => !enabled)).toBe(true);
+    expect((await a.settings()).multiDeviceSyncEnabled).toBe(true);
+    expect(await a.repository.getSyncStatus()).toMatchObject({ backfillComplete: true });
+  });
+
+  it("leaves sync off and the pass resumable when the backfill is stopped, then finishes it", async () => {
+    const { laptops } = await world();
+    const [a] = laptops as [Laptop];
+    for (let i = 0; i < 70; i += 1) {
+      await a.repository.createTask({ id: `t${i}`, title: `T${i}`, bucket: "inbox" });
+    }
+    let chunks = 0;
+    const limits = { rowsPerChunk: 25, statementsPerChunk: 10_000 };
+    expect(
+      await setupCode(
+        enableSync({
+          repository: a.repository,
+          settings: await a.settings(),
+          updateSettings: a.update,
+          deps: a.deps,
+          backfillLimits: limits,
+          onBackfillProgress: () => {
+            chunks += 1;
+          },
+          shouldStop: () => chunks >= 1,
+        }),
+      ),
+    ).toBe("backfill_incomplete");
+    expect((await a.settings()).multiDeviceSyncEnabled).toBe(false);
+    const stopped = await a.repository.getSyncStatus();
+    expect(stopped).toMatchObject({ captureEnabled: true, backfillComplete: false });
+
+    // Enabling again resumes the same pass.
+    const resumed = await enableSync({
+      repository: a.repository,
+      settings: await a.settings(),
+      updateSettings: a.update,
+      deps: a.deps,
+      backfillLimits: limits,
+    });
+    expect(resumed.capture.installed).toBe(false);
+    expect((await a.settings()).multiDeviceSyncEnabled).toBe(true);
+    const done = await a.repository.getSyncStatus();
+    expect(done).toMatchObject({ backfillComplete: true });
+    expect(done.supported && done.backfillProgress?.pass).toBe(1);
+  });
+
+  it("reports a chunk that fails as capture_failed and keeps the pass resumable", async () => {
+    const { laptops } = await world();
+    const [a] = laptops as [Laptop];
+    for (let i = 0; i < 70; i += 1) {
+      await a.repository.createTask({ id: `t${i}`, title: `T${i}`, bucket: "inbox" });
+    }
+    const original = a.repository.continueSyncCaptureBackfill.bind(a.repository);
+    a.repository.continueSyncCaptureBackfill = async () => {
+      throw new Error("disk full");
+    };
+    expect(
+      await setupCode(
+        enableSync({
+          repository: a.repository,
+          settings: await a.settings(),
+          updateSettings: a.update,
+          deps: a.deps,
+          backfillLimits: { rowsPerChunk: 25, statementsPerChunk: 10_000 },
+        }),
+      ),
+    ).toBe("capture_failed");
+    expect((await a.settings()).multiDeviceSyncEnabled).toBe(false);
+    a.repository.continueSyncCaptureBackfill = original;
+    await enable(a);
+    expect((await a.settings()).multiDeviceSyncEnabled).toBe(true);
   });
 
   it("does not save the setting when a step fails, and can be run again", async () => {

@@ -118,7 +118,11 @@ const expectEveryOrderConverges = async (
       await replica.repo.applySyncBundle("personal", bundles[position] as SyncChangeSet);
     }
     expect(await foreignKeyViolations(replica), `order ${order.join("")}`).toEqual([]);
-    expect(await replica.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await replica.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
     const again = await replica.repo.applySyncBundle(
       "personal",
       bundles[order[0] as number] as SyncChangeSet,

@@ -61,7 +61,11 @@ describe("two personal laptops draw the same day while offline", () => {
         (await readConflicts(device)).filter((row) => row.entity_type === "gtd_tasks"),
       ).toEqual([]);
       const before = await syncState(device.db);
-      expect(await device.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+      expect(await device.repo.enableSyncCapture()).toMatchObject({
+        installed: false,
+        backfilled: 0,
+        backfillComplete: true,
+      });
       expect(await syncState(device.db)).toEqual(before);
     }
     await sim.expectConverged("gtd", { snapshots: true });
@@ -157,7 +161,11 @@ describe("a draw made before the change meets a deterministic one", () => {
         await device.db.select(`SELECT 1 FROM gtd_task_events WHERE task_id = 'task:${SOURCE}'`),
       ).toEqual([]);
       const before = await syncState(device.db);
-      expect(await device.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+      expect(await device.repo.enableSyncCapture()).toMatchObject({
+        installed: false,
+        backfilled: 0,
+        backfillComplete: true,
+      });
       expect(await syncState(device.db)).toEqual(before);
     }
     await sim.expectConverged("gtd", { snapshots: true });

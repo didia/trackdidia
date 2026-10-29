@@ -711,6 +711,7 @@ describe("domain and merge-class sanity", () => {
       "sync_dirty",
       "sync_entity_snapshot",
       "sync_capture_state",
+      "sync_backfill_state",
     ]) {
       expect(domainOfTable(table)).toBe("device");
       expect(synced.has(table)).toBe(false);
@@ -783,7 +784,12 @@ describe("publish guards", () => {
 describe("sidecar tables", () => {
   const entityTyped = ["sync_conflicts", "sync_entity_meta", "sync_id_aliases"];
   const recurrence = ["sync_recurrence_clears", "sync_recurrence_occurrences"];
-  const captureBookkeeping = ["sync_capture_state", "sync_dirty", "sync_entity_snapshot"];
+  const captureBookkeeping = [
+    "sync_backfill_state",
+    "sync_capture_state",
+    "sync_dirty",
+    "sync_entity_snapshot",
+  ];
 
   it("classifies the change-capture bookkeeping as device-local, never published", () => {
     for (const table of captureBookkeeping) {

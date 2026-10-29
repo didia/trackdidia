@@ -5,6 +5,7 @@ import type { FinanceAccount, FinanceImportRow } from "../../domain/finance";
 import type { AiMemory, AnnualGoal } from "../../domain/types";
 // SAFETY: every repository here is backed by an isolated `:memory:` SQLite database.
 import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database";
+import { LATEST_MIGRATION_ID } from "../storage/migrations";
 import type { Database } from "../storage/sqlite-db";
 import { TauriSqliteRepository } from "../storage/tauri-sqlite-repository";
 import { type SyncChangeSet, validateChangeSet } from "./change-set";
@@ -262,7 +263,7 @@ describe("listSyncChanges: shape and consistency", () => {
         formatVersion: 1,
         domain,
         deviceId: a.deviceId,
-        schemaVersion: 44,
+        schemaVersion: LATEST_MIGRATION_ID,
       });
     }
     const gtd = await a.repo.listSyncChanges("gtd");

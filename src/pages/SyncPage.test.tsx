@@ -58,15 +58,108 @@ describe("SyncPage gates", () => {
     await renderPage(sync, { settings: defaultAppSettings() });
     expect(screen.getByText(/La synchronisation n'est pas activée/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Synchroniser maintenant" })).toBeNull();
-    expect(sync.refresh).not.toHaveBeenCalled();
+    // It reads the stored state once, to discover an enable that a restart interrupted.
+    expect(sync.refresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Reprendre l'initialisation" })).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: "Ouvrir les Paramètres" }));
     expect(screen.getByText("page parametres")).toBeInTheDocument();
+  });
+
+  it("offers to resume an enable that a restart interrupted, while sync is still off", async () => {
+    const sync = syncController({ backfill: { percent: 61, scannedRows: 61, totalRows: 100 } });
+    await renderPage(sync, { settings: defaultAppSettings() });
+    expect(screen.getByText(/\(61 %\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reprendre l'initialisation" }));
+    expect(sync.resumeBackfill).toHaveBeenCalledTimes(1);
   });
 
   it("loads its state on open", async () => {
     const sync = syncController();
     await renderPage(sync);
     expect(sync.refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SyncPage while the capture backfill is unfinished", () => {
+  const unfinished = () =>
+    status({
+      ready: false,
+      backfill: {
+        complete: false,
+        progress: {
+          pass: 1,
+          scannedRows: 30,
+          totalRows: 100,
+          stamped: 12,
+          startedAt: "2026-10-27T12:00:00.000Z",
+        },
+      },
+    });
+
+  it("explains that sync is paused, shows the percentage and resumes on request", async () => {
+    const sync = syncController({ status: unfinished() });
+    await renderPage(sync);
+    const banner = screen.getByText("Initialisation du suivi des changements").closest(".banner");
+    expect(banner).toHaveTextContent("(30 %)");
+    expect(banner).toHaveTextContent("La synchronisation reste en pause");
+    // The generic "not ready" message would be misleading here.
+    expect(screen.queryByText(/identité ou suivi des changements manquant/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reprendre l'initialisation" }));
+    expect(sync.resumeBackfill).toHaveBeenCalledTimes(1);
+  });
+
+  it("prefers the live percentage of a running resume and disables the button while busy", async () => {
+    await renderPage(
+      syncController({
+        status: unfinished(),
+        phase: "resuming",
+        backfill: { percent: 77, scannedRows: 77, totalRows: 100 },
+      }),
+    );
+    expect(screen.getByText(/\(77 %\)/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reprise de l'initialisation…" })).toBeDisabled();
+  });
+
+  it("shows no backfill banner once it is complete", async () => {
+    await renderPage(syncController({ status: status() }));
+    expect(screen.queryByText("Initialisation du suivi des changements")).toBeNull();
+  });
+});
+
+describe("SyncPage chunked merges", () => {
+  const runWith = (domains: never[]) => ({
+    finishedAtMs: Date.UTC(2026, 9, 27, 12, 0, 6),
+    error: null,
+    report: {
+      pull: pullReport({
+        peers: [
+          {
+            peerId: "dev:00000000-0000-4000-8000-000000000002",
+            peerName: "Portable bureau",
+            transport: "folder:personal",
+            status: "ok",
+            domains,
+          },
+        ],
+      }),
+      publish: publishReport(),
+    },
+  });
+
+  it("says how many steps a large bundle took, and where a cut one stopped", async () => {
+    const domains = [
+      { domain: "finance", outcome: "applied", chunks: { total: 12, applied: 12, maxMs: 188 } },
+      { domain: "gtd", outcome: "deferred", chunks: { total: 9, applied: 3, maxMs: 40 } },
+    ] as never[];
+    await renderPage(syncController({ status: status(), run: runWith(domains) }));
+    expect(screen.getByText(/fusion en 12 étapes \(la plus longue : 188 ms\)/)).toBeInTheDocument();
+    expect(screen.getByText(/fusion interrompue après 3 étapes sur 9/)).toBeInTheDocument();
+  });
+
+  it("says nothing about steps for a bundle applied in one piece", async () => {
+    const domains = [{ domain: "gtd", outcome: "applied" }] as never[];
+    await renderPage(syncController({ status: status(), run: runWith(domains) }));
+    expect(screen.queryByText(/fusion en/)).toBeNull();
   });
 });
 
@@ -181,6 +274,8 @@ describe("Sync now", () => {
             skipped: 30,
             tombstonesApplied: 4,
             conflictsLogged: 1,
+            chunksApplied: 2,
+            maxChunkMs: 5,
           },
           safetyBackup: {
             reasons: ["first_merge"],
@@ -267,6 +362,56 @@ describe("Sync now", () => {
     expect(screen.getByText("Impossible de la faire : rien n'a été fusionné.")).toBeInTheDocument();
     expect(screen.getByText(/Réception incomplète : 1 élément/)).toBeInTheDocument();
     expect(screen.getByText(/Une sauvegarde de cet ordinateur est requise/)).toBeInTheDocument();
+  });
+
+  it("does not claim nothing was kept when a late piece of a large bundle failed", async () => {
+    // What the engine reports when pieces 1 and 2 of 5 were committed and piece 3 failed.
+    const run = {
+      finishedAtMs: Date.now(),
+      error: null,
+      report: {
+        pull: pullReport({
+          complete: true,
+          peers: [
+            {
+              peerId: "dev:peer",
+              peerName: "Portable",
+              transport: "folder:gtd",
+              status: "ok",
+              domains: [
+                {
+                  domain: "gtd",
+                  outcome: "rejected",
+                  chunks: { total: 5, applied: 2, maxMs: 40 },
+                  partial: { kept: 2, total: 5 },
+                },
+              ],
+            },
+          ],
+          issues: [
+            issue({
+              severity: "error",
+              code: "bundle_partially_merged",
+              peerName: "Portable",
+              domain: "gtd",
+              detail: "row_filter_violation",
+              progress: { kept: 2, total: 5 },
+              message:
+                "The gtd data of Portable could not be merged: part 3 of 5 failed (x); the 2 earlier part(s) were kept and the whole bundle is tried again next time",
+            }),
+          ],
+        }),
+        publish: publishReport(),
+      },
+    };
+    await renderPage(syncController({ status: status(), run }));
+    expect(
+      screen.getByText(/n'ont été fusionnées qu'en partie : 2 partie\(s\) sur 5 sont conservées/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/réessayé en entier à la prochaine synchronisation/),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/rien n'a été conservé/);
   });
 
   it("renders a run that failed before it produced a report", async () => {
@@ -409,6 +554,7 @@ describe("stale peers", () => {
 // file stop compiling until the page has copy for it (and the tests below render it).
 const ALL_ISSUE_CODES: Record<SyncIssueCode, true> = {
   sync_not_ready: true,
+  backfill_incomplete: true,
   transport_unreachable: true,
   transport_timeout: true,
   transport_failed: true,
@@ -425,6 +571,7 @@ const ALL_ISSUE_CODES: Record<SyncIssueCode, true> = {
   bundle_invalid: true,
   bundle_rejected: true,
   bundle_failed: true,
+  bundle_partially_merged: true,
   bookkeeping_failed: true,
   safety_backup_required: true,
   publish_failed: true,

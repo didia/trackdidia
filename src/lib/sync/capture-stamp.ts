@@ -2,8 +2,6 @@ import { defaultAppSettings, normalizeAppSettings } from "../../domain/settings"
 import type { Database } from "../storage/sqlite-db";
 import {
   assertRegistryMatchesSchema,
-  captureTriggerTables,
-  capturedTables,
   isCapturedTable,
   type LiveTableSchema,
   readLiveSchema,
@@ -17,8 +15,8 @@ import {
   splitSnapshotJson,
   stampTransaction,
 } from "./capture-finance";
-import { captureRecurringInstance, ensureInstanceOccurrences } from "./capture-recurrence";
-import { createHlcBatch, type HlcBatch, SyncClockError } from "./clock-store";
+import { captureRecurringInstance } from "./capture-recurrence";
+import { createHlcBatch, type HlcBatch } from "./clock-store";
 import { entityIdOf, parseEntityId, type PrimaryKeyValue } from "./entity-id";
 import {
   buildFieldClockUpdates,
@@ -702,85 +700,4 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
     ]);
   }
   return stamped;
-};
-
-export interface BackfillOptions {
-  /**
-   * Also re-check every row that already has a live meta row against its stored snapshot / hash,
-   * not only rows with no meta. Needed when capture was off for a while (edits made meanwhile have
-   * no marks). Costs a full read of every synced table, so it is for enable time, not for routine
-   * runs.
-   */
-  verify?: boolean;
-}
-
-const keyExpression = (alias: string, primaryKey: readonly string[]): string =>
-  primaryKey.length === 1
-    ? `CAST(${alias}."${primaryKey[0]}" AS TEXT)`
-    : `json_array(${primaryKey.map((column) => `${alias}."${column}"`).join(", ")})`;
-
-/**
- * The self-healing scan. Marks, then stamps through the normal path:
- * - every synced row with no live meta row (never stamped, or tombstoned but present again) as a
- *   creation;
- * - every live meta row whose underlying row is gone as a tombstone (a delete no trigger saw, such
- *   as the replaced victim of `INSERT OR REPLACE` on a non-key unique conflict);
- * - the settings blob (its synced keys that differ from their baseline);
- * - with `verify`, every row.
- *
- * Idempotent: a second run stamps nothing. Runs inside the caller's write transaction. Requires an
- * identity row. Returns the number of stamped entities (also added to `change_counter`).
- */
-export const backfillSyncCapture = async (
-  db: Database,
-  nowMs: number,
-  options: BackfillOptions = {},
-): Promise<number> => {
-  const identity = await db.select<{ id: number }[]>("SELECT id FROM sync_identity WHERE id = 1");
-  if (identity.length === 0) {
-    throw new SyncClockError(
-      "identity_missing",
-      "Multi-device sync identity has not been created on this device",
-    );
-  }
-  const schema = await readLiveSchema(db, captureTriggerTables());
-
-  for (const entry of capturedTables()) {
-    assertRegistryMatchesSchema(entry.table, schema.get(entry.table));
-    const key = keyExpression("t", entry.primaryKey);
-    const liveKey = keyExpression("l", entry.primaryKey);
-    // NULL hazard: `x NOT IN (subquery)` is NULL, never true, as soon as the subquery yields a NULL.
-    // Most captured primary keys are nullable TEXT, so the live-key subquery below filters NULLs
-    // out; `sync_entity_meta.entity_id` is NOT NULL, so the other subquery cannot yield one.
-    const unstamped = options.verify
-      ? ""
-      : `WHERE ${key} NOT IN (
-           SELECT entity_id FROM sync_entity_meta
-           WHERE entity_type = '${entry.table}' AND deleted_at IS NULL)`;
-    await db.execute(
-      `INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id, op)
-       SELECT '${entry.table}', ${key}, 'upsert' FROM "${entry.table}" t ${unstamped}`,
-    );
-    await db.execute(
-      `INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id, op)
-       SELECT m.entity_type, m.entity_id, 'delete' FROM sync_entity_meta m
-       WHERE m.entity_type = '${entry.table}' AND m.deleted_at IS NULL
-         AND m.entity_id NOT IN (
-           SELECT ${liveKey} FROM "${entry.table}" l WHERE ${liveKey} IS NOT NULL)`,
-    );
-  }
-  await db.execute(
-    `INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id, op)
-     SELECT '${SETTINGS_TABLE}', CAST(id AS TEXT), 'upsert' FROM app_settings`,
-  );
-  const stamped = await stampDirtyEntities(db, nowMs);
-  // Recurring instances stamped before the occurrence sidecars existed (or while capture was off)
-  // get their baseline record. Idle when every instance already has one.
-  const issuer = createHlcBatch(db, nowMs);
-  const baselined = await ensureInstanceOccurrences(db, () => issuer.next());
-  if (baselined > 0) {
-    await issuer.flush();
-    await db.execute("UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1");
-  }
-  return stamped + (baselined > 0 ? 1 : 0);
 };

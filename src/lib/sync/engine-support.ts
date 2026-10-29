@@ -1,6 +1,7 @@
 import type { AppRepository } from "../storage/repository";
 import type { SafetyBackupReason, SyncIssue } from "./engine-types";
 import type { DeviceProfile } from "./profile";
+import type { ApplyLimits } from "./split-change-set";
 import type { SyncTransport } from "./transport";
 import { SyncTransportError, SyncTransportFailure } from "./transport";
 
@@ -52,6 +53,13 @@ export interface SyncEngineOptions {
    * the engine's backstop. Default {@link DEFAULT_TRANSPORT_TIMEOUT_MS}; `Infinity` disables it.
    */
   transportTimeoutMs?: number;
+  /**
+   * How big one piece of a large incoming bundle may be (see `split-change-set.ts`); a bundle above
+   * these is applied as several pieces, each its own writer slot. Defaults to `DEFAULT_APPLY_LIMITS`.
+   */
+  applyLimits?: Partial<ApplyLimits>;
+  /** Awaited between the pieces of a large bundle (default: a macrotask). Tests pass a no-op. */
+  yieldBetweenChunks?: () => Promise<void>;
 }
 
 /** The engine's own limit for one transport call (a folder that is online-only can be slow). */
@@ -67,6 +75,14 @@ export interface EngineContext {
   calendarSyncEnabled: () => boolean | Promise<boolean>;
   beforeFirstMerge: EnsureSafetyBackup | undefined;
   transportTimeoutMs: number;
+  applyLimits: Partial<ApplyLimits>;
+  yieldBetweenChunks: (() => Promise<void>) | undefined;
+  /**
+   * Pieces already applied of a large bundle that a budget-limited pull stopped in the middle of,
+   * keyed by peer, domain, bundle hash and limits. In-process only: after a restart the bundle is
+   * applied from its first piece again, which is idempotent.
+   */
+  chunkResume: Map<string, number>;
 }
 
 export const messageOf = (error: unknown): string =>
