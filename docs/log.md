@@ -20,6 +20,7 @@ is only the catalog and write rules — day-to-day work should not edit it.
 | [logs/calendar-sync.md](logs/calendar-sync.md) | [calendar-sync.md](calendar-sync.md) |
 | [logs/finance.md](logs/finance.md) | [finance.md](finance.md) |
 | [logs/llm-bridge.md](logs/llm-bridge.md) | [llm-bridge.md](llm-bridge.md) |
+| [logs/multi-device-sync.md](logs/multi-device-sync.md) | [multi-device-sync.md](multi-device-sync.md) |
 
 Path rule: `docs/<page>.md` → `docs/logs/<page>.md`. Documentation-process
 changes (`AGENTS.md`, this index, conventions workflow) land in

@@ -2,6 +2,7 @@ import { act, render } from "@testing-library/react";
 import { StrictMode, useEffect, useState, type PropsWithChildren, type ReactElement } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { AppContext, type AppContextValue } from "../app/app-context";
+import { inertSyncController } from "../app/use-multi-device-sync";
 import { defaultAppSettings } from "../domain/daily-entry";
 import { CoachPulseService } from "../lib/ai/coach-pulse-service";
 import type { AiProvider } from "../lib/ai/provider";
@@ -71,6 +72,7 @@ export const renderWithApp = async (ui: ReactElement, options: RenderOptions = {
     calendarDay: getTodayDate(),
     llmBridgeStatus: { state: "off" },
     retryLlmBridge: () => undefined,
+    sync: inertSyncController,
     ...options.contextOverrides,
   };
 

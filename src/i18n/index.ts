@@ -21,6 +21,7 @@ import relationship from "../locales/fr/relationship.json";
 import relativeTime from "../locales/fr/relativeTime.json";
 import reviews from "../locales/fr/reviews.json";
 import settings from "../locales/fr/settings.json";
+import sync from "../locales/fr/sync.json";
 import today from "../locales/fr/today.json";
 
 export const defaultNS = "common";
@@ -48,6 +49,7 @@ export const resources = {
     insights,
     relationship,
     finance,
+    sync,
   },
 } as const;
 

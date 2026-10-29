@@ -10,6 +10,7 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
+import { BackupOverlapBanner } from "../components/BackupOverlapBanner";
 import { DebugPanel } from "../components/DebugPanel";
 import type { SettingsUpdater } from "../domain/settings";
 import type { AppSettings } from "../domain/types";
@@ -32,6 +33,7 @@ import { useCalendarSync } from "./use-calendar-sync";
 import { useDesktopShell } from "./use-desktop-shell";
 import { useLlmBridge, type LlmBridgeStatus } from "./use-llm-bridge";
 import { useLocalDayReconciliation } from "./use-local-day-reconciliation";
+import { type MultiDeviceSyncController, useMultiDeviceSync } from "./use-multi-device-sync";
 import { usePomodoroController, type PomodoroControllerValue } from "./use-pomodoro-controller";
 import { usePulseScheduler } from "./use-pulse-scheduler";
 
@@ -52,6 +54,8 @@ export interface AppContextValue {
   llmBridgeStatus: LlmBridgeStatus;
   /** Re-attempts starting the endpoint after a failure, without changing any setting. */
   retryLlmBridge: () => void;
+  /** EXPERIMENTAL multi-device sync (manual only; see `docs/multi-device-sync.md`). */
+  sync: MultiDeviceSyncController;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -98,6 +102,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   });
 
   const getSettings = useCallback(() => settingsRef.current, []);
+
   const getFocusSessionActive = useCallback(() => {
     const activeSession = pomodoroRef.current.state.activeSession;
     return activeSession?.kind === "focus" && activeSession.status === "running";
@@ -140,6 +145,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     [repository, publishSettings],
   );
 
+  const sync = useMultiDeviceSync(repository, { browserPreview, getSettings, updateSettings });
+
   useEffect(() => {
     installDebugInstrumentation();
     logDebug("info", "app.bootstrap", "Demarrage du bootstrap React", {
@@ -177,6 +184,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
             calendarDay,
             llmBridgeStatus,
             retryLlmBridge,
+            sync,
           }
         : null,
     [
@@ -192,6 +200,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       calendarDay,
       llmBridgeStatus,
       retryLlmBridge,
+      sync,
     ],
   );
 
@@ -228,6 +237,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
           <Link to="/parametres">{tSettings("backup.destinationMissingLink")}</Link>
         </div>
       ) : null}
+      {isTauriRuntime() ? <BackupOverlapBanner settings={settings} /> : null}
       {children}
       <DebugPanel enabled={debugEnabled} forced={Boolean(startupError)} />
     </AppContext.Provider>

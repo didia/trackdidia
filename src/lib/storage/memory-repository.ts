@@ -153,7 +153,7 @@ import {
   type SyncSnapshot,
   type SyncStatus,
 } from "../sync/status";
-import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
+import type { AppRepository, BackupOptions, PomodoroStartOptions, StorageInfo } from "./repository";
 import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
 import { FinanceMemoryStore } from "./finance-memory-store";
 
@@ -1083,7 +1083,7 @@ export class MemoryRepository implements AppRepository {
     return null;
   }
 
-  async createBackup(): Promise<never> {
+  async createBackup(_kind?: "manual" | "auto", _options?: BackupOptions): Promise<never> {
     throw new Error("Les backups SQLite ne sont disponibles qu'en mode desktop.");
   }
 

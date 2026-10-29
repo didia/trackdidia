@@ -94,7 +94,14 @@ import {
 } from "../../domain/weekly-review";
 import { t } from "../../i18n";
 import { monthKeyToLocalRange } from "../ai/analytics/month-range";
-import { buildBackupFileName, isBackupDestinationConfigured, resolveBackupDir } from "../backup";
+import {
+  BackupDestinationError,
+  backupDestinationOverlap,
+  buildBackupFileName,
+  isBackupDestinationConfigured,
+  resolveBackupDir,
+  toBackupDirError,
+} from "../backup";
 import { getTodayDate } from "../date";
 import { formatUnknownError, logDebug } from "../debug";
 import {
@@ -166,6 +173,7 @@ import { applyChangeSet, prepareApply, type SyncSettingsAccess } from "../sync/a
 import { ensureSyncCapture, installSyncCapture } from "../sync/capture-install";
 import { backfillSyncCapture, stampDirtyEntities } from "../sync/capture-stamp";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import { getDeviceId } from "../sync/device-id";
 import { SyncApplyError } from "../sync/errors";
 import { readChangeSet } from "../sync/list-changes";
 import { SYNC_DOMAINS, type SyncDomain } from "../sync/registry";
@@ -173,6 +181,7 @@ import {
   assertValidDeviceId,
   buildSupportedSyncStatus,
   mergeAppliedShas,
+  isValidDeviceId,
   nextPublishCounter,
   normalizeDeviceName,
   normalizePeerApplied,
@@ -191,6 +200,7 @@ import { FinanceSqliteStore } from "./finance-sqlite-store";
 import type { Database as SqliteDatabase } from "./sqlite-db";
 import type {
   AppRepository,
+  BackupOptions,
   BackupResult,
   NativeStoragePaths,
   PomodoroStartOptions,
@@ -251,6 +261,12 @@ export class TauriSqliteRepository implements AppRepository {
      * its own controllable clock.
      */
     private readonly now: () => number = Date.now,
+    /**
+     * This installation's device id from the native device-id file (never from the database,
+     * which can be a copy of another laptop's). Backup names and retention use it while sync is
+     * enabled. Tests inject a fake.
+     */
+    private readonly readNativeDeviceId: () => Promise<string> = getDeviceId,
   ) {}
 
   private getCalendarSyncStore(): CalendarSyncSqliteStore {
@@ -1562,21 +1578,36 @@ export class TauriSqliteRepository implements AppRepository {
     };
   }
 
-  async createBackup(kind: "manual" | "auto" = "manual"): Promise<BackupResult> {
+  async createBackup(
+    kind: "manual" | "auto" = "manual",
+    options: BackupOptions = {},
+  ): Promise<BackupResult> {
     return this.writeExclusive(async () => {
       const db = await this.getDb();
       const settings = await this.getSettings();
       if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
         throw new Error(t("backup.missingDestination", { ns: "settings" }));
       }
+      // Before anything is written: a full copy of the database must never land in the folder that
+      // is shared with the work account. This covers the stored settings, the auto-backup scheduler,
+      // manual backups and the sync safety backup alike.
+      if (backupDestinationOverlap(settings) !== null) {
+        throw new BackupDestinationError(t("backup.overlapsSyncFolder", { ns: "settings" }));
+      }
+      const deviceId = await this.backupDeviceId(settings, options);
 
       const storageInfo = await invoke<NativeStoragePaths>("resolve_storage_paths");
-      const backupDir = await invoke<string>("ensure_backup_dir", {
-        destinationDir: settings.backupDestinationDir,
-        environment: storageInfo.environment,
-      });
+      let backupDir: string;
+      try {
+        backupDir = await invoke<string>("ensure_backup_dir", {
+          destinationDir: settings.backupDestinationDir,
+          environment: storageInfo.environment,
+        });
+      } catch (error) {
+        throw toBackupDirError(error);
+      }
       const createdAt = new Date().toISOString();
-      const backupPath = `${backupDir}/${buildBackupFileName(createdAt, kind)}`;
+      const backupPath = `${backupDir}/${buildBackupFileName(createdAt, kind, deviceId)}`;
       const escapedPath = backupPath.replace(/'/g, "''");
 
       logDebug("info", "storage.backup", "Creation d'un backup SQLite", {
@@ -1592,6 +1623,8 @@ export class TauriSqliteRepository implements AppRepository {
           {
             destinationDir: settings.backupDestinationDir,
             environment: storageInfo.environment,
+            // Whenever the file name carries the device tag, retention counts that tag's group.
+            ...(deviceId === undefined ? {} : { deviceId }),
           },
         );
         if (prune.failed.length > 0) {
@@ -1613,6 +1646,39 @@ export class TauriSqliteRepository implements AppRepository {
         createdAt,
       };
     });
+  }
+
+  /**
+   * The device id a backup is named and pruned with: the caller's, or this device's own while
+   * multi-device sync is enabled (so every backup in a shared folder is tagged), else `undefined`
+   * (the legacy name). "Its own" is the id in the NATIVE device-id file, never the `sync_identity`
+   * row: a database copied or restored from another laptop carries that laptop's identity, and
+   * naming or pruning backups under its tag would evict its snapshots. An id that is not a device
+   * id, or a native id that cannot be read, falls back to the legacy name and never throws: a
+   * backup comes first.
+   */
+  private async backupDeviceId(
+    settings: AppSettings,
+    options: BackupOptions,
+  ): Promise<string | undefined> {
+    let candidate = options.deviceId;
+    if (candidate === undefined && settings.multiDeviceSyncEnabled) {
+      try {
+        candidate = await this.readNativeDeviceId();
+      } catch (error) {
+        logDebug(
+          "warn",
+          "storage.backup",
+          "Identifiant d'appareil illisible: nom de backup historique",
+          error,
+        );
+        return undefined;
+      }
+    }
+    if (candidate === undefined) return undefined;
+    if (isValidDeviceId(candidate)) return candidate;
+    logDebug("warn", "storage.backup", "Identifiant d'appareil invalide: nom de backup historique");
+    return undefined;
   }
 
   async importGoogleTasksExport(rawJson: unknown): Promise<GtdImportSummary> {

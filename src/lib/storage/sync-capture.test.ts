@@ -750,6 +750,10 @@ describe("end to end through the repository methods", () => {
       llmBridgeToken: "bridge-secret",
       lastBackupAt: "2026-04-01T00:00:00.000Z",
       backupDestinationDir: "/somewhere",
+      multiDeviceSyncEnabled: true,
+      syncProfile: "work",
+      syncGtdFolderDir: "/somewhere/gtd",
+      syncDeviceName: "Portable perso",
     }));
     const after = await readMeta(database, "setting");
     const added = after
@@ -773,6 +777,9 @@ describe("end to end through the repository methods", () => {
     expect(everything).not.toContain("sk-");
     expect(everything).not.toContain("rt-secret");
     expect(everything).not.toContain("bridge-secret");
+    // The sync switches and folder paths are device-local: no clock, no snapshot, no dirty mark.
+    expect(everything).not.toContain("/somewhere");
+    expect(everything).not.toContain("Portable perso");
   });
 
   it("hard delete of tasks through a repository path that uses deleteTasksByIds", async () => {

@@ -1,12 +1,15 @@
 import { defaultAppSettings } from "../domain/daily-entry";
 import {
   BACKUP_RETENTION_COUNT,
+  BackupDestinationError,
+  backupDestinationOverlap,
   buildBackupFileName,
   deviceBackupTag,
   isAutoBackupDue,
   isBackupDestinationConfigured,
   isBackupDestinationMissing,
   resolveBackupDir,
+  toBackupDirError,
 } from "./backup";
 import { mergeAppSettingsWithDefaults } from "./relationship-draws";
 
@@ -129,5 +132,41 @@ describe("backup helpers", () => {
     );
     expect(merged.financeEnabled).toBe(true);
     expect(merged.financeBaseCurrency).toBe("USD");
+  });
+});
+
+describe("backupDestinationOverlap", () => {
+  it("flags a destination that is, is inside, or contains the shared GTD folder", () => {
+    const overlap = (backupDestinationDir: string, syncGtdFolderDir: string) =>
+      backupDestinationOverlap({ backupDestinationDir, syncGtdFolderDir });
+    expect(overlap("/Drive/GTD", "/Drive/GTD")).toBe("same");
+    expect(overlap("/Drive/GTD/backups", "/Drive/GTD")).toBe("inside");
+    expect(overlap("/Drive", "/Drive/GTD")).toBe("contains");
+  });
+
+  it("says nothing without a GTD folder or when the folders are apart", () => {
+    expect(
+      backupDestinationOverlap({ backupDestinationDir: "/Drive/Perso", syncGtdFolderDir: "" }),
+    ).toBeNull();
+    expect(backupDestinationOverlap({ backupDestinationDir: "", syncGtdFolderDir: "" })).toBeNull();
+    expect(
+      backupDestinationOverlap({
+        backupDestinationDir: "/Drive/Perso",
+        syncGtdFolderDir: "/Drive/GTD",
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("toBackupDirError", () => {
+  it("types the refusals that protect the shared folder and keeps other messages", () => {
+    const refused = toBackupDirError("overlaps_sync_folder: Le dossier est un lien symbolique");
+    expect(refused).toBeInstanceOf(BackupDestinationError);
+    expect(refused.message).toBe("Le dossier est un lien symbolique");
+    const other = toBackupDirError("Le dossier est introuvable");
+    expect(other).not.toBeInstanceOf(BackupDestinationError);
+    expect(other.message).toBe("Le dossier est introuvable");
+    const plain = new Error("boom");
+    expect(toBackupDirError(plain)).toBe(plain);
   });
 });

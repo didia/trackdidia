@@ -101,11 +101,56 @@ export type SyncTransportErrorCode =
  */
 export class SyncTransportError extends Error {
   readonly code: SyncTransportErrorCode;
+  /**
+   * The host's error code behind it (`folder_not_prepared`, `io`, ...), when the transport knows
+   * one. Lets the page tell "the folder was never prepared" from "the drive is not mounted".
+   */
+  readonly reason: string | undefined;
 
-  constructor(code: SyncTransportErrorCode, message: string, options?: { cause?: unknown }) {
-    super(message, options);
+  constructor(
+    code: SyncTransportErrorCode,
+    message: string,
+    options?: { cause?: unknown; reason?: string },
+  ) {
+    super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = "SyncTransportError";
     this.code = code;
+    this.reason = options?.reason;
+  }
+}
+
+export type SyncTransportFailureKind =
+  /**
+   * The folder is set up wrongly: it holds the other role's marker, or sits inside / around the
+   * other folder. Retrying cannot fix it; the user has to pick another folder.
+   */
+  | "configuration"
+  /** A bundle exceeds what the folder protocol can carry. Permanent until the data shrinks. */
+  | "too_large"
+  /** This runtime cannot read what a peer wrote (a compressed bundle without `DecompressionStream`). */
+  | "unsupported"
+  /** A bug or a host contract violation (a wrong domain handed over, an id the host refused). */
+  | "internal";
+
+/**
+ * A failure that is NOT "the folder is not there right now": retrying quietly would only hide it. The
+ * engine reports it as an error (`transport_failed`, `detail` = {@link SyncTransportFailure.kind})
+ * and the `/sync` page shows it prominently instead of as a transient warning.
+ */
+export class SyncTransportFailure extends Error {
+  readonly kind: SyncTransportFailureKind;
+  /** The host's error code or the bundle error code behind it, when there is one. */
+  readonly reason: string | undefined;
+
+  constructor(
+    kind: SyncTransportFailureKind,
+    message: string,
+    options?: { cause?: unknown; reason?: string },
+  ) {
+    super(message, options?.cause === undefined ? undefined : { cause: options.cause });
+    this.name = "SyncTransportFailure";
+    this.kind = kind;
+    this.reason = options?.reason;
   }
 }
 

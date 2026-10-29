@@ -1,0 +1,219 @@
+{
+  "card": {
+    "title": "Synchronisation multi-ordinateurs (expérimental)",
+    "subtitle": "Garde deux ordinateurs personnels à jour l'un de l'autre à travers des dossiers Google Drive. Fonction expérimentale, visible uniquement en mode debug.",
+    "experimental": "Expérimental : la première synchronisation fait d'abord une sauvegarde de cette base, et il n'existe aucune interface de restauration. Ne l'active qu'après avoir vérifié ta sauvegarde.",
+    "scope": "Profil personnel : tout est synchronisé (tâches GTD, journal, objectifs, finances, réglages partagés). Le dossier GTD est partagé ; le dossier personnel est le dossier de sauvegarde choisi plus haut. Les secrets (clé OpenRouter, clé RescueTime, jeton LLM) et les réglages propres à cet ordinateur ne sont jamais synchronisés.",
+    "manualOnly": "Pour l'instant la synchronisation est manuelle : elle ne s'exécute que lorsque tu appuies sur « Synchroniser maintenant » sur la page Synchronisation.",
+    "browserPreview": "Indisponible en mode aperçu navigateur : la synchronisation exige l'application de bureau et son stockage persistant.",
+    "deviceName": "Nom de cet ordinateur",
+    "deviceNameHelp": "Montré aux autres ordinateurs. Donne un nom différent à chaque ordinateur.",
+    "personalFolder": "Dossier personnel (dossier de sauvegarde)",
+    "personalFolderUnset": "Non défini : choisis d'abord le dossier de sauvegarde plus haut.",
+    "gtdFolder": "Dossier GTD partagé",
+    "gtdFolderUnset": "Non défini",
+    "chooseGtdFolder": "Choisir le dossier GTD partagé",
+    "choosingGtdFolder": "Choix du dossier…",
+    "gtdFolderSaved": "Dossier GTD partagé enregistré.",
+    "gtdFolderSame": "Le dossier GTD partagé ne peut pas être le dossier de sauvegarde.",
+    "gtdFolderInside": "Le dossier GTD partagé ne peut pas être à l'intérieur du dossier de sauvegarde (il contient les copies complètes de ta base).",
+    "gtdFolderContains": "Le dossier GTD partagé ne peut pas contenir le dossier de sauvegarde.",
+    "gtdFolderError": "Impossible d'enregistrer le dossier GTD partagé.",
+    "saveName": "Enregistrer le nom",
+    "nameSaved": "Nom enregistré.",
+    "nameError": "Impossible d'enregistrer le nom.",
+    "enable": "Activer la synchronisation",
+    "enabling": "Activation…",
+    "disable": "Désactiver la synchronisation",
+    "disabling": "Désactivation…",
+    "disableHelp": "Désactiver ne supprime rien : l'identité, le suivi des changements (qui reste installé et continue d'enregistrer tes modifications) et les fichiers déjà publiés restent en place.",
+    "enableWarning": "L'activation initialise le suivi de toute la base en une seule opération. Sur une grosse base elle peut durer plusieurs secondes : n'utilise pas et ne modifie pas l'application pendant ce temps (une modification faite alors peut échouer). Fermer l'application est sans danger : l'opération est annulée.",
+    "recheck": "Revérifier les dossiers",
+    "rechecking": "Vérification…",
+    "openPage": "Ouvrir la page Synchronisation",
+    "status": {
+      "off": "Statut : désactivée.",
+      "on": "Statut : activée sur ce profil personnel.",
+      "pending_one": "{{count}} changement en attente de publication.",
+      "pending_other": "{{count}} changements en attente de publication.",
+      "unknownPending": "Changements en attente : inconnu (l'état n'a pas encore été lu)."
+    },
+    "step": {
+      "folders": "Préparation et vérification des dossiers…",
+      "identity": "Identification de cet ordinateur…",
+      "capture": "Initialisation du suivi des changements de toute la base (peut durer plusieurs secondes sur une grosse base ; n'utilise pas et ne modifie pas l'application tant que ce n'est pas fini : une modification faite pendant ce temps peut échouer)…",
+      "saving": "Enregistrement…"
+    },
+    "enabled": "Synchronisation activée. Suivi des changements : {{count}} éléments initialisés en {{seconds}} s.",
+    "identityRepaired": "Cette base de données provenait d'un autre ordinateur (copie ou restauration) : son identité de synchronisation a été réécrite pour cet ordinateur."
+  },
+  "errors": {
+    "unsupported_preview": "Indisponible en mode aperçu navigateur : la synchronisation exige l'application de bureau.",
+    "unsupported_profile": "Ce profil de synchronisation n'est pas encore pris en charge : seul le profil personnel l'est.",
+    "no_backup_destination": "Aucun dossier de sauvegarde n'est défini. C'est le dossier personnel de la synchronisation et l'endroit de la sauvegarde de sécurité : choisis-le dans la section Sauvegardes.",
+    "no_gtd_folder": "Choisis d'abord le dossier GTD partagé.",
+    "folders_overlap": "Le dossier GTD partagé doit être différent du dossier de sauvegarde, ni à l'intérieur ni autour de lui.",
+    "folder_rejected": "Ce dossier est refusé : il sert déjà à l'autre rôle (dossier de sauvegarde ou dossier partagé), contient des sauvegardes, ou est imbriqué avec l'autre dossier. Choisis un autre dossier dans les Paramètres. ({{detail}})",
+    "folder_unavailable": "Dossier introuvable ou inaccessible (Google Drive est-il monté ?). ({{detail}})",
+    "device_name_invalid": "Donne à cet ordinateur un nom de 1 à 100 caractères.",
+    "no_device_id": "L'identifiant de cet ordinateur est illisible. ({{detail}})",
+    "capture_failed": "Le suivi des changements n'a pas pu être activé ; rien n'est synchronisé. ({{detail}})",
+    "no_folders": "Aucun dossier de synchronisation n'est configuré.",
+    "already_running": "Une synchronisation est déjà en cours.",
+    "unexpected": "Erreur inattendue : {{detail}}",
+    "roleGtd": "Dossier GTD partagé",
+    "rolePersonal": "Dossier personnel"
+  },
+  "page": {
+    "eyebrow": "Expérimental",
+    "title": "Synchronisation",
+    "copy": "Synchronisation manuelle entre tes ordinateurs personnels, à travers deux dossiers Drive.",
+    "gate": {
+      "debug": "Cette page expérimentale n'est disponible qu'en mode debug.",
+      "disabled": "La synchronisation n'est pas activée sur cet ordinateur. Active-la dans les Paramètres.",
+      "preview": "Indisponible en mode aperçu navigateur : la synchronisation exige l'application de bureau et son stockage persistant.",
+      "settingsLink": "Ouvrir les Paramètres"
+    },
+    "syncNow": "Synchroniser maintenant",
+    "syncing": "Synchronisation…",
+    "refresh": "Actualiser l'état",
+    "loading": "Chargement de l'état de la synchronisation…",
+    "notReady": "La synchronisation n'est pas prête sur cet ordinateur (identité ou suivi des changements manquant). Réactive-la dans les Paramètres.",
+    "manualNote": "Synchronisation manuelle uniquement : rien ne s'exécute au démarrage, en arrière-plan ni à la fermeture. Les pages déjà ouvertes affichent les données fusionnées quand tu y reviens.",
+    "summary": {
+      "title": "État",
+      "pending_one": "{{count}} changement en attente de publication",
+      "pending_other": "{{count}} changements en attente de publication",
+      "pendingNone": "Aucun changement en attente de publication",
+      "device": "Cet ordinateur : {{name}} ({{id}})"
+    },
+    "peers": {
+      "title": "Autres ordinateurs",
+      "empty": "Aucun autre ordinateur détecté pour l'instant. Active la synchronisation sur le second ordinateur avec les mêmes dossiers, puis synchronise ici.",
+      "caption": "Ordinateurs connus et leur état à la dernière synchronisation",
+      "name": "Ordinateur",
+      "lastSync": "Dernière synchro",
+      "never": "Jamais",
+      "version": "Appli / base",
+      "profile": "Profil",
+      "state": "État",
+      "detail": "Détail",
+      "versionValue": "{{app}} / v{{schema}}",
+      "unknownValue": "—",
+      "pendingDetail": "Pas encore fusionné : le temps imparti à cette synchronisation est écoulé. La prochaine synchronisation continue.",
+      "haltedBackup": "Première fusion arrêtée : la sauvegarde de sécurité requise n'a pas pu être faite (aucun dossier de sauvegarde, ou dossier inaccessible). Rien n'a été fusionné avec cet ordinateur."
+    },
+    "peerState": {
+      "synced": "À jour",
+      "update_required": "Mise à jour requise",
+      "stale": "Hors ligne trop longtemps",
+      "format_unsupported": "Format non pris en charge",
+      "invalid_manifest": "Manifeste invalide",
+      "not_ready": "Envoi en cours chez ce pair",
+      "error": "Erreur",
+      "unreachable": "Dossier inaccessible",
+      "unknown": "Pas encore vu",
+      "pending": "En attente"
+    },
+    "stale": {
+      "warning": "{{name}} est resté hors ligne trop longtemps pour fusionner sans vérification : ses suppressions peuvent ne plus être fiables. Vérifie ses données avant de fusionner.",
+      "approve": "Fusionner quand même {{name}}",
+      "confirm": "Confirmer la fusion de {{name}}",
+      "cancel": "Annuler"
+    },
+    "last": {
+      "title": "Dernière synchronisation",
+      "none": "Aucune synchronisation lancée depuis le démarrage de l'application.",
+      "finishedAt": "Terminée à {{time}}",
+      "failed": "La synchronisation a échoué :",
+      "pull": "Réception",
+      "publish": "Publication",
+      "totals": "{{bundles}} paquet(s) appliqué(s) · {{applied}} élément(s) mis à jour · {{skipped}} déjà à jour · {{tombstones}} suppression(s) · {{conflicts}} conflit(s) enregistré(s)",
+      "noBundles": "Rien de nouveau à recevoir.",
+      "incomplete": "Réception incomplète : {{count}} élément(s) à reprendre à la prochaine synchronisation.",
+      "backup": {
+        "title": "Sauvegarde de sécurité",
+        "taken": "Faite avant la première fusion : {{path}}",
+        "takenNoPath": "Faite avant la première fusion.",
+        "not_needed": "Non nécessaire.",
+        "skipped_empty_joiner": "Ignorée : base vide.",
+        "failed": "Impossible de la faire : rien n'a été fusionné."
+      },
+      "skippedPeers": "Ordinateurs ignorés",
+      "skipped": {
+        "update_required": "{{name}} : mets à jour TrackDidia pour synchroniser avec cet ordinateur.",
+        "stale": "{{name}} : hors ligne trop longtemps, à vérifier puis à approuver ci-dessus.",
+        "format_unsupported": "{{name}} : format de synchronisation inconnu, mets à jour TrackDidia.",
+        "invalid_manifest": "{{name}} : manifeste invalide, ignoré."
+      },
+      "published": {
+        "published": "{{domain}} : publié (génération {{generation}})",
+        "clean": "{{domain}} : inchangé",
+        "no_transport": "{{domain}} : aucun dossier configuré",
+        "failed": "{{domain}} : échec"
+      },
+      "skew": "L'horloge de {{name}} est en avance de plus de cinq minutes sur la tienne."
+    },
+    "domain": {
+      "gtd": "GTD",
+      "personal": "Personnel",
+      "finance": "Finances"
+    },
+    "issues": {
+      "title": "Avertissements et erreurs",
+      "none": "Aucun avertissement.",
+      "technical": "Détail technique",
+      "severity": {
+        "info": "Info",
+        "warning": "Avertissement",
+        "error": "Erreur"
+      },
+      "folder": {
+        "gtd": "dossier GTD partagé",
+        "personal": "dossier personnel"
+      },
+      "configuration": {
+        "title": "Dossier mal configuré",
+        "body": "Le {{folder}} ne peut pas servir à la synchronisation. Choisis un autre dossier dans les Paramètres : réessayer ne servira à rien."
+      },
+      "tooLarge": {
+        "title": "Données trop volumineuses",
+        "body": "Les données du {{folder}} dépassent ce que le protocole de dossier peut transporter. L'erreur est persistante : rien n'est publié pour ce domaine tant que les données ne diminuent pas."
+      },
+      "unsupported": {
+        "title": "Format illisible sur cet ordinateur",
+        "body": "Un autre ordinateur a écrit un paquet que cette version ne sait pas lire (compression indisponible). Mets l'application ou le système à jour."
+      },
+      "internal": {
+        "title": "Erreur interne de transport",
+        "body": "Le {{folder}} a renvoyé une erreur qui ne devrait pas arriver. Ne réessaie pas en boucle ; signale-la."
+      },
+      "code": {
+        "sync_not_ready": "La synchronisation n'est pas prête sur cet ordinateur.",
+        "transport_unreachable": "Le {{folder}} est inaccessible (Google Drive monté ?). Rien n'a été perdu ; nouvel essai à la prochaine synchronisation.",
+        "folder_not_prepared": "Le {{folder}} n'a pas été préparé pour la synchronisation (le dossier de sauvegarde ou le dossier partagé a changé, ou son marqueur n'est pas encore arrivé de Drive). Utilise « Revérifier les dossiers » dans les Paramètres.",
+        "transport_timeout": "Le {{folder}} n'a pas répondu à temps. Nouvel essai à la prochaine synchronisation.",
+        "transport_failed": "Erreur sur le {{folder}}.",
+        "transport_ignored": "Le {{folder}} ne contient rien que ce profil puisse lire : il n'est pas utilisé.",
+        "manifest_invalid": "Le manifeste de {{name}} est invalide : ignoré.",
+        "format_version_unsupported": "{{name}} utilise un format de synchronisation inconnu : mets à jour TrackDidia pour synchroniser avec cet ordinateur.",
+        "update_required": "Mets à jour TrackDidia pour synchroniser avec {{name}} : sa base de données est plus récente.",
+        "stale_peer": "{{name}} est resté hors ligne trop longtemps pour être fusionné sans vérification.",
+        "clock_skew": "L'horloge de {{name}} est en avance de plus de cinq minutes. La fusion a quand même eu lieu.",
+        "domain_not_allowed": "Un domaine interdit a été refusé ({{domain}}) : jamais appliqué.",
+        "wrong_domain_bundle": "{{name}} a publié des données d'un autre domaine que celui annoncé : jamais appliquées.",
+        "bundle_device_mismatch": "Un paquet de {{name}} a été écrit par un autre ordinateur : jamais appliqué.",
+        "bundle_not_ready": "Les données de {{name}} ne sont pas encore prêtes (envoi en cours ?) : nouvel essai plus tard.",
+        "bundle_invalid": "Les données de {{name}} ({{domain}}) sont invalides : rejetées en bloc.",
+        "bundle_rejected": "Les données de {{name}} ({{domain}}) n'ont pas pu être fusionnées : rien n'a été conservé.",
+        "bundle_failed": "Échec inattendu en traitant les données de {{name}} ({{domain}}).",
+        "bookkeeping_failed": "La fusion a réussi mais n'a pas pu être mémorisée : la prochaine synchronisation la refera sans effet.",
+        "safety_backup_required": "Une sauvegarde de cet ordinateur est requise avant de fusionner et n'a pas pu être faite : rien n'a été fusionné.",
+        "publish_failed": "La publication des données {{domain}} a échoué.",
+        "publish_skipped": "Publication non effectuée.",
+        "pending_unpublished_domain": "Dossier non connecté : {{folders}}. Tes changements restent en attente et seront publiés dès la reconnexion."
+      },
+      "supersededPublish": "La publication des données {{domain}} a été remplacée par une plus récente : rien n'est perdu."
+    }
+  }
+}

@@ -18,6 +18,7 @@
   "waitingFor": "Waiting For",
   "somedayMaybe": "Someday / Maybe",
   "finances": "Finances",
+  "sync": "Synchronisation",
   "settings": "Paramètres",
   "authorPrefix": "Auteur : {{author}}"
 }

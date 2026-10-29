@@ -12,13 +12,18 @@ import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { DesktopShellSection } from "../components/settings/DesktopShellSection";
 import { LlmBridgeSection } from "../components/settings/LlmBridgeSection";
+import { MultiDeviceSyncSection } from "../components/settings/MultiDeviceSyncSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
 import { defaultCalendarSyncSettings, type CalendarSyncSettings } from "../domain/calendar-sync";
 import { defaultAppSettings, rebaseSettingsDraft, settingsDraftPatch } from "../domain/settings";
 import type { AiPayloadScope, AppSettings } from "../domain/types";
 import { formatPulseSlotHours, parsePulseSlotHours } from "../lib/ai/pulse/slot-hours";
-import { BACKUP_RETENTION_COUNT, isBackupDestinationConfigured } from "../lib/backup";
+import {
+  BACKUP_RETENTION_COUNT,
+  backupDestinationOverlap,
+  isBackupDestinationConfigured,
+} from "../lib/backup";
 import {
   connectCalendarSyncAccount,
   disconnectCalendarSyncAccount,
@@ -1237,6 +1242,17 @@ export const SettingsPage = () => {
                   return;
                 }
 
+                // Never accept a destination that is the shared GTD folder, or inside or around it.
+                if (
+                  backupDestinationOverlap({
+                    backupDestinationDir: selected,
+                    syncGtdFolderDir: settings.syncGtdFolderDir,
+                  }) !== null
+                ) {
+                  setBackupMessage(t("backup.overlapsSyncFolder"));
+                  return;
+                }
+
                 await updateSettings((current) => ({ ...current, backupDestinationDir: selected }));
                 const nextStorageInfo = await repository.getStorageInfo();
                 setStorageInfo(nextStorageInfo);
@@ -1305,6 +1321,8 @@ export const SettingsPage = () => {
           </button>
         </div>
       </SectionCard>
+
+      <MultiDeviceSyncSection />
 
       <StorageOverviewSection repository={repository} gtdImportDoneAt={settings.gtdImportDoneAt} />
     </div>
