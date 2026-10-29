@@ -113,6 +113,8 @@ export interface SyncSettingsAccess {
 
 export interface ApplyContext {
   nowMs: number;
+  /** See `SyncApplyOptions.republish`. */
+  republish?: boolean;
   settings: SyncSettingsAccess;
 }
 
@@ -797,5 +799,10 @@ export const applyChangeSet = async (
   }
   // Not best effort: if this fails the transaction must not commit with the flag raised.
   await db.execute("UPDATE sync_identity SET applying = 0 WHERE id = 1");
+  if (context.republish === true && merged.applied + merged.tombstonesApplied > 0) {
+    // The merged state is something the other laptops may not hold yet: make it pending, in this
+    // transaction, so a crash between the apply and the next publish cannot lose the obligation.
+    await db.execute("UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1");
+  }
   return { ...merged, hlcAdvanced };
 };

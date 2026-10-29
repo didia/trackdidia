@@ -6948,6 +6948,150 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(typeof repository.enableSyncCapture).toBe("function");
         expect(typeof repository.listSyncChanges).toBe("function");
         expect(typeof repository.applySyncBundle).toBe("function");
+        expect(typeof repository.recordSyncPeerApplied).toBe("function");
+        expect(typeof repository.markSyncPublished).toBe("function");
+        expect(typeof repository.queueSyncRepublish).toBe("function");
+        expect(typeof repository.readSyncPublishCounters).toBe("function");
+        expect(typeof repository.readSyncSnapshot).toBe("function");
+      });
+
+      const PEER = "dev:7d1e2c3b-4a5f-4e6d-8c7b-9a0b1c2d3e4f";
+      const SHA_A = "a".repeat(64);
+      const SHA_B = "b".repeat(64);
+
+      it("records what was taken from a peer only where sync is supported", async () => {
+        const repository = await factory();
+        const supported = (await repository.getSyncStatus()).supported;
+        const input = {
+          peerId: PEER,
+          peerName: "Maison",
+          manifest: { schemaVersion: 43 },
+          appliedShaByDomain: { gtd: SHA_A },
+          syncedAt: "2026-10-01T12:00:00.000Z",
+        };
+        if (!supported) {
+          await expect(repository.recordSyncPeerApplied(input)).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.markSyncPublished(1)).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.queueSyncRepublish()).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.readSyncPublishCounters()).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.readSyncSnapshot("gtd")).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          return;
+        }
+        await repository.recordSyncPeerApplied(input);
+        // Another domain later: the earlier hash is kept, the manifest and time are replaced.
+        await repository.recordSyncPeerApplied({
+          ...input,
+          manifest: null,
+          appliedShaByDomain: { personal: SHA_B },
+          syncedAt: "2026-10-02T12:00:00.000Z",
+        });
+        await repository.recordSyncPeerApplied({
+          ...input,
+          appliedShaByDomain: { gtd: SHA_B },
+          syncedAt: "2026-10-03T12:00:00.000Z",
+        });
+        const status = await repository.getSyncStatus();
+        expect(status.supported && status.peers).toEqual([
+          {
+            peerId: PEER,
+            peerName: "Maison",
+            lastManifest: { schemaVersion: 43 },
+            lastSyncedAt: "2026-10-03T12:00:00.000Z",
+            lastAppliedShaByDomain: { gtd: SHA_B, personal: SHA_B },
+          },
+        ]);
+        // A null contact time keeps the stored one.
+        await repository.recordSyncPeerApplied({
+          ...input,
+          appliedShaByDomain: { finance: SHA_A },
+          syncedAt: null,
+        });
+        const kept = await repository.getSyncStatus();
+        expect(kept.supported && kept.peers[0]?.lastSyncedAt).toBe("2026-10-03T12:00:00.000Z");
+        expect(kept.supported && kept.peers[0]?.lastAppliedShaByDomain.finance).toBe(SHA_A);
+        await expect(
+          repository.recordSyncPeerApplied({ ...input, peerId: "not-a-device" }),
+        ).rejects.toThrow(/Invalid device id/);
+        await expect(
+          repository.recordSyncPeerApplied({ ...input, appliedShaByDomain: { calendar: SHA_A } }),
+        ).rejects.toThrow(/unknown sync domain/);
+        await expect(
+          repository.recordSyncPeerApplied({ ...input, appliedShaByDomain: { gtd: "nope" } }),
+        ).rejects.toThrow(/SHA-256/);
+      });
+
+      it("marks changes as published by compare-and-set against the change counter", async () => {
+        const repository = await factory();
+        const supported = (await repository.getSyncStatus()).supported;
+        if (!supported) return;
+        await expect(repository.markSyncPublished(0)).rejects.toThrow(
+          /identity has not been created/,
+        );
+        await repository.ensureSyncIdentity({ deviceId: DEVICE, deviceName: "Laptop" });
+        await repository.enableSyncCapture();
+        await repository.createTask({ id: "task-1", title: "Un", bucket: "inbox" });
+        const read = await repository.getSyncStatus();
+        if (!read.supported) throw new Error("expected a supported store");
+        expect(read.pendingChanges).toBeGreaterThan(0);
+
+        // An edit made after the counter was read stays pending.
+        await repository.createTask({ id: "task-2", title: "Deux", bucket: "inbox" });
+        const marked = await repository.markSyncPublished(read.changeCounter);
+        expect(marked).toEqual({ lastPublishCounter: read.changeCounter, advanced: true });
+        const after = await repository.getSyncStatus();
+        expect(after.supported && after.pendingChanges).toBeGreaterThan(0);
+
+        // Never backwards, never past the counter, never twice.
+        await expect(repository.markSyncPublished(read.changeCounter)).resolves.toEqual({
+          lastPublishCounter: read.changeCounter,
+          advanced: false,
+        });
+        await expect(repository.markSyncPublished(0)).resolves.toMatchObject({ advanced: false });
+        const counter = after.supported ? after.changeCounter : 0;
+        await expect(repository.markSyncPublished(counter + 5)).resolves.toMatchObject({
+          advanced: false,
+        });
+        await expect(repository.markSyncPublished(counter)).resolves.toEqual({
+          lastPublishCounter: counter,
+          advanced: true,
+        });
+        const clean = await repository.getSyncStatus();
+        expect(clean.supported && clean.pendingChanges).toBe(0);
+        await expect(repository.markSyncPublished(-1)).rejects.toThrow(/Invalid change counter/);
+
+        // The committed counters, and a change set read together with the counter it covers.
+        const counters = await repository.readSyncPublishCounters();
+        expect(counters).toEqual({
+          changeCounter: after.supported ? after.changeCounter : -1,
+          lastPublishCounter: after.supported ? after.changeCounter : -1,
+        });
+        await repository.createTask({ id: "task-3", title: "Trois", bucket: "inbox" });
+        const snapshot = await repository.readSyncSnapshot("gtd");
+        const moved = await repository.readSyncPublishCounters();
+        expect(snapshot.changeCounter).toBe(moved?.changeCounter);
+        expect(snapshot.changeCounter).toBeGreaterThan(counters?.changeCounter ?? 0);
+        expect(snapshot.changeSet.entities.map((entity) => entity.entityId)).toContain("task-3");
+        expect(snapshot.changeSet).toEqual(await repository.listSyncChanges("gtd"));
+        await expect(repository.readSyncSnapshot("nope" as never)).rejects.toThrow(
+          /Unknown sync domain/,
+        );
+
+        // A republish request makes everything pending again, without touching any row.
+        await expect(repository.queueSyncRepublish()).resolves.toBeUndefined();
+        const requeued = await repository.getSyncStatus();
+        expect(requeued.supported && requeued.pendingChanges).toBeGreaterThan(0);
+        await expect(repository.listTasks({})).resolves.toHaveLength(3);
+        await expect(repository.markSyncPublished(1.5)).rejects.toThrow(/Invalid change counter/);
       });
 
       it("lists and applies change sets only where sync is supported", async () => {
@@ -7015,7 +7159,8 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         const pendingBefore = enabled.supported ? enabled.pendingChanges : 0;
         await repository.createTask({ id: "task-after", title: "Apres", bucket: "inbox" });
         const after = await repository.getSyncStatus();
-        expect(after.supported && after.pendingChanges).toBe(pendingBefore + 1);
+        // The task and its `task_created` event are both local changes.
+        expect(after.supported && after.pendingChanges).toBe(pendingBefore + 2);
         // Capture never changes what the repository returns.
         await expect(repository.listTasks({})).resolves.toHaveLength(2);
       });
@@ -7037,6 +7182,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           captureEnabled: false,
           peers: [],
         });
+        // Before the identity exists there are no counters to read, and no snapshot to take.
+        await expect(repository.readSyncPublishCounters()).resolves.toBeNull();
+        await expect(repository.readSyncSnapshot("gtd")).rejects.toThrow(
+          /identity has not been created/,
+        );
       });
 
       it("creates an identity only where sync is supported, and rejects in browser preview", async () => {

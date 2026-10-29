@@ -4,6 +4,7 @@ import {
   createCaptureDb,
   insertContext,
   insertTask,
+  readIdentity,
   readMarks,
   readMeta,
   stampedTransaction,
@@ -266,5 +267,67 @@ describe("when the triggers must stay silent", () => {
     ).rejects.toThrow("write failed");
     expect(await syncState(db)).toEqual(before);
     expect(await readMeta(db)).toEqual([]);
+  });
+});
+
+describe("rows inserted into a grow-only-union table count as local changes", () => {
+  const insertEvent = (db: Awaited<ReturnType<typeof createCaptureDb>>, id: string, key = id) =>
+    db.execute(
+      `INSERT INTO gtd_task_events (id, task_id, type, event_date, event_at, created_at, dedupe_key, metadata_json)
+       VALUES ($1, 't1', 'task_created', '2026-10-01', 't', 't', $2, '{}')
+       ON CONFLICT(dedupe_key) DO NOTHING`,
+      [id, key],
+    );
+  const insertMessage = (db: Awaited<ReturnType<typeof createCaptureDb>>, id: string) =>
+    db.execute(
+      `INSERT INTO ai_messages (id, surface, scope_key, kind, input_hash, prompt_version, model, status, notified, created_at)
+       VALUES ($1, 'coach_pulse', '2026-10-04', 'pulse', 'h', 'v1', 'm', 'ok', 0, 't')`,
+      [id],
+    );
+  const counter = async (db: Awaited<ReturnType<typeof createCaptureDb>>) =>
+    ((await readIdentity(db)) as { change_counter: number }).change_counter;
+
+  it("bumps the change counter once per inserted row, with no mark, meta or snapshot", async () => {
+    const db = await createCaptureDb();
+    await insertEvent(db, "e1");
+    await insertMessage(db, "m1");
+    expect(await counter(db)).toBe(2);
+    expect(await readMarks(db)).toEqual([]);
+    expect(await readMeta(db)).toEqual([]);
+    expect(await db.select("SELECT * FROM sync_entity_snapshot")).toEqual([]);
+  });
+
+  it("an insert that ON CONFLICT DO NOTHING ignores bumps nothing", async () => {
+    const db = await createCaptureDb();
+    await insertEvent(db, "e1", "same-key");
+    expect(await counter(db)).toBe(1);
+    await insertEvent(db, "e2", "same-key");
+    expect(await counter(db)).toBe(1);
+    expect(await db.select("SELECT id FROM gtd_task_events")).toEqual([{ id: "e1" }]);
+  });
+
+  it("stays silent while a merge is applying, without an identity row, and without capture", async () => {
+    const db = await createCaptureDb();
+    await db.execute("UPDATE sync_identity SET applying = 1");
+    await insertEvent(db, "e1");
+    await insertMessage(db, "m1");
+    expect(await counter(db)).toBe(0);
+
+    const anonymous = await createCaptureDb({ identity: false });
+    await insertEvent(anonymous, "e1");
+    expect(await anonymous.select("SELECT id FROM gtd_task_events")).toHaveLength(1);
+
+    const off = await createCaptureDb({ capture: false });
+    await insertEvent(off, "e1");
+    await insertMessage(off, "m1");
+    expect(await counter(off)).toBe(0);
+  });
+
+  it("updates and deletes of union rows are not changes (rows are immutable once published)", async () => {
+    const db = await createCaptureDb();
+    await insertMessage(db, "m1");
+    await db.execute("UPDATE ai_messages SET notified = 1 WHERE id = 'm1'");
+    await db.execute("DELETE FROM ai_messages WHERE id = 'm1'");
+    expect(await counter(db)).toBe(1);
   });
 });

@@ -165,18 +165,26 @@ import { CalendarSyncSqliteStore } from "./calendar-sync-sqlite-store";
 import { applyChangeSet, prepareApply, type SyncSettingsAccess } from "../sync/apply-bundle";
 import { ensureSyncCapture, installSyncCapture } from "../sync/capture-install";
 import { backfillSyncCapture, stampDirtyEntities } from "../sync/capture-stamp";
-import type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 import { SyncApplyError } from "../sync/errors";
 import { readChangeSet } from "../sync/list-changes";
 import { SYNC_DOMAINS, type SyncDomain } from "../sync/registry";
 import {
   assertValidDeviceId,
   buildSupportedSyncStatus,
+  mergeAppliedShas,
+  nextPublishCounter,
   normalizeDeviceName,
+  normalizePeerApplied,
   type SyncIdentityResult,
   type SyncIdentityRow,
+  type SyncPeerAppliedInput,
   type SyncPeerRow,
+  type SyncPublishCounters,
+  type SyncPublishMark,
+  type SyncSnapshot,
   type SyncStatus,
+  toCounter,
 } from "../sync/status";
 import { DbSerialQueue } from "./db-serial-queue";
 import { FinanceSqliteStore } from "./finance-sqlite-store";
@@ -3379,7 +3387,11 @@ export class TauriSqliteRepository implements AppRepository {
     );
   }
 
-  async applySyncBundle(domain: SyncDomain, changeSet: SyncChangeSet): Promise<SyncApplyResult> {
+  async applySyncBundle(
+    domain: SyncDomain,
+    changeSet: SyncChangeSet,
+    options: SyncApplyOptions = {},
+  ): Promise<SyncApplyResult> {
     // Everything that needs no database is decided before a writer slot is taken.
     const prepared = prepareApply(domain, changeSet, this.now());
     if (!this.captureEnabled) {
@@ -3394,7 +3406,112 @@ export class TauriSqliteRepository implements AppRepository {
       applyChangeSet(transactionDb(tx), prepared, {
         nowMs: this.now(),
         settings: this.syncSettingsAccess(),
+        republish: options.republish === true,
       }),
     );
+  }
+
+  async recordSyncPeerApplied(input: SyncPeerAppliedInput): Promise<void> {
+    // Validate before queueing so garbage never takes a writer slot.
+    const peer = normalizePeerApplied(input);
+    await this.writeTransaction(async (tx) => {
+      const db = transactionDb(tx);
+      const stored = await db.select<{ last_applied_sha_by_domain: string }[]>(
+        "SELECT last_applied_sha_by_domain FROM sync_peers WHERE peer_id = $1",
+        [peer.peerId],
+      );
+      const shas = mergeAppliedShas(
+        stored[0]?.last_applied_sha_by_domain ?? null,
+        peer.appliedShaByDomain,
+      );
+      await db.execute(
+        `INSERT INTO sync_peers
+           (peer_id, peer_name, last_manifest_json, last_synced_at, last_applied_sha_by_domain)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT(peer_id) DO UPDATE SET
+           peer_name = excluded.peer_name,
+           last_manifest_json = excluded.last_manifest_json,
+           last_synced_at = COALESCE(excluded.last_synced_at, sync_peers.last_synced_at),
+           last_applied_sha_by_domain = excluded.last_applied_sha_by_domain`,
+        [peer.peerId, peer.peerName, peer.manifestJson, peer.syncedAt, JSON.stringify(shas)],
+      );
+    });
+  }
+
+  async readSyncPublishCounters(): Promise<SyncPublishCounters | null> {
+    // A writer slot: any transaction in flight has committed or rolled back before this runs.
+    return this.writeQueue.run(async () => {
+      const rows = await (await this.getDb()).select<
+        { change_counter: number; last_publish_counter: number }[]
+      >("SELECT change_counter, last_publish_counter FROM sync_identity WHERE id = 1");
+      const row = rows[0];
+      return row
+        ? {
+            changeCounter: toCounter(row.change_counter),
+            lastPublishCounter: toCounter(row.last_publish_counter),
+          }
+        : null;
+    });
+  }
+
+  async readSyncSnapshot(domain: SyncDomain): Promise<SyncSnapshot> {
+    if (!(SYNC_DOMAINS as readonly string[]).includes(domain)) {
+      throw new Error(`Unknown sync domain "${String(domain)}"`);
+    }
+    // One writer slot for both reads: the counter is the committed one, and the change set covers it.
+    return this.writeQueue.run(async () => {
+      const db = await this.getDb();
+      const changeSet = await readChangeSet(db, domain, this.syncSettingsAccess());
+      const rows = await db.select<{ change_counter: number }[]>(
+        "SELECT change_counter FROM sync_identity WHERE id = 1",
+      );
+      return { changeSet, changeCounter: toCounter(rows[0]?.change_counter) };
+    });
+  }
+
+  async queueSyncRepublish(): Promise<void> {
+    await this.writeTransaction(async (tx) => {
+      const db = transactionDb(tx);
+      const identity = await db.select<{ id: number }[]>(
+        "SELECT id FROM sync_identity WHERE id = 1",
+      );
+      if (identity.length === 0) {
+        throw new Error(
+          "Cannot queue a republish: the sync identity has not been created (call ensureSyncIdentity first)",
+        );
+      }
+      await db.execute("UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1");
+    });
+  }
+
+  async markSyncPublished(changeCounterAtRead: number): Promise<SyncPublishMark> {
+    // Validate before queueing, like the other sync writers.
+    nextPublishCounter(changeCounterAtRead, Number.MAX_SAFE_INTEGER, -1);
+    return this.writeTransaction(async (tx) => {
+      const db = transactionDb(tx);
+      const rows = await db.select<{ change_counter: number; last_publish_counter: number }[]>(
+        "SELECT change_counter, last_publish_counter FROM sync_identity WHERE id = 1",
+      );
+      const row = rows[0];
+      if (!row) {
+        throw new Error(
+          "Cannot mark changes as published: the sync identity has not been created (call ensureSyncIdentity first)",
+        );
+      }
+      const last = toCounter(row.last_publish_counter);
+      const next = nextPublishCounter(changeCounterAtRead, toCounter(row.change_counter), last);
+      if (next === null) {
+        return { lastPublishCounter: last, advanced: false };
+      }
+      // Guarded on the value just read: the slot is exclusive, this is the second line of defence.
+      const result = await db.execute(
+        `UPDATE sync_identity SET last_publish_counter = $1
+         WHERE id = 1 AND last_publish_counter = $2 AND change_counter >= $1`,
+        [next, last],
+      );
+      return result.rowsAffected === 1
+        ? { lastPublishCounter: next, advanced: true }
+        : { lastPublishCounter: last, advanced: false };
+    });
   }
 }

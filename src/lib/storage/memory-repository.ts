@@ -143,9 +143,16 @@ import {
   syncTemplateStatusChange,
 } from "../recurring/engine";
 import { buildDailyRelationshipDrawPlan } from "../relationship-draws";
-import type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 import type { SyncDomain } from "../sync/registry";
-import { SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE, type SyncStatus } from "../sync/status";
+import {
+  SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE,
+  type SyncPeerAppliedInput,
+  type SyncPublishCounters,
+  type SyncPublishMark,
+  type SyncSnapshot,
+  type SyncStatus,
+} from "../sync/status";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
 import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
 import { FinanceMemoryStore } from "./finance-memory-store";
@@ -2215,7 +2222,31 @@ export class MemoryRepository implements AppRepository {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 
-  async applySyncBundle(_domain: SyncDomain, _changeSet: SyncChangeSet): Promise<SyncApplyResult> {
+  async applySyncBundle(
+    _domain: SyncDomain,
+    _changeSet: SyncChangeSet,
+    _options?: SyncApplyOptions,
+  ): Promise<SyncApplyResult> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async recordSyncPeerApplied(_input: SyncPeerAppliedInput): Promise<void> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async markSyncPublished(_changeCounterAtRead: number): Promise<SyncPublishMark> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async readSyncPublishCounters(): Promise<SyncPublishCounters | null> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async readSyncSnapshot(_domain: SyncDomain): Promise<SyncSnapshot> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async queueSyncRepublish(): Promise<void> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 }

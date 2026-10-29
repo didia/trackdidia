@@ -200,7 +200,8 @@ describe("enableSyncCapture", () => {
     await database.execute("UPDATE sync_identity SET last_publish_counter = change_counter");
     await repository.createTask({ id: "task-2", title: "Two", bucket: "inbox" });
     const status = await repository.getSyncStatus();
-    expect(status.supported && status.pendingChanges).toBe(1);
+    // The task and its `task_created` event: both are local changes.
+    expect(status.supported && status.pendingChanges).toBe(2);
     expect(status.supported && status.changeCounter).toBeGreaterThan(
       base.supported ? base.changeCounter : 0,
     );

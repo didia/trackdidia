@@ -372,9 +372,10 @@ describe("recurring occurrences", () => {
       "2026-03-17": "missed",
       "2026-03-18": "active",
     });
-    // One stamped entity per touched row (instance + template), not one per sidecar row.
+    // One stamped entity per touched row (instance + template) and one for the task event the
+    // advance emits (union rows count as local changes), not one per sidecar row.
     const after = await readIdentity(a.db);
-    expect((after?.change_counter ?? 0) - (before?.change_counter ?? 0)).toBeLessThanOrEqual(2);
+    expect((after?.change_counter ?? 0) - (before?.change_counter ?? 0)).toBeLessThanOrEqual(3);
     expect(await findTask(a, INSTANCE_ID)).toMatchObject({ pendingPastRecurrences: 3 });
 
     a.clock.advance(1_000);

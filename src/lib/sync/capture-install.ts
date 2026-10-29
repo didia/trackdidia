@@ -50,6 +50,18 @@ export const isCapturedRegistration = (entry: TableRegistration): boolean =>
   (SYNC_DOMAINS as readonly string[]).includes(entry.domain) &&
   CAPTURED_MERGE_CLASSES.includes(entry.mergeClass);
 
+/**
+ * Grow-only-union tables (`ai_messages`, `gtd_task_events`) have no clocks, marks or snapshots, but a
+ * row INSERTED into one is still a local change that has to be published. They get a single cheap
+ * trigger that only bumps `sync_identity.change_counter` (see {@link buildUnionCounterTrigger}).
+ */
+export const unionCounterTables = (): TableRegistration[] =>
+  TABLE_REGISTRY.filter(
+    (entry) =>
+      (SYNC_DOMAINS as readonly string[]).includes(entry.domain) &&
+      entry.mergeClass === "grow-only-union",
+  );
+
 /** Registry tables that get capture triggers and a meta row per row, in registry order. */
 export const capturedTables = (): TableRegistration[] =>
   TABLE_REGISTRY.filter(isCapturedRegistration);
@@ -237,6 +249,30 @@ export const buildTableCaptureTriggers = (
   return triggers;
 };
 
+/**
+ * `AFTER INSERT` only: an insert that `ON CONFLICT DO NOTHING` ignores fires nothing, so a generator
+ * that emits no event bumps nothing. Gated like every capture trigger (no identity row or
+ * `applying = 1` is silent), so a merge-applied union row is never counted back. No dirty mark, no
+ * snapshot: one UPDATE of the single identity row per inserted row.
+ */
+export const buildUnionCounterTrigger = (table: string): CaptureTrigger => {
+  if (!IDENTIFIER.test(table)) {
+    throw new Error(`Unsafe SQL identifier "${table}"`);
+  }
+  const name = `${CAPTURE_TRIGGER_PREFIX}${table}_cnt`;
+  return {
+    name,
+    table,
+    sql: [
+      `CREATE TRIGGER ${quoteIdent(name)} AFTER INSERT ON ${quoteIdent(table)}`,
+      WHEN_CAPTURING,
+      "BEGIN",
+      "  UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1;",
+      "END",
+    ].join("\n"),
+  };
+};
+
 /** All capture triggers for a live schema, sorted by name. Validates registry against schema. */
 export const buildCaptureTriggers = (schema: Map<string, LiveTableSchema>): CaptureTrigger[] => {
   const triggers: CaptureTrigger[] = [];
@@ -251,6 +287,10 @@ export const buildCaptureTriggers = (schema: Map<string, LiveTableSchema>): Capt
         table === SETTINGS_TABLE ? ["insert", "update"] : ["insert", "update", "delete"],
       ),
     );
+  }
+  for (const entry of unionCounterTables()) {
+    // No column list is needed (the trigger touches no column); a missing table fails at install.
+    triggers.push(buildUnionCounterTrigger(entry.table));
   }
   return triggers.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
 };

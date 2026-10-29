@@ -1,8 +1,15 @@
 import type { AcceptEffect, AiProposalAcceptResult } from "../ai/proposals/accept-effect";
 import type { ReconcileDayResult } from "../gtd/reconcile";
-import type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 import type { SyncDomain } from "../sync/registry";
-import type { SyncIdentityResult, SyncStatus } from "../sync/status";
+import type {
+  SyncIdentityResult,
+  SyncPeerAppliedInput,
+  SyncPublishCounters,
+  SyncPublishMark,
+  SyncSnapshot,
+  SyncStatus,
+} from "../sync/status";
 import type {
   CalendarSyncDetachReason,
   CalendarSyncLink,
@@ -592,16 +599,65 @@ export interface AppRepository {
    * a table this build cannot merge (`unsupported_merge_class`), a schema newer than ours, capture
    * not enabled, a unique-key collision or any SQL error (`SyncApplyError`), a bad remote clock
    * (`SyncClockError`). Idempotent and order independent for the supported classes; merge-applied
-   * writes are not captured back and do not touch `change_counter`. Memory rejects. Nothing in the
+   * writes are not captured back and do not touch `change_counter` (except with `options.republish`,
+   * which bumps it once, in the same transaction, when the merge changed anything). Memory rejects. Nothing in the
    * app calls this yet.
    */
-  applySyncBundle(domain: SyncDomain, changeSet: SyncChangeSet): Promise<SyncApplyResult>;
+  applySyncBundle(
+    domain: SyncDomain,
+    changeSet: SyncChangeSet,
+    options?: SyncApplyOptions,
+  ): Promise<SyncApplyResult>;
+  /**
+   * Records what the sync engine has taken from one peer, in `sync_peers` (device-local; never
+   * published). The per-domain bundle hashes are MERGED into the stored map (a domain that is not
+   * named keeps its hash), the manifest is replaced, `syncedAt` replaces the contact time (`null` keeps the stored one), and the row is created on first
+   * contact. Call it only after the bundles it names were applied: it is what makes the next pull of
+   * an unchanged manifest a no-op. Rejects an invalid peer id or an unknown domain. Memory rejects:
+   * sync is unavailable in browser preview.
+   */
+  recordSyncPeerApplied(input: SyncPeerAppliedInput): Promise<void>;
+  /**
+   * Marks the changes up to `changeCounterAtRead` as published: sets `last_publish_counter` to it,
+   * but only if it moves forward and does not pass `change_counter` (compare-and-set). The caller
+   * reads the counter BEFORE `listSyncChanges`, so an edit made while the bundle was being written
+   * has bumped `change_counter` past the value stored here and stays pending. Never moves backwards.
+   * Memory rejects: sync is unavailable in browser preview.
+   */
+  markSyncPublished(changeCounterAtRead: number): Promise<SyncPublishMark>;
+  /**
+   * The COMMITTED `change_counter` and `last_publish_counter`, read in a writer slot: no other write
+   * transaction is in flight, so a counter that another operation has advanced but not yet committed
+   * (and may still roll back) is never observed. `null` before `ensureSyncIdentity`. This, not
+   * `getSyncStatus` (a cheap read outside the queue, fine for showing "pending" in the UI), is what
+   * the decision to publish and `markSyncPublished` must be based on. Memory rejects.
+   */
+  readSyncPublishCounters(): Promise<SyncPublishCounters | null>;
+  /**
+   * `listSyncChanges(domain)` together with the committed `change_counter` read in the same writer
+   * slot, so the counter is exactly what the returned change set covers. A publisher records THIS
+   * value as "published up to here" (and passes it to `markSyncPublished`), never a counter read
+   * earlier or elsewhere. Requires the sync identity. Memory rejects.
+   */
+  readSyncSnapshot(domain: SyncDomain): Promise<SyncSnapshot>;
+  /**
+   * Makes the whole synced state pending again: bumps `change_counter` by one, durably, without
+   * touching any row. The sync engine uses it when a publish that it had given up on (timed out)
+   * eventually settles, because that late write may have replaced a newer snapshot in the folder:
+   * the next publish then rewrites the current state. Requires the sync identity. Memory rejects:
+   * sync is unavailable in browser preview.
+   */
+  queueSyncRepublish(): Promise<void>;
 }
 
-export type { SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+export type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 export type {
   SyncIdentity,
   SyncIdentityResult,
+  SyncPeerAppliedInput,
   SyncPeerSummary,
+  SyncPublishCounters,
+  SyncPublishMark,
+  SyncSnapshot,
   SyncStatus,
 } from "../sync/status";
