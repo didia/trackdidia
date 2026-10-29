@@ -89,8 +89,8 @@ statement's IPC cost, during which any other write queued for more than 15 s was
 chunked and resumable: the longest slot measured is about 0.1 to 0.3 s in process (see
 [Chunked capture backfill and chunked apply](storage-and-backups.md#chunked-capture-backfill-and-chunked-apply)),
 so the app stays usable and an edit made during the enable is captured as usual. The progress is saved after
-every chunk: if the app is quit or crashes, nothing is lost, sync stays off, and the Settings card (and the
-`/sync` page, when sync was already on) shows the unfinished percentage with **"Reprendre l'initialisation"**,
+every chunk: if the app is quit or crashes, nothing is lost, sync stays off, and the Settings card and the
+`/sync` page (both read the stored progress when they open, even while sync is still off) show the unfinished percentage with **"Reprendre l'initialisation"**,
 which carries on from where it stopped. **While the initialization is unfinished nothing is published and
 nothing is merged** (`/sync` says so); the engine reports `backfill_incomplete`.
 

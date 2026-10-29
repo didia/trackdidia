@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../../app/app-context";
@@ -22,11 +22,20 @@ export const MultiDeviceSyncSection = () => {
   const [message, setMessage] = useState("");
   const [choosing, setChoosing] = useState(false);
 
-  if (!isSyncCardVisible(debugEnabled)) return null;
+  const visible = isSyncCardVisible(debugEnabled);
+  const reachable = visible && !browserPreview && sync.supported;
+  const enabled = settings.multiDeviceSyncEnabled;
+  const { refresh } = sync;
+  // Sync not turned on yet: an enable that was interrupted by a restart left a stored backfill, and
+  // the card offers to resume it. (With sync on, the /sync page reads the status.)
+  useEffect(() => {
+    if (reachable && !enabled) void refresh();
+  }, [reachable, enabled, refresh]);
+
+  if (!visible) return null;
 
   const unavailable = browserPreview || !sync.supported;
   const busy = sync.phase !== "idle";
-  const enabled = settings.multiDeviceSyncEnabled;
   const personalDir = settings.backupDestinationDir;
   const gtdDir = settings.syncGtdFolderDir;
 

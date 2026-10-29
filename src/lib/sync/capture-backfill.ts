@@ -10,7 +10,10 @@ import {
   SETTINGS_TABLE,
 } from "./capture-install";
 import { chunked, fetchRows, placeholders, stampDirtyEntities } from "./capture-stamp";
-import { ensureInstanceOccurrences } from "./capture-recurrence";
+import {
+  ensureInstanceOccurrencesSlice,
+  type OccurrenceBaselineCursor,
+} from "./capture-recurrence";
 import { createHlcBatch, SyncClockError } from "./clock-store";
 import { entityIdOf, parseEntityId, type PrimaryKeyValue } from "./entity-id";
 
@@ -27,7 +30,8 @@ import { entityIdOf, parseEntityId, type PrimaryKeyValue } from "./entity-id";
  *   no trigger saw, such as the victim of `INSERT OR REPLACE` on a non-key unique conflict);
  * - `settings`: the settings blob (its synced keys that differ from their baseline);
  * - `occurrences`: recurring instances stamped before the occurrence sidecars existed get their
- *   baseline record.
+ *   baseline record. Paged by instance id and, inside one instance, by backlog date (cursor key
+ *   `[id, offset]`), under the same row and statement budgets as the scans.
  *
  * What makes it safe to interleave with the user's own edits: a mark only says "look at this row".
  * The stamper compares the live row with the stored snapshot and writes nothing when they agree, so
@@ -49,6 +53,14 @@ export const SETTINGS_STEP = "settings";
 
 const ROWS_PREFIX = "rows:";
 const META_PREFIX = "meta:";
+
+/** The occurrence step's cursor key, `[instance id, backlog offset]`; anything else restarts the step. */
+const occurrenceCursorOf = (key: PrimaryKeyValue[]): OccurrenceBaselineCursor | null => {
+  const [id, offset] = key;
+  return typeof id === "string" && typeof offset === "number" && offset >= 0
+    ? { id, offset: Math.floor(offset) }
+    : null;
+};
 
 export const backfillSteps = (): string[] => [
   ...capturedTables().flatMap((entry) => [
@@ -300,16 +312,38 @@ export const runBackfillSlice = async (
   let stamped = await stampDirtyEntities(db, nowMs);
   if (index === occurrencesIndex) {
     // Recurring instances stamped before the occurrence sidecars existed (or while capture was
-    // off) get their baseline record. Idle when every instance already has one.
-    const issuer = createHlcBatch(db, nowMs);
-    const baselined = await ensureInstanceOccurrences(db, () => issuer.next());
-    if (baselined > 0) {
-      await issuer.flush();
-      await db.execute("UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1");
-      stamped += 1;
+    // off) get their baseline record. Idle when every instance already has one. Paged like the row
+    // scans: the cursor is `[instance id, backlog offset]`, the units of work come out of what the
+    // scan above left of the row budget, and the statement budget is checked between units. A slice
+    // that reaches this step with nothing left still does its one unit, so it always progresses.
+    if (
+      scanned === 0 ||
+      (scanned < options.limits.rowsPerChunk && count() < options.limits.statementsPerChunk)
+    ) {
+      const issuer = createHlcBatch(db, nowMs);
+      const slice = await ensureInstanceOccurrencesSlice(
+        db,
+        () => issuer.next(),
+        key === null ? null : occurrenceCursorOf(key),
+        {
+          units: Math.max(1, options.limits.rowsPerChunk - scanned),
+          statementsSpent: () => count() >= options.limits.statementsPerChunk,
+        },
+      );
+      if (slice.written > 0) {
+        await issuer.flush();
+        await db.execute(
+          "UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1",
+        );
+        stamped += 1;
+      }
+      if (slice.next === null) {
+        index += 1;
+        key = null;
+      } else {
+        key = [slice.next.id, slice.next.offset];
+      }
     }
-    index += 1;
-    key = null;
   }
   const finished = index >= steps.length;
   return {

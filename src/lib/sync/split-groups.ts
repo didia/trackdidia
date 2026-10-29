@@ -37,7 +37,9 @@ import { getTableRegistration } from "./registry";
  *   the queue's remaining tasks are merged the leavers are already gone, as in the whole apply;
  * - any two entities of one table that share a declared natural key (bare columns only) and are
  *   resolved by `alias` or `name-prompt`: `natural:<table>:<key name>:<values>`, so a collision
- *   between two rows of the SAME set is resolved in one call exactly as before.
+ *   between two rows of the SAME set is resolved in one call exactly as before. A key that only ONE
+ *   entity of the set carries ties nothing (the planner drops it before grouping), so imported tasks
+ *   that each have their own external id are still separable from their project's queue.
  *
  * Not grouped, ORDERED: `ai_proposals` and `finance_category_suggestions` (pending-collision keys).
  * `applyRowClockTable` applies them one entity at a time, decided rows first, then deletes, then
@@ -102,6 +104,8 @@ export class Groups {
     return this.find(key);
   }
 }
+
+export const NATURAL_KEY_PREFIX = "natural:";
 
 const INSTANCE_PREFIX = instanceEntityId("");
 
@@ -187,7 +191,7 @@ export const groupKeysOf = (entity: SyncEntity): string[] => {
     for (const natural of naturalKeyColumns(table)) {
       const values = natural.columns.map((column) => row[column]);
       if (values.some((value) => value === null || value === undefined)) continue;
-      keys.push(`natural:${table}:${natural.name}:${JSON.stringify(values)}`);
+      keys.push(`${NATURAL_KEY_PREFIX}${table}:${natural.name}:${JSON.stringify(values)}`);
     }
   }
   return keys;
@@ -226,14 +230,47 @@ export const subOrderOf = (entity: SyncEntity, inQueue: boolean): number => {
 export const QUEUE_KEY_PREFIX = "queue:";
 
 /**
- * True for an entity that may be separated from the rest of its group: a task whose ONLY key is its
- * project's queue (no template, no natural key). Everything else in a group is tied to its group
- * members by a rule that reads them together, and is never cut away from them: a transaction from its
- * splits (children sort before the parent id and would be dropped as orphans, the unit would replace
- * local splits), an objective from its results, a session from its segments (a segment of an unknown
- * session fails the bundle), a template from its instance, the snapshots of an account.
+ * The units a large queue group may be cut into: the tasks of `entities` partitioned by every key
+ * EXCEPT their project's queue (a shared natural key or a template ties members, the queue does not
+ * count). A unit is detachable when it is only tasks, with no template tie: a task whose only key is
+ * the queue is a unit of one, and a set of tasks that really share a natural key is one atomic unit
+ * (the collision between them is resolved in one call). Everything else in a group is tied to its
+ * group members by a rule that reads them together, and is never cut away from them: a transaction
+ * from its splits (children sort before the parent id and would be dropped as orphans, the unit would
+ * replace local splits), an objective from its results, a session from its segments (a segment of an
+ * unknown session fails the bundle), a template from its instance, the snapshots of an account.
+ *
+ * `keysOf` gives the group keys of an entity (already without natural keys that no other entity of the
+ * set shares, which tie nothing). Units come out in the order of their first entity.
  */
-export const isDetachable = (entity: SyncEntity, keys: readonly string[]): boolean =>
-  entity.table === "gtd_tasks" &&
-  keys.length === 1 &&
-  (keys[0] as string).startsWith(QUEUE_KEY_PREFIX);
+export const detachableUnits = (
+  entities: readonly SyncEntity[],
+  keysOf: (entity: SyncEntity) => readonly string[],
+): { detachable: SyncEntity[][]; core: SyncEntity[] } => {
+  const ties = new Groups();
+  const keyed: { entity: SyncEntity; tie: string }[] = [];
+  entities.forEach((entity, index) => {
+    const keys = keysOf(entity).filter((key) => !key.startsWith(QUEUE_KEY_PREFIX));
+    const own = `self:${index}`;
+    ties.join(keys.length === 0 ? [own] : keys);
+    keyed.push({ entity, tie: keys.length === 0 ? own : (keys[0] as string) });
+  });
+  const units = new Map<string, SyncEntity[]>();
+  for (const { entity, tie } of keyed) {
+    const root = ties.representative(tie);
+    const unit = units.get(root);
+    if (unit === undefined) units.set(root, [entity]);
+    else unit.push(entity);
+  }
+  const detachable: SyncEntity[][] = [];
+  const core: SyncEntity[] = [];
+  for (const unit of units.values()) {
+    const loose = unit.every(
+      (entity) =>
+        entity.table === "gtd_tasks" && keysOf(entity).every((key) => !key.startsWith("template:")),
+    );
+    if (loose) detachable.push(unit);
+    else core.push(...unit);
+  }
+  return { detachable, core };
+};

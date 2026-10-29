@@ -117,6 +117,8 @@ export const describeIssue = (t: TFunction<"sync">, issue: SyncIssue): Described
       folder,
       name: issue.peerName ?? issue.peerId ?? "",
       domain: issue.domain ?? "",
+      kept: issue.progress?.kept ?? 0,
+      total: issue.progress?.total ?? 0,
     }),
     persistent: null,
   };

@@ -155,6 +155,15 @@ describe("enabling and disabling", () => {
     expect(screen.queryByRole("button", { name: "Reprendre l'initialisation" })).toBeNull();
   });
 
+  it("reads the stored state on open while sync is off, and not when it is on", async () => {
+    const off = syncController();
+    await render(off);
+    expect(off.refresh).toHaveBeenCalledTimes(1);
+    const on = syncController();
+    await render(on, withBackup({ multiDeviceSyncEnabled: true }));
+    expect(on.refresh).not.toHaveBeenCalled();
+  });
+
   it("offers to resume an interrupted backfill instead of enabling again", async () => {
     const sync = syncController({ backfill: { percent: 61, scannedRows: 61, totalRows: 100 } });
     await render(sync);

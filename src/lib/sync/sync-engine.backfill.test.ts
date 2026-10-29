@@ -28,8 +28,8 @@ const interruptedPair = async () => {
   return { world, a, b };
 };
 
-const listCalls = (device: { calls: { method: string }[] }) =>
-  device.calls.filter((call) => call.method === "listSyncChanges").length;
+const snapshotCalls = (device: { calls: { method: string }[] }) =>
+  device.calls.filter((call) => call.method === "readSyncSnapshot").length;
 
 describe("the engine while the capture backfill is unfinished", () => {
   it("publishes nothing and says why", async () => {
@@ -38,7 +38,68 @@ describe("the engine while the capture backfill is unfinished", () => {
     expect(report.issues).toMatchObject([{ severity: "warning", code: "backfill_incomplete" }]);
     expect(report.domains).toEqual([]);
     expect(report.counterAdvanced).toBe(false);
-    expect(listCalls(a)).toBe(0);
+    expect(snapshotCalls(a)).toBe(0);
+  });
+
+  it("publishes nothing when the final chunk's COMMIT fails after the engine saw the pass as finished", async () => {
+    const { a, b } = await interruptedPair();
+    // The final chunk runs to its COMMIT (status read OUTSIDE the writer queue now says "complete"),
+    // then the COMMIT fails and the chunk rolls back: the stored pass is still running.
+    let armed = false;
+    let reachCommit!: () => void;
+    const atCommit = new Promise<void>((resolve) => {
+      reachCommit = resolve;
+    });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const execute = a.db.execute.bind(a.db);
+    a.db.execute = async (query, values) => {
+      if (armed && query.trim().toUpperCase() === "COMMIT") {
+        armed = false;
+        reachCommit();
+        await gate;
+        throw new Error("disk I/O error");
+      }
+      return execute(query, values);
+    };
+    armed = true;
+    const finalChunk = a.repo
+      .continueSyncCaptureBackfill({
+        limits: { rowsPerChunk: 100_000, statementsPerChunk: 100_000 },
+        maxChunks: 1,
+      })
+      .catch((error: unknown) => error);
+    await atCommit;
+    const publishing = a.engine.publish();
+    // Let the publisher pass its status read and queue behind the chunk.
+    for (let turn = 0; turn < 20; turn += 1) await new Promise((resolve) => setTimeout(resolve, 0));
+    release();
+    expect(await finalChunk).toBeInstanceOf(Error);
+
+    const report = await publishing;
+    expect(report.counterAdvanced).toBe(false);
+    expect(report.domains.some((domain) => domain.outcome === "published")).toBe(false);
+    expect(report.issues.some((issue) => issue.code === "backfill_incomplete")).toBe(true);
+    expect((await a.engine.getStatus()).backfill.complete).toBe(false);
+    // Nothing partial reached the peer.
+    await b.engine.pull();
+    const ids = (await b.repo.listTasks({ includeCompleted: true })).map((task) => task.id);
+    expect(ids.filter((id) => id.startsWith("a-"))).toEqual([]);
+
+    // After the pass really finishes, the same peer receives everything.
+    await runSyncCaptureBackfill(a.repo, {
+      limits: SMALL,
+      yieldBetweenChunks: async () => undefined,
+    });
+    await a.engine.publish();
+    await b.engine.pull();
+    expect(
+      (await b.repo.listTasks({ includeCompleted: true })).filter((task) =>
+        task.id.startsWith("a-"),
+      ),
+    ).toHaveLength(40);
   });
 
   it("applies nothing and says why, then merges once the pass has finished", async () => {

@@ -216,6 +216,7 @@
         "bundle_not_ready": "Les données de {{name}} ne sont pas encore prêtes (envoi en cours ?) : nouvel essai plus tard.",
         "bundle_invalid": "Les données de {{name}} ({{domain}}) sont invalides : rejetées en bloc.",
         "bundle_rejected": "Les données de {{name}} ({{domain}}) n'ont pas pu être fusionnées : rien n'a été conservé.",
+        "bundle_partially_merged": "Les données de {{name}} ({{domain}}) n'ont été fusionnées qu'en partie : {{kept}} partie(s) sur {{total}} sont conservées (tes données restent cohérentes), puis une partie a échoué. Le paquet sera réessayé en entier à la prochaine synchronisation ; ce qui est déjà fusionné ne sera pas modifié.",
         "bundle_failed": "Échec inattendu en traitant les données de {{name}} ({{domain}}).",
         "bookkeeping_failed": "La fusion a réussi mais n'a pas pu être mémorisée : la prochaine synchronisation la refera sans effet.",
         "safety_backup_required": "Une sauvegarde de cet ordinateur est requise avant de fusionner et n'a pas pu être faite : rien n'a été fusionné.",

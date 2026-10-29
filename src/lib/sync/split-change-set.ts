@@ -16,7 +16,8 @@ import { getTableRegistration, TABLE_REGISTRY } from "./registry";
 import {
   Groups,
   groupKeysOf,
-  isDetachable,
+  detachableUnits,
+  NATURAL_KEY_PREFIX,
   QUEUE_KEY_PREFIX,
   sidecarTemplateIds,
   subOrderOf,
@@ -137,8 +138,6 @@ interface Piece {
   /** The piece holds a task, and a task of a project's queue. */
   hasTask: boolean;
   hasQueue: boolean;
-  /** Entities that may be cut away from the group (see `isDetachable`). */
-  detachable: Set<SyncEntity>;
   entities: SyncEntity[];
   unionRows: { table: string; row: SyncRow }[];
   aliases: SyncAlias[];
@@ -153,7 +152,6 @@ const piece = (position: number, sortKey: string, parts: Partial<Piece> = {}): P
   sub: 1,
   hasTask: false,
   hasQueue: false,
-  detachable: new Set(),
   entities: [],
   unionRows: [],
   aliases: [],
@@ -164,6 +162,9 @@ const piece = (position: number, sortKey: string, parts: Partial<Piece> = {}): P
 });
 
 const compareText = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+
+const compareEntities = (a: SyncEntity, b: SyncEntity): number =>
+  compareText(`${a.table}\u0000${a.entityId}`, `${b.table}\u0000${b.entityId}`);
 
 const rank = (table: string): number => tableOrder(table) + (table === "gtd_tasks" ? 1000 : 0);
 
@@ -277,7 +278,12 @@ const idOfRow = (table: string, row: SyncRow): string =>
  * - groups with no detachable entity (transactions with splits, objectives with results, sessions
  *   with segments, account snapshots) are never passed here for their entities: they stay whole.
  */
-const cutGroup = (group: Piece, limits: ApplyLimits, pad: (n: number) => string): Piece[] => {
+const cutGroup = (
+  group: Piece,
+  limits: ApplyLimits,
+  pad: (n: number) => string,
+  keysOf: (entity: SyncEntity) => readonly string[],
+): Piece[] => {
   const keyOf = (id: string, part: number): string =>
     `${pad(group.position)}\u0000${group.sub}\u0000${id}\u0000${pad(part)}`;
   const slices: Piece[] = [];
@@ -294,14 +300,24 @@ const cutGroup = (group: Piece, limits: ApplyLimits, pad: (n: number) => string)
       }),
     );
   }
-  const loose =
+  const { detachable, core } =
     group.entities.length > limits.maxGroupEntities
-      ? group.entities.filter((entity) => group.detachable.has(entity))
-      : [];
-  const looseSet = new Set(loose);
-  const core = group.entities.filter((entity) => !looseSet.has(entity));
-  for (let start = 0; start < loose.length; start += limits.maxGroupEntities) {
-    const entities = loose.slice(start, start + limits.maxGroupEntities);
+      ? detachableUnits(group.entities, keysOf)
+      : { detachable: [], core: group.entities };
+  // Whole units are packed into slices of at most `maxGroupEntities` (a unit that is larger than the
+  // cap alone gets a slice of its own); a unit is never split.
+  const packed: SyncEntity[][] = [];
+  let open: SyncEntity[] = [];
+  for (const unit of detachable) {
+    if (open.length > 0 && open.length + unit.length > limits.maxGroupEntities) {
+      packed.push(open);
+      open = [];
+    }
+    open.push(...unit);
+  }
+  if (open.length > 0) packed.push(open);
+  for (const entities of packed) {
+    entities.sort(compareEntities);
     slices.push(
       piece(group.position, keyOf(firstId, slices.length), {
         sub: group.sub,
@@ -341,7 +357,22 @@ export const planChangeSet = (
 
   // ---- Groups of entities that must stay together -------------------------------------------
   const groups = new Groups();
-  const keysOf = changeSet.entities.map((entity) => groupKeysOf(entity));
+  const rawKeys = changeSet.entities.map((entity) => groupKeysOf(entity));
+  // A natural key that no other entity of the set shares ties nothing: it must not make its task
+  // inseparable from the rest of the project's queue (imported tasks each carry their own external id).
+  const keyCounts = new Map<string, number>();
+  for (const keys of rawKeys) {
+    for (const key of keys)
+      if (key.startsWith(NATURAL_KEY_PREFIX)) {
+        keyCounts.set(key, (keyCounts.get(key) ?? 0) + 1);
+      }
+  }
+  const keysOf = rawKeys.map((keys) =>
+    keys.filter((key) => !key.startsWith(NATURAL_KEY_PREFIX) || (keyCounts.get(key) ?? 0) > 1),
+  );
+  const keysByEntity = new Map(
+    changeSet.entities.map((entity, index) => [entity, keysOf[index] as string[]]),
+  );
   for (const keys of keysOf) groups.join(keys);
   const sidecarTemplates = sidecarTemplateIds(changeSet);
   for (const id of sidecarTemplates) groups.join([`template:${id}`]);
@@ -370,7 +401,6 @@ export const planChangeSet = (
         : ensure(groups.representative(keys[0] as string));
     if (entity.table === "gtd_tasks") target.hasTask = true;
     if (keys.some((key) => key.startsWith(QUEUE_KEY_PREFIX))) target.hasQueue = true;
-    if (isDetachable(entity, keys)) target.detachable.add(entity);
     target.entities.push(entity);
     target.position = Math.max(target.position, position);
   });
@@ -395,20 +425,19 @@ export const planChangeSet = (
     if (group.entities.length > 0 && group.hasTask && !group.hasQueue && group.sub === 1) {
       group.sub = 0;
     }
-    group.entities.sort((a, b) =>
-      compareText(`${a.table}\u0000${a.entityId}`, `${b.table}\u0000${b.entityId}`),
-    );
+    group.entities.sort(compareEntities);
     const first = group.entities[0];
     const firstId = first
       ? first.entityId
       : (group.occurrences[0]?.template_id ?? group.clears[0]?.template_id ?? "");
     group.sortKey = `${pad(group.position)}\u0000${group.sub}\u0000${firstId}`;
     largestGroup = Math.max(largestGroup, group.entities.length);
-    const cutEntities =
-      group.entities.length > limits.maxGroupEntities && group.detachable.size > 0;
+    // A large group is cut where its tasks are tied only by their project's queue (a group without a
+    // queue key is one connected component and has nothing to cut).
+    const cutEntities = group.entities.length > limits.maxGroupEntities && group.hasQueue;
     if (cutEntities || group.occurrences.length > limits.maxSidecarRows) {
       cutGroups += 1;
-      body.push(...cutGroup(group, limits, pad));
+      body.push(...cutGroup(group, limits, pad, (entity) => keysByEntity.get(entity) ?? []));
     } else {
       body.push(group);
     }

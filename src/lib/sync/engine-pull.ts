@@ -553,17 +553,31 @@ export const runPull = async (
         cause instanceof SyncApplyError ||
         cause instanceof SyncClockError ||
         cause instanceof SyncChangeSetError;
+      // Pieces before the failing one are committed: say so, with their number, and do not claim
+      // that nothing was kept.
+      const kept = failedPiece !== null && failedPiece.chunk > 0 ? failedPiece.chunk : 0;
+      if (failedPiece !== null) {
+        result.chunks = {
+          total: failedPiece.chunks,
+          applied: failedPiece.partial.chunksApplied,
+          maxMs: failedPiece.partial.maxChunkMs,
+        };
+        if (kept > 0) result.partial = { kept, total: failedPiece.chunks };
+      }
       issues.push({
         transport: plan.transport.id,
         peerId: manifest.deviceId,
         peerName: manifest.deviceName,
         domain,
         severity: "error",
-        code: known ? "bundle_rejected" : "bundle_failed",
+        code: kept > 0 ? "bundle_partially_merged" : known ? "bundle_rejected" : "bundle_failed",
         message: failedPiece
           ? `The ${domain} data of ${manifest.deviceName} could not be merged: part ${failedPiece.chunk + 1} of ${failedPiece.chunks} failed (${messageOf(cause)}); the ${failedPiece.chunk} earlier part(s) were kept and the whole bundle is tried again next time`
           : `The ${domain} data of ${manifest.deviceName} could not be merged and nothing was kept: ${messageOf(error)}`,
         detail: known ? (cause as { code: string }).code : messageOf(cause),
+        ...(kept > 0 && failedPiece !== null
+          ? { progress: { kept, total: failedPiece.chunks } }
+          : {}),
       });
       result.outcome = "rejected";
     }

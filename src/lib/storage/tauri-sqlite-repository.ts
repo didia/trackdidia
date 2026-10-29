@@ -3604,6 +3604,10 @@ export class TauriSqliteRepository implements AppRepository {
     // One writer slot for both reads: the counter is the committed one, and the change set covers it.
     return this.writeQueue.run(async () => {
       const db = await this.getDb();
+      // The stored state, read in the same slot as the change set: a status read taken earlier (or
+      // inside a chunk that has not committed yet) must not stand in for it, or a chunk that rolls
+      // back after the check would publish a bundle without the entities it did not stamp.
+      if (this.captureEnabled) await assertBackfillComplete(db);
       const changeSet = await readChangeSet(db, domain, this.syncSettingsAccess());
       const rows = await db.select<{ change_counter: number }[]>(
         "SELECT change_counter FROM sync_identity WHERE id = 1",

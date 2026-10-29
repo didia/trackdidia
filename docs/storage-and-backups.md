@@ -1334,6 +1334,10 @@ random states).
   for this repair: it may renumber `planned_order` again (the stored orders and the incoming ones then
   disagree at the same clock), which settles after at most two applies and never produces an endless
   republish loop (a re-apply writes no clock and reports no tombstone).
+  The renumbering of the receiver's OWN queue members (rows the bundle does not carry) is written in
+  batches of 250 rows per statement (`CASE id WHEN ... THEN ...`, `writePlannedOrders` in `apply-support.ts`),
+  the same final rows as one `UPDATE` each: one incoming task that sorts ahead of a 5,000-task local queue costs
+  about 100 statements in all (5,080 when each member was rewritten alone), `apply-chunked.scale.test.ts`.
   Renumbering writes orders without a clock, so it is not a join: replicas that repaired different
   intermediate states can hold different orders until the next exchange, which resolves the tie by the
   smaller tuple and repairs again. The order is cosmetic; no edit is lost.
@@ -1493,7 +1497,10 @@ is validated with `validateChangeSet` (failure: `bundle_invalid`, rejected as a 
 its `domain` must be the one the manifest promised (`wrong_domain_bundle`) and its `deviceId` the peer's
 (`bundle_device_mismatch`); then `applySyncBundle`. A `SyncApplyError`, `SyncClockError` or
 `SyncChangeSetError` from it is `bundle_rejected` (the transaction rolled back, nothing kept) with the inner
-code in `detail`; anything else is `bundle_failed`. `sync_peers` is written only after a successful apply
+code in `detail`; anything else is `bundle_failed`. A bundle applied in several chunks that fails at chunk
+N > 1 is neither: the chunks before it are committed and stay, so the issue is `bundle_partially_merged`
+(inner code or message in `detail`, `progress: { kept, total }`, and `DomainPullResult.partial` / `chunks`
+carry the same numbers) and the page says so instead of "nothing was kept". `sync_peers` is written only after a successful apply
 (`recordSyncPeerApplied`, merging the new hashes into the stored map), plus a contact record at most once a
 day for peers whose domains are all unchanged, so a quiet peer never counts as "not pulled for 90 days"
 (a refused stray domain entry does not prevent it). A peer with a domain that is not ready or was rejected
@@ -1673,10 +1680,14 @@ backfill pass. The two facts that used to be one are now separate:
   background continuation.
 - The startup path (`ensureSyncCapture` at `initialize()`) only repairs triggers by hash. It does not
   run a chunk: the 8-second bootstrap rule. An unfinished pass waits for an explicit continuation.
-- **While a pass is running the engine neither publishes nor applies.** `listSyncChanges` and
-  `applySyncBundle` throw `SyncApplyError("backfill_incomplete")` (checked against the stored state, the
-  apply check inside its transaction); the engine's pull and publish report a `backfill_incomplete`
-  warning without calling them, and `EngineStatus.ready` is false. Local edits keep being captured
+- **While a pass is running the engine neither publishes nor applies.** `listSyncChanges`,
+  `readSyncSnapshot` (what a publish actually reads) and `applySyncBundle` throw
+  `SyncApplyError("backfill_incomplete")`, each checked against the STORED state inside its own writer slot
+  (the apply check inside its transaction), never against a status read taken earlier: a final chunk whose
+  COMMIT fails after the status said "complete" rolls back, and the queued publisher must not emit a
+  bundle without the entities that chunk did not stamp. The engine's pull and publish report a
+  `backfill_incomplete` warning (a publish that is refused by the snapshot read reports the same warning),
+  and `EngineStatus.ready` is false. Local edits keep being captured
   by the triggers and stamped by the normal path at their own commit.
 
 **One chunk** (`runBackfillSlice`, `capture-backfill.ts`, inside one `writeTransaction`): up to
@@ -1686,7 +1697,12 @@ chunk also ends when its scan has issued `statementsPerChunk` statements (defaul
 always processed, so a chunk always progresses). The steps, in a fixed order: for each captured table in
 registry order `rows:<table>` (keyset by primary key: `(a, b) > (cursor)` for a composite key, NULL-keyed rows
 skipped as before) then `meta:<table>` (live clock rows by entity id; one whose row is gone is tombstoned),
-then `settings`, then `occurrences` (the recurring-instance baseline). The cursor is the step name plus the
+then `settings`, then `occurrences` (the recurring-instance baseline). The baseline obeys both budgets too:
+it takes whatever is left of `rowsPerChunk` (one unit per instance looked at, one per backlog date
+recorded) and stops starting units once the statement budget is spent, with the cursor `[instance id,
+backlog offset]` (offset 0: after that instance; N >= 1: inside its backlog, N - 1 dates written), saved in
+the same transaction. A slice that reaches `occurrences` with no budget left ends first and does the step
+in the next slice. The cursor is the step name plus the
 last primary key as JSON; a cursor naming a step this build does not have restarts the pass at its
 beginning, which is safe because the scan is idempotent.
 
@@ -1701,7 +1717,8 @@ edits between slices and deletes of unstamped and stamped rows),
 chunks, nothing run at startup) and `sync-engine.backfill.test.ts` pin this.
 
 Unfinished enable. If the app quits mid-pass, `multiDeviceSyncEnabled` was never saved (it is saved after
-the last chunk). The Settings card and the `/sync` page read the unfinished pass and offer
+the last chunk). The Settings card and the `/sync` page read the stored unfinished pass when they open,
+even while sync is still off (`refresh()` reads the backfill state before it looks at the setting), and offer
 "Reprendre l'initialisation" with the percentage; resuming runs the same flow again (every step is
 repeatable).
 
@@ -1749,8 +1766,8 @@ would still be a valid merge but not the same one):
 | a Pomodoro session and its segments | a segment is judged by its session |
 | a weekly objective and its results | `ON DELETE CASCADE`: a deleted parent removes its children after they were merged; split across calls, the cascade would tombstone children with a clock this laptop invents, and an edit of a result later than the delete could not be judged against the parent |
 | a recurring template, its instance task and its occurrence/clear sidecars | the instance row and the template are recomputed from the merged occurrences |
-| the NON-TERMINAL tasks of one project, in any bucket (the only group that may be cut, see the cap below) | the Planned queue is renumbered over the tasks of a call, and a task that LEAVES the queue (moved to Next Actions) is still in its project, so it must be merged with the tasks that stay. Completed and cancelled tasks, deleted tasks and tasks without a project are not in this group. Any task piece WITHOUT a queue key (alone, or in a natural-key or template group) is applied FIRST, so a task that leaves the queue by being finished or deleted is already gone when the remaining tasks are merged, as in one call |
-| entities of one table sharing a declared natural key (bare columns, `alias` or `name-prompt` resolution) | a collision between two rows of the same bundle is resolved in one call |
+| the NON-TERMINAL tasks of one project, in any bucket (the only group that may be cut, see the cap below; a natural key that no other entity of the same bundle carries ties nothing, so imported tasks with their own external id are still separable) | the Planned queue is renumbered over the tasks of a call, and a task that LEAVES the queue (moved to Next Actions) is still in its project, so it must be merged with the tasks that stay. Completed and cancelled tasks, deleted tasks and tasks without a project are not in this group. Any task piece WITHOUT a queue key (alone, or in a natural-key or template group) is applied FIRST, so a task that leaves the queue by being finished or deleted is already gone when the remaining tasks are merged, as in one call |
+| entities of one table sharing a declared natural key (bare columns, `alias` or `name-prompt` resolution) with at least one OTHER entity of the bundle | a collision between two rows of the same bundle is resolved in one call |
 
 **Ordered, not grouped: proposals and category suggestions.** A pending proposal (one per message and type or
 goal) or suggestion (one per transaction) meets the stored pending rows that the earlier entities of the call
@@ -1762,9 +1779,11 @@ proposal `pm` and regenerates `pb` of the same type while `pa` was dismissed; gr
 applying the tombstone of `pm` afterwards demoted `pm` to `expired` (a `pending_collision` conflict, and `pm` then
 survives its own tombstone); the order puts the tombstone before `pb`.
 
-**Cap and worst case.** `maxGroupEntities` (1,500) only ever cuts away **detachable** tasks: tasks tied to their
-group by their project's queue and nothing else. A project's active tasks beyond the cap go in slices of 1,500 by
-id, before the rest of the group. Everything else in a group is tied to its members by a rule that reads them
+**Cap and worst case.** `maxGroupEntities` (1,500) only ever cuts away **detachable** units: a task tied to its
+group by its project's queue and nothing else (a natural key it alone carries does not count), or a set of tasks
+that really share a natural key and nothing else (that set stays atomic, only its tie to the queue is cut). A
+project's active tasks beyond the cap go in slices of at most 1,500 entities (whole units, in id order), before the
+rest of the group. Everything else in a group is tied to its members by a rule that reads them
 together and is **never cut**, whatever the cap: a transaction from its splits (children sort before the parent id,
 an unknown parent skips them as orphans and the unit then deletes the local splits), a weekly objective from its
 results, a Pomodoro session from its segments (a segment of an unknown session fails the whole bundle with
@@ -1774,7 +1793,7 @@ entities (they are joins); the template, its instance and the remaining sidecar 
 every task of the group was merged. `cutGroups` counts the groups actually cut, `oversizedGroups` the groups that
 exceed `maxEntities` or `maxSidecarRows` and got a chunk of their own. The worst-case chunk is therefore about 1,500
 queue tasks, measured at 1,619 statements (`apply-chunked.scale.test.ts`: a project of 5,000 planned tasks, 4,980
-completed, is 13 chunks of at most 400; 5,000 active ones are 5 chunks, none above that bound). Before the cap and the
+completed, is 13 chunks of at most 400; 5,000 active ones, with or without a distinct external id each, are 5 chunks, none above that bound). Before the cap and the
 terminal-task rule such a project was one 5,315-statement slot. The groups that are never cut are not unbounded in
 practice (a transaction has a handful of splits, an objective one result per week, a session a few segments) but they
 do grow with the data; there is no cap on them by design. Collisions that only appear after an alias rewrote an account
@@ -1829,9 +1848,10 @@ memory how far it got (keyed by peer, domain, bundle hash and limits): the next 
 a restart, or after a failed chunk, the bundle is applied again from its first chunk. **That repeat is not
 cheap**: every chunk re-reads and re-compares its entities, measured at 60 to 95 percent of the cost of
 applying them for the first time (below), because the merge has no persisted per-chunk "done" marker. It is correct
-and bounded (each chunk is its own short slot), only slow; a persisted resume cursor is a follow-up. A chunk failure is reported as
-a `bundle_failed` / `bundle_rejected` issue naming the part ("part 3 of 12 failed; the 2 earlier part(s) were
-kept") and the bundle is retried whole at the next pull. `PullTotals` gains `chunksApplied` and `maxChunkMs`,
+and bounded (each chunk is its own short slot), only slow; a persisted resume cursor is a follow-up. A chunk failure after at least one chunk was committed is reported as
+a `bundle_partially_merged` issue naming the part ("part 3 of 12 failed; the 2 earlier part(s) were
+kept"; French: "2 partie(s) sur 12 sont conservées"), with `DomainPullResult.partial = { kept, total }`, and the bundle is
+retried whole at the next pull (a failure of the first chunk is `bundle_rejected` / `bundle_failed` as for a small bundle). `PullTotals` gains `chunksApplied` and `maxChunkMs`,
 `DomainPullResult.chunks` gives `{ total, applied, maxMs }`. `republish` is passed to every chunk, so each
 chunk that changed anything bumps `change_counter` in its own transaction (a crash between chunks cannot lose
 the obligation to publish).
@@ -1841,7 +1861,7 @@ the obligation to publish).
 | Limit | Default | Meaning |
 |---|---|---|
 | backfill `rowsPerChunk` | 1,000 | rows (plus live clock rows) looked at per writer slot |
-| backfill `statementsPerChunk` | 200 | statements the scan part of a chunk may issue |
+| backfill `statementsPerChunk` | 200 | statements the scan part of a chunk may issue (the recurring-instance baseline included: it takes what is left of `rowsPerChunk`, one unit per instance or backlog date) |
 | apply `maxEntities` | 400 | entities per chunk (a group above it gets its own chunk) |
 | apply `maxUnionRows` | 4,000 | grow-only-union rows per chunk (`gtd_task_events`, `ai_messages`) |
 | apply `maxAliases` | 400 | alias rows per chunk |

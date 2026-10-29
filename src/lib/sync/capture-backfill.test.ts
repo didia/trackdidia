@@ -1,9 +1,12 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
+import type { RecurringTaskTemplate } from "../../domain/types";
+import * as recurringTemplatesRows from "../storage/sqlite/rows/recurringTemplates";
 import type { Database } from "../storage/sqlite-db";
 import { runSqliteTransaction } from "../storage/transaction";
 import {
   type BackfillCursor,
+  type BackfillSliceOutcome,
   backfillSteps,
   backfillSyncCapture,
   decodeCursor,
@@ -354,5 +357,128 @@ describe("runBackfillSlice: healing and edge cases", () => {
         runBackfillSlice(db, CAPTURE_NOW, null, { verify: true, limits: limits(5) }),
       ),
     ).rejects.toThrow(/identity/);
+  });
+});
+
+describe("runBackfillSlice: the occurrence baseline respects both chunk budgets", () => {
+  const templateRow = (id: string): RecurringTaskTemplate => ({
+    id,
+    title: "Habit",
+    notes: "",
+    targetBucket: "next_action",
+    contextIds: [],
+    projectId: null,
+    ruleType: "daily",
+    dailyInterval: 1,
+    weeklyInterval: 1,
+    weeklyDays: [0],
+    monthlyMode: "day_of_month",
+    dayOfMonth: 1,
+    nthWeek: 1,
+    weekday: 6,
+    scheduledTime: null,
+    startDate: "2026-03-01",
+    status: "active",
+    lastGeneratedForDate: "2026-10-20",
+    pendingMissedOccurrences: 0,
+    statusChangedAt: "2026-03-01T00:00:00.000Z",
+    createdAt: "2026-03-01T00:00:00.000Z",
+    updatedAt: "2026-03-01T00:00:00.000Z",
+  });
+
+  /** Templates whose instances carry a backlog, written while capture was off: no occurrence rows. */
+  const backlogDb = async (templates: number, backlog: number): Promise<Db> => {
+    const db = await createCaptureDb({ capture: false });
+    for (let i = 0; i < templates; i += 1) {
+      const id = `tpl-${String(i).padStart(2, "0")}`;
+      await db.execute(
+        `INSERT INTO recurring_task_templates (${recurringTemplatesRows.COLUMNS}) VALUES (${Array.from({ length: 22 }, (_, n) => `$${n + 1}`).join(", ")})`,
+        recurringTemplatesRows.toParams(templateRow(id)),
+      );
+      await insertTask(db, `recurring-task:${id}`, {
+        is_recurring_instance: 1,
+        recurring_template_id: id,
+        recurrence_due_date: "2026-10-20",
+        pending_past_recurrences: backlog,
+      });
+    }
+    await installSyncCapture(db);
+    // Stamped by an earlier version, before the occurrence sidecars existed: clocks and snapshots
+    // are there, the occurrence records are not.
+    await backfillSyncCapture(db, CAPTURE_NOW, { verify: true });
+    await db.execute("DELETE FROM sync_recurrence_occurrences");
+    await db.execute("DELETE FROM sync_recurrence_clears");
+    return db;
+  };
+
+  const occurrenceState = async (db: Db) => ({
+    occurrences: await db.select(
+      "SELECT template_id, due_date, outcome FROM sync_recurrence_occurrences ORDER BY template_id, due_date",
+    ),
+    clears: await db.select(
+      "SELECT template_id, cleared_through_date FROM sync_recurrence_clears ORDER BY template_id",
+    ),
+  });
+
+  const runBudgeted = async (db: Db, rowsPerChunk: number, statementsPerChunk: number) => {
+    let cursor: BackfillCursor | null = null;
+    let slices = 0;
+    let maxStatements = 0;
+    do {
+      const from: BackfillCursor | null = cursor;
+      const slice: BackfillSliceOutcome = await runSqliteTransaction(db, () =>
+        runBackfillSlice(db, CAPTURE_NOW, from, {
+          verify: true,
+          limits: { rowsPerChunk, statementsPerChunk },
+        }),
+      );
+      slices += 1;
+      maxStatements = Math.max(maxStatements, slice.statements);
+      // The cursor survives the state row's text encoding, as it does between real chunks.
+      cursor =
+        slice.next === null
+          ? null
+          : decodeCursor(
+              slice.next.step,
+              slice.next.key === null ? null : JSON.stringify(slice.next.key),
+            );
+    } while (cursor !== null);
+    return { slices, maxStatements };
+  };
+
+  it("10 templates x 200 pending recurrences take many bounded chunks and match the unbounded run", async () => {
+    const whole = await backlogDb(10, 200);
+    await backfillSyncCapture(whole, CAPTURE_NOW, { verify: true });
+    const expected = await occurrenceState(whole);
+    expect(expected.occurrences).toHaveLength(10 * 201);
+
+    const db = await backlogDb(10, 200);
+    const run = await runBudgeted(db, 25, 60);
+    expect(await occurrenceState(db)).toEqual(expected);
+    // About 2,010 units of work at 25 a chunk; before the fix the whole baseline was one slice.
+    expect(run.slices).toBeGreaterThan(60);
+    // The statement budget (60) plus the fixed per-unit and per-slice constants.
+    expect(run.maxStatements).toBeLessThan(110);
+    // Nothing is left to do, and the same pass over the finished database writes nothing.
+    const again = await runBudgeted(db, 25, 60);
+    expect(again.slices).toBeGreaterThan(0);
+    expect(await occurrenceState(db)).toEqual(expected);
+  });
+
+  it("makes progress with the smallest budgets", async () => {
+    const whole = await backlogDb(2, 12);
+    await backfillSyncCapture(whole, CAPTURE_NOW, { verify: true });
+    const db = await backlogDb(2, 12);
+    const run = await runBudgeted(db, 1, 1);
+    expect(await occurrenceState(db)).toEqual(await occurrenceState(whole));
+    expect(run.maxStatements).toBeLessThan(60);
+  });
+
+  it("does not page already-baselined instances in one slice", async () => {
+    const db = await backlogDb(300, 0);
+    await backfillSyncCapture(db, CAPTURE_NOW, { verify: true });
+    const run = await runBudgeted(db, 20, 10_000);
+    expect(run.maxStatements).toBeLessThan(120);
+    expect(run.slices).toBeGreaterThan(1);
   });
 });

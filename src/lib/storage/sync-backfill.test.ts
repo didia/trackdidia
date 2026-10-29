@@ -239,6 +239,21 @@ describe("while the backfill is incomplete", () => {
     return peer.listSyncChanges("gtd");
   };
 
+  it("refuses the snapshot publishing reads, and allows it once complete", async () => {
+    const { repository } = await seeded();
+    await repository.enableSyncCapture({ limits: SMALL });
+    await expect(repository.readSyncSnapshot("gtd")).rejects.toMatchObject({
+      name: "SyncApplyError",
+      code: "backfill_incomplete",
+    });
+    await runSyncCaptureBackfill(repository, {
+      limits: SMALL,
+      yieldBetweenChunks: async () => undefined,
+    });
+    const snapshot = await repository.readSyncSnapshot("gtd");
+    expect(snapshot.changeSet.entities.length).toBeGreaterThanOrEqual(60);
+  });
+
   it("refuses to publish and to apply with typed errors, and allows both once complete", async () => {
     const { database, repository } = await seeded();
     const incoming = await peerBundle();

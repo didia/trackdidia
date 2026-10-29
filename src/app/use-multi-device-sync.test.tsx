@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import { useState, type PropsWithChildren } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AppSettings } from "../domain/types";
 // SAFETY: in-memory SQLite and an in-memory fake host; `VACUUM INTO` is intercepted.
@@ -9,6 +10,10 @@ import { TauriSqliteRepository } from "../lib/storage/tauri-sqlite-repository";
 import { createFakeFolderHost } from "../lib/sync/test-support/fake-folder-host";
 import { harnessDeviceId } from "../lib/sync/test-support/two-device-harness";
 import { buildSyncEngine, enableSync, type SyncServiceDeps } from "../lib/sync/sync-service";
+import { MultiDeviceSyncSection } from "../components/settings/MultiDeviceSyncSection";
+import { SyncPage } from "../pages/SyncPage";
+import { renderWithApp } from "../test/test-utils";
+import { AppContext, useAppContext } from "./app-context";
 import { useMultiDeviceSync } from "./use-multi-device-sync";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -65,7 +70,81 @@ const setup = async () => {
     }),
   );
   let current = await repository.getSettings();
-  return { host, repository, raw, hook, deps, published, counts, settings: () => current };
+  /**
+   * The app quits and starts again on the same database: the hook is unmounted and a fresh one is
+   * mounted over the stored settings, with none of the previous session's state.
+   */
+  const restart = async () => {
+    hook.unmount();
+    const store = { current: await repository.getSettings() };
+    const restarted = renderHook(() =>
+      useMultiDeviceSync(repository, {
+        browserPreview: false,
+        getSettings: () => store.current,
+        updateSettings: async (updater) => {
+          store.current = await repository.updateSettings(updater);
+          return store.current;
+        },
+        deps,
+      }),
+    );
+    return { hook: restarted, settings: () => store.current, store };
+  };
+  return { host, repository, raw, hook, deps, published, counts, restart, settings: () => current };
+};
+
+/** Tasks beyond one default chunk, and an enable that dies after its first chunks. */
+const interruptedEnable = async (session: Awaited<ReturnType<typeof setup>>) => {
+  const { hook, repository, raw } = session;
+  await raw.execute("BEGIN");
+  for (let i = 0; i < 2300; i += 1) {
+    await raw.execute(
+      "INSERT INTO gtd_tasks (id, title, notes, status, bucket, context_ids_json, source, created_at, updated_at) VALUES ($1, 'T', '', 'open', 'inbox', '[]', 'manual', 'x', 'x')",
+      [`bulk-${i}`],
+    );
+  }
+  await raw.execute("COMMIT");
+  const original = repository.continueSyncCaptureBackfill.bind(repository);
+  let calls = 0;
+  repository.continueSyncCaptureBackfill = async (options) => {
+    calls += 1;
+    if (calls > 1) throw new Error("the app quit");
+    return original(options);
+  };
+  await act(async () => {
+    await hook.result.current.enable();
+  });
+  repository.continueSyncCaptureBackfill = original;
+};
+
+/** The real hook, provided to the real components, over a session's database and settings. */
+const Live = ({
+  session,
+  store,
+  children,
+}: PropsWithChildren<{
+  session: Awaited<ReturnType<typeof setup>>;
+  store: { current: AppSettings };
+}>) => {
+  const base = useAppContext();
+  const [settings, setSettings] = useState(store.current);
+  const sync = useMultiDeviceSync(session.repository, {
+    browserPreview: false,
+    getSettings: () => store.current,
+    updateSettings: async (updater) => {
+      store.current = await session.repository.updateSettings(updater);
+      setSettings(store.current);
+      return store.current;
+    },
+    deps: session.deps,
+  });
+  return (
+    <AppContext.Provider
+      value={{ ...base, settings, sync, browserPreview: false, debugEnabled: true }}
+    >
+      {children}
+    </AppContext.Provider>
+  );
 };
 
 beforeEach(() => {
@@ -124,47 +203,64 @@ describe("useMultiDeviceSync", () => {
   });
 
   it("shows an interrupted backfill after a restart and resumes it, then turns sync on", async () => {
-    const { hook, settings, repository, raw } = await setup();
-    // More rows than one default chunk (1,000 rows): the enable needs several writer slots.
-    await raw.execute("BEGIN");
-    for (let i = 0; i < 2300; i += 1) {
-      await raw.execute(
-        "INSERT INTO gtd_tasks (id, title, notes, status, bucket, context_ids_json, source, created_at, updated_at) VALUES ($1, 'T', '', 'open', 'inbox', '[]', 'manual', 'x', 'x')",
-        [`bulk-${i}`],
-      );
-    }
-    await raw.execute("COMMIT");
-
-    // The enable dies after the first chunks (a crash, or the app is quit).
-    const original = repository.continueSyncCaptureBackfill.bind(repository);
-    let calls = 0;
-    repository.continueSyncCaptureBackfill = async (options) => {
-      calls += 1;
-      if (calls > 1) throw new Error("the app quit");
-      return original(options);
-    };
-    await act(async () => {
-      await hook.result.current.enable();
-    });
+    const session = await setup();
+    const { hook, settings, repository } = session;
+    await interruptedEnable(session);
     expect(hook.result.current.setupError?.code).toBe("capture_failed");
     expect(settings().multiDeviceSyncEnabled).toBe(false);
     expect(hook.result.current.backfill).not.toBeNull();
     expect(hook.result.current.backfill?.percent).toBeGreaterThan(0);
     expect(hook.result.current.backfill?.percent).toBeLessThan(100);
 
-    // A later session: the page reads the unfinished pass, and resuming finishes the enable.
-    repository.continueSyncCaptureBackfill = original;
+    // A later session: a fresh hook knows nothing, reads the unfinished pass, and resuming finishes
+    // the enable.
+    const next = await session.restart();
+    expect(next.hook.result.current.backfill).toBeNull();
+    expect(next.settings().multiDeviceSyncEnabled).toBe(false);
     await act(async () => {
-      await hook.result.current.refresh();
+      await next.hook.result.current.refresh();
     });
-    expect(hook.result.current.backfill).not.toBeNull();
+    expect(next.hook.result.current.backfill).not.toBeNull();
     await act(async () => {
-      await hook.result.current.resumeBackfill();
+      await next.hook.result.current.resumeBackfill();
     });
-    expect(hook.result.current.setupError).toBeNull();
-    expect(hook.result.current.backfill).toBeNull();
-    expect(settings().multiDeviceSyncEnabled).toBe(true);
+    expect(next.hook.result.current.setupError).toBeNull();
+    expect(next.hook.result.current.backfill).toBeNull();
+    expect(next.settings().multiDeviceSyncEnabled).toBe(true);
     expect(await repository.getSyncStatus()).toMatchObject({ backfillComplete: true });
+  });
+
+  it("offers the Resume button in Settings and on /sync after a restart, with sync still off", async () => {
+    const session = await setup();
+    await interruptedEnable(session);
+    const next = await session.restart();
+    next.hook.unmount();
+    expect(next.settings().multiDeviceSyncEnabled).toBe(false);
+
+    // Settings, mounted fresh: nobody calls refresh() by hand.
+    const settingsView = await renderWithApp(
+      <Live session={session} store={next.store}>
+        <MultiDeviceSyncSection />
+      </Live>,
+    );
+    const resume = await screen.findByRole("button", { name: "Reprendre l'initialisation" });
+    expect(screen.queryByRole("button", { name: "Activer la synchronisation" })).toBeNull();
+    settingsView.unmount();
+
+    // The /sync page, mounted fresh, offers it too while sync is off.
+    const pageView = await renderWithApp(
+      <Live session={session} store={next.store}>
+        <SyncPage />
+      </Live>,
+    );
+    const pageResume = await screen.findByRole("button", { name: "Reprendre l'initialisation" });
+    expect(resume).not.toBe(pageResume);
+    await act(async () => {
+      fireEvent.click(pageResume);
+    });
+    await waitFor(() => expect(next.store.current.multiDeviceSyncEnabled).toBe(true));
+    expect(await session.repository.getSyncStatus()).toMatchObject({ backfillComplete: true });
+    pageView.unmount();
   });
 
   it("resumes only the chunks when sync is already on", async () => {

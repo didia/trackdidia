@@ -102,7 +102,10 @@ describe("a large bundle through the engine", () => {
     const gtd = first.peers[0]?.domains.find((domain) => domain.domain === "gtd");
     expect(gtd?.outcome).toBe("rejected");
     const issue = first.issues.find((item) => item.domain === "gtd");
-    expect(issue?.code).toBe("bundle_failed");
+    expect(issue?.code).toBe("bundle_partially_merged");
+    expect(issue?.progress).toEqual({ kept: 2, total: expect.any(Number) });
+    expect(gtd?.partial).toEqual({ kept: 2, total: issue?.progress?.total });
+    expect(gtd?.chunks?.applied).toBe(2);
     expect(issue?.message).toMatch(/part 3 of \d+/);
     expect(issue?.message).toMatch(/2 earlier part\(s\) were kept/);
     // Two pieces are in; the hash of the bundle is NOT recorded; the database is consistent.

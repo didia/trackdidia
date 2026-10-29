@@ -131,11 +131,15 @@ describe("groups whose children are not applicable on their own are never cut", 
     await a.repo.createTask({ id: "t1", title: "Plan", bucket: "next_action" });
     const started = await a.repo.startPomodoro({ kind: "focus", taskId: "t1" });
     const sessionId = started.activeSession?.id as string;
+    // Explicit, strictly increasing instants: the repository otherwise reads the wall clock, and a
+    // pause and resume landing in the same millisecond merge their segments (a flaky count).
+    const base = Date.now();
+    const at = (seconds: number) => new Date(base + seconds * 1_000).toISOString();
     for (let i = 0; i < 2; i += 1) {
       a.clock.advance(1_000);
-      await a.repo.pausePomodoroSession(sessionId);
+      await a.repo.pausePomodoroSession(sessionId, at(2 * i + 1));
       a.clock.advance(1_000);
-      await a.repo.resumePomodoroSession(sessionId);
+      await a.repo.resumePomodoroSession(sessionId, at(2 * i + 2));
     }
     a.clock.advance(1_000);
     await a.repo.stopPomodoroSession(sessionId, "completed");
@@ -229,6 +233,31 @@ describe("what the cap does cut", () => {
       expect(chunk.recurrence.occurrences).toHaveLength(0);
       expect(chunk.entities.length).toBeLessThanOrEqual(2);
     }
+  });
+
+  it("detaches singleton natural keys from the queue and keeps real shared natural keys atomic", () => {
+    // 4 imported tasks with their own external id, plus two pairs that really share one. Both pairs
+    // are in the same project queue; a pair is cut away from the queue but never from each other.
+    const ids = ["s1", "s2", "s3", "s4", "p1", "p2", "r1", "r2"];
+    const external: Record<string, string> = {
+      s1: "ext-s1",
+      s2: "ext-s2",
+      s3: "ext-s3",
+      s4: "ext-s4",
+      p1: "ext-p",
+      p2: "ext-p",
+      r1: "ext-r",
+      r2: "ext-r",
+    };
+    const set = changeSetOf(
+      ids.map((id, order) => task(id, { planned_order: order, source_external_id: external[id] })),
+    );
+    const plan = planChangeSet(set, { maxEntities: 2, maxGroupEntities: 2 });
+    expect(plan.cutGroups).toBe(1);
+    for (const chunk of plan.chunks) expect(chunk.entities.length).toBeLessThanOrEqual(2);
+    expect(chunkOf(plan.chunks, "gtd_tasks", "p1")).toBe(chunkOf(plan.chunks, "gtd_tasks", "p2"));
+    expect(chunkOf(plan.chunks, "gtd_tasks", "r1")).toBe(chunkOf(plan.chunks, "gtd_tasks", "r2"));
+    expect(plan.chunks.length).toBeGreaterThanOrEqual(4);
   });
 
   it("never cuts entities of a group with no detachable member, whatever the cap", () => {

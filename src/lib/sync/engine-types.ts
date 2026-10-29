@@ -66,6 +66,12 @@ export type SyncIssueCode =
   /** The repository refused the bundle (`SyncApplyError` / `SyncClockError`); nothing was kept. */
   | "bundle_rejected"
   | "bundle_failed"
+  /**
+   * A bundle applied in several pieces failed part way: the pieces before the failing one are kept (a
+   * valid state), the bundle is tried again in full on the next pull. `SyncIssue.progress` says how
+   * many; `detail` is the inner error.
+   */
+  | "bundle_partially_merged"
   /** Applying worked but remembering it failed: the bundle will be re-applied (a no-op). */
   | "bookkeeping_failed"
   /** A safety backup was required before merging and could not be made; nothing was applied. */
@@ -86,6 +92,8 @@ export interface SyncIssue {
   domain?: SyncDomain | string;
   /** The inner error code (`SyncApplyError.code`, `SyncChangeSetError.code`, a stale reason). */
   detail?: string;
+  /** For `bundle_partially_merged`: pieces kept out of the pieces the bundle was split into. */
+  progress?: { kept: number; total: number };
 }
 
 export type DomainPullOutcome =
@@ -124,6 +132,13 @@ export interface DomainPullResult {
     /** Slowest piece of this pull, in milliseconds. */
     maxMs: number;
   };
+  /**
+   * Present when the bundle was rejected AFTER earlier pieces were committed: they stay (a valid
+   * state) and the next pull applies the bundle again from its first piece. `kept` is the number of
+   * pieces before the failing one (also kept from earlier, deferred pulls), `total` the pieces of the
+   * bundle.
+   */
+  partial?: { kept: number; total: number };
 }
 
 /** Why a peer's manifest as a whole was or was not acted on. */

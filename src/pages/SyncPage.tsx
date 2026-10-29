@@ -193,10 +193,13 @@ export const SyncPage = () => {
   const open = isSyncPageEnabled(debugEnabled, settings) && sync.supported && !browserPreview;
   const busy = sync.phase !== "idle";
 
+  // Also while sync is not turned on yet: an enable that was interrupted (the app quit during the
+  // first pass) left a stored backfill that this page offers to resume.
+  const reachable = debugEnabled && sync.supported && !browserPreview;
   const { refresh } = sync;
   useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
+    if (reachable) void refresh();
+  }, [reachable, open, refresh]);
 
   const header = (actions?: React.ReactNode) => (
     <PageHeader
@@ -234,6 +237,22 @@ export const SyncPage = () => {
         <div className="banner" role="status">
           {t("page.gate.disabled")} <Link to="/parametres">{t("page.gate.settingsLink")}</Link>
         </div>
+        {sync.backfill ? (
+          <div className="banner" role="status">
+            <strong>{t("page.backfill.title")}</strong>
+            <p>{t("page.backfill.body", { percent: sync.backfill.percent })}</p>
+            <button
+              className="button button--primary"
+              type="button"
+              disabled={busy}
+              onClick={() => void sync.resumeBackfill()}
+            >
+              {sync.phase === "resuming" || sync.phase === "enabling"
+                ? t("page.backfill.resuming")
+                : t("page.backfill.resume")}
+            </button>
+          </div>
+        ) : null}
       </div>
     );
   }

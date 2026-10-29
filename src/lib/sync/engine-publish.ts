@@ -8,6 +8,7 @@ import {
   type SyncIssue,
   SyncEngineError,
 } from "./engine-types";
+import { SyncApplyError } from "./errors";
 import { domainsPublishable } from "./profile";
 import type { SyncDomain } from "./registry";
 import { SyncTransportError, type SyncTransport } from "./transport";
@@ -244,7 +245,19 @@ export const runPublish = async (
       }
       failed += 1;
       domains.push({ domain, outcome: "failed", transport: transport.id });
-      if (error instanceof SyncEngineError) {
+      if (error instanceof SyncApplyError && error.code === "backfill_incomplete") {
+        // The repository checked the STORED state in the same slot as the read: the pass that the
+        // status read above saw as finished was rolled back (or a new one started) since.
+        issues.push({
+          severity: "warning",
+          code: "backfill_incomplete",
+          transport: transport.id,
+          domain,
+          message:
+            "Change tracking is still being initialized on this device; nothing is published until it has finished.",
+          detail: error.code,
+        });
+      } else if (error instanceof SyncEngineError) {
         issues.push({
           severity: "error",
           code: "publish_failed",

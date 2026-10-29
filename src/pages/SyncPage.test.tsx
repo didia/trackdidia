@@ -58,9 +58,19 @@ describe("SyncPage gates", () => {
     await renderPage(sync, { settings: defaultAppSettings() });
     expect(screen.getByText(/La synchronisation n'est pas activée/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Synchroniser maintenant" })).toBeNull();
-    expect(sync.refresh).not.toHaveBeenCalled();
+    // It reads the stored state once, to discover an enable that a restart interrupted.
+    expect(sync.refresh).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: "Reprendre l'initialisation" })).toBeNull();
     fireEvent.click(screen.getByRole("link", { name: "Ouvrir les Paramètres" }));
     expect(screen.getByText("page parametres")).toBeInTheDocument();
+  });
+
+  it("offers to resume an enable that a restart interrupted, while sync is still off", async () => {
+    const sync = syncController({ backfill: { percent: 61, scannedRows: 61, totalRows: 100 } });
+    await renderPage(sync, { settings: defaultAppSettings() });
+    expect(screen.getByText(/\(61 %\)/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Reprendre l'initialisation" }));
+    expect(sync.resumeBackfill).toHaveBeenCalledTimes(1);
   });
 
   it("loads its state on open", async () => {
@@ -354,6 +364,56 @@ describe("Sync now", () => {
     expect(screen.getByText(/Une sauvegarde de cet ordinateur est requise/)).toBeInTheDocument();
   });
 
+  it("does not claim nothing was kept when a late piece of a large bundle failed", async () => {
+    // What the engine reports when pieces 1 and 2 of 5 were committed and piece 3 failed.
+    const run = {
+      finishedAtMs: Date.now(),
+      error: null,
+      report: {
+        pull: pullReport({
+          complete: true,
+          peers: [
+            {
+              peerId: "dev:peer",
+              peerName: "Portable",
+              transport: "folder:gtd",
+              status: "ok",
+              domains: [
+                {
+                  domain: "gtd",
+                  outcome: "rejected",
+                  chunks: { total: 5, applied: 2, maxMs: 40 },
+                  partial: { kept: 2, total: 5 },
+                },
+              ],
+            },
+          ],
+          issues: [
+            issue({
+              severity: "error",
+              code: "bundle_partially_merged",
+              peerName: "Portable",
+              domain: "gtd",
+              detail: "row_filter_violation",
+              progress: { kept: 2, total: 5 },
+              message:
+                "The gtd data of Portable could not be merged: part 3 of 5 failed (x); the 2 earlier part(s) were kept and the whole bundle is tried again next time",
+            }),
+          ],
+        }),
+        publish: publishReport(),
+      },
+    };
+    await renderPage(syncController({ status: status(), run }));
+    expect(
+      screen.getByText(/n'ont été fusionnées qu'en partie : 2 partie\(s\) sur 5 sont conservées/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/réessayé en entier à la prochaine synchronisation/),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/rien n'a été conservé/);
+  });
+
   it("renders a run that failed before it produced a report", async () => {
     await renderPage(
       syncController({
@@ -511,6 +571,7 @@ const ALL_ISSUE_CODES: Record<SyncIssueCode, true> = {
   bundle_invalid: true,
   bundle_rejected: true,
   bundle_failed: true,
+  bundle_partially_merged: true,
   bookkeeping_failed: true,
   safety_backup_required: true,
   publish_failed: true,
