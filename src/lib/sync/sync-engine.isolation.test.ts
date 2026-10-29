@@ -281,12 +281,12 @@ describe("a work laptop that only sees the shared GTD folder", () => {
     }
     // 5. The engine only ever listed and applied the gtd domain on W.
     expect(
-      w.calls.filter((call) => call.method === "listSyncChanges").map((c) => c.domain),
+      w.calls.filter((call) => call.method === "readSyncSnapshot").map((c) => c.domain),
     ).not.toContainEqual(expect.stringMatching(/personal|finance/));
     expect(
       new Set(
         w.calls
-          .filter((call) => call.method === "listSyncChanges" || call.method === "applySyncBundle")
+          .filter((call) => call.method === "readSyncSnapshot" || call.method === "applySyncBundle")
           .map((call) => call.domain),
       ),
     ).toEqual(new Set(["gtd"]));
@@ -331,8 +331,8 @@ describe("a work laptop that only sees the shared GTD folder", () => {
     expect(report.publish.domains.map((d) => [d.domain, d.outcome])).toEqual([
       ["gtd", "published"],
     ]);
-    expect(w.calls.filter((call) => call.method === "listSyncChanges")).toEqual([
-      { method: "listSyncChanges", domain: "gtd" },
+    expect(w.calls.filter((call) => call.method === "readSyncSnapshot")).toEqual([
+      { method: "readSyncSnapshot", domain: "gtd" },
     ]);
     expect(w3.folders.manifestFor("gtd", w.deviceId)?.profile).toBe("work");
     expect(Object.keys(w3.folders.manifestFor("gtd", w.deviceId)?.domains ?? {})).toEqual(["gtd"]);

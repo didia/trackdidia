@@ -8,7 +8,8 @@ import { SyncTransportError } from "./transport";
 export type SyncEngineRepository = Pick<
   AppRepository,
   | "getSyncStatus"
-  | "listSyncChanges"
+  | "readSyncSnapshot"
+  | "readSyncPublishCounters"
   | "applySyncBundle"
   | "recordSyncPeerApplied"
   | "markSyncPublished"

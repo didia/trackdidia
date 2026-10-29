@@ -247,7 +247,7 @@ const runSeed = async (seed: number, holder: { ctx: OpContext | null }) => {
   }
   expect(
     w.calls
-      .filter((call) => call.method === "listSyncChanges" || call.method === "applySyncBundle")
+      .filter((call) => call.method === "readSyncSnapshot" || call.method === "applySyncBundle")
       .every((call) => call.domain === "gtd"),
   ).toBe(true);
 

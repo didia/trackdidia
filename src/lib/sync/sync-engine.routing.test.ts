@@ -13,7 +13,7 @@ import type { SyncTransport } from "./transport";
  */
 
 const listed = (device: EngineDevice) =>
-  device.calls.filter((call) => call.method === "listSyncChanges").map((call) => call.domain);
+  device.calls.filter((call) => call.method === "readSyncSnapshot").map((call) => call.domain);
 
 describe("routing", () => {
   it("routes a domain to the transport that declares it, and to no other", async () => {
@@ -53,8 +53,9 @@ describe("routing", () => {
         recordSyncPeerApplied: (input) => a.repo.recordSyncPeerApplied(input),
         markSyncPublished: (counter) => a.repo.markSyncPublished(counter),
         queueSyncRepublish: () => a.repo.queueSyncRepublish(),
-        listSyncChanges: async (domain) =>
-          domain === "gtd" ? a.repo.listSyncChanges("personal") : a.repo.listSyncChanges(domain),
+        readSyncPublishCounters: () => a.repo.readSyncPublishCounters(),
+        readSyncSnapshot: async (domain) =>
+          domain === "gtd" ? a.repo.readSyncSnapshot("personal") : a.repo.readSyncSnapshot(domain),
       },
       transports: a.transports,
       profile: "personal",

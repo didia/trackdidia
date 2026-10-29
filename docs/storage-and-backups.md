@@ -122,7 +122,7 @@ It groups:
 - standing weekly objectives and per-week manual results;
 - the inert multi-device sync foundation: `getSyncStatus()`, `ensureSyncIdentity()`,
   `enableSyncCapture()`, `listSyncChanges()`, `applySyncBundle()`, `recordSyncPeerApplied()`,
-  `markSyncPublished()` and `queueSyncRepublish()` (see
+  `markSyncPublished()`, `queueSyncRepublish()`, `readSyncPublishCounters()` and `readSyncSnapshot()` (see
   [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables),
   [Multi-device sync change capture](#multi-device-sync-change-capture),
   [Multi-device sync change sets and apply](#multi-device-sync-change-sets-and-apply) and
@@ -139,7 +139,7 @@ The SQLite and memory implementations must remain behaviorally aligned, except f
 native-only storage information, backup creation, and multi-device sync (memory reports
 `{ supported: false }` from `getSyncStatus` and rejects `ensureSyncIdentity`,
 `enableSyncCapture`, `listSyncChanges`, `applySyncBundle`, `recordSyncPeerApplied`,
-`markSyncPublished` and `queueSyncRepublish`).
+`markSyncPublished`, `queueSyncRepublish`, `readSyncPublishCounters` and `readSyncSnapshot`).
 
 ## Atomic AI proposal acceptance
 
@@ -1404,7 +1404,7 @@ the harness gives each simulated laptop its own.
 ### Sync engine, transport seam and device profile
 
 `src/lib/sync/sync-engine.ts` is the orchestration layer of multi-laptop sync: pull, then merge and
-apply through `applySyncBundle`, then publish through `listSyncChanges`. **Sync is still not
+apply through `applySyncBundle`, then publish through `readSyncSnapshot` (`listSyncChanges` plus the covered counter). **Sync is still not
 user-enabled and no transport exists yet.** There is no folder transport, bundle file format, Rust
 command, setting, UI or startup step: the engine is constructed only by tests, against the
 in-memory folders of `src/lib/sync/test-support/memory-transport.ts`. The `work` device profile is
@@ -1444,7 +1444,7 @@ transport that does not).
 sides: a work engine does not even list the peers of a transport that carries nothing it may read
 (`transport_ignored`, an `error`-severity issue so `getStatus()` shows the misconfiguration), refuses manifest entries for other domains (`domain_not_allowed`, error, naming the
 writer, bundle never read), re-checks with `assertDomainAllowed` right before `applySyncBundle`, and never
-calls `listSyncChanges` for a domain it cannot publish. The real boundary remains physical (a work laptop is
+reads a snapshot (`readSyncSnapshot`) of a domain it cannot publish. The real boundary remains physical (a work laptop is
 only given the GTD folder); the profile is the backstop.
 
 **Pull** (`engine.pull(options)`). Transports in the order given, peers by device id, domains in registry
@@ -1509,13 +1509,17 @@ cannot hold the run slot forever (`transport_timeout`).
 
 **Publish** (`engine.publish({ force })`). For each domain the profile can publish AND a transport carries
 (registry order), when `change_counter > last_publish_counter`, or no bundle exists in that folder
-(`ownGeneration` is `null`), or `force`: `listSyncChanges(domain)`, `assertRouted` (the transport declares
+(`ownGeneration` is `null`), or `force`: `readSyncSnapshot(domain)`, `assertRouted` (the transport declares
 the domain and the bundle is of that domain; otherwise `publish_failed` with `domain_routing_violation` and
-nothing is handed over), `transport.publish`. The counter is read BEFORE the change sets and recorded
-with `markSyncPublished(counterAtRead)` only if every attempted domain succeeded, as a compare-and-set
-(it moves forward only, never past `change_counter`, never backwards), so an edit made while the bundle is
-being written stays pending. A domain already published in this process at the current counter is not
-written again when a retry follows a partial failure. Failures are reported (`publish_failed`, or the
+nothing is handed over), `transport.publish`. Every counter that decides, caches or records a publish is a
+COMMITTED one, read through the writer queue: `readSyncPublishCounters()` for the decision, and
+`readSyncSnapshot(domain)` for the change set together with the `change_counter` it covers (one writer slot,
+so no other transaction's uncommitted, possibly rolled back, counter is ever seen). `getSyncStatus()` reads
+outside the queue and is for showing "pending" in the UI only. The process remembers, per domain, the counter
+its published snapshot covered; `markSyncPublished` is given the smallest covered counter, only if every
+attempted domain succeeded, as a compare-and-set (it moves forward only, never past `change_counter`, never
+backwards), so an edit made while a bundle is being written stays pending. A domain already published in this
+process at a counter that is still current is not written again when a retry follows a partial failure. Failures are reported (`publish_failed`, or the
 `transport_*` warnings), never thrown, and do not advance the counter. A domain with no transport is
 `no_transport` and is never read from the repository; while the profile may publish a domain that nothing
 carries (a folder that is not connected right now), the counter does NOT advance past the changes
@@ -1544,7 +1548,9 @@ Reports are plain data matched on `code`, never on `message`: `PullReport` (per-
 `sync_peers` row, merging the per-domain hashes into the stored map and replacing the manifest and the
 contact time (`syncedAt: null` keeps the stored one)
 (rejects an invalid device id, an unknown domain or a malformed hash); `markSyncPublished(counter)` is
-the compare-and-set described above and returns `{ lastPublishCounter, advanced }`; `queueSyncRepublish()`
+the compare-and-set described above and returns `{ lastPublishCounter, advanced }`;
+`readSyncPublishCounters()` and `readSyncSnapshot(domain)` are the queued, committed reads described under
+Publish (`null` counters before the identity exists; a snapshot needs it); `queueSyncRepublish()`
 bumps `change_counter` by one without touching any row. All go through the
 writer queue (`writeTransaction`), with no nested public calls.
 

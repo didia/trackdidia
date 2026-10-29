@@ -1,3 +1,4 @@
+import type { SyncChangeSet } from "./change-set";
 import { SYNC_DOMAINS } from "./registry";
 
 /**
@@ -43,6 +44,22 @@ export interface SyncPeerAppliedInput {
   appliedShaByDomain: Record<string, string>;
   /** ISO timestamp of the contact, or `null` to keep the one already stored. */
   syncedAt: string | null;
+}
+
+/** The committed publish counters, read through the writer queue (`readSyncPublishCounters`). */
+export interface SyncPublishCounters {
+  changeCounter: number;
+  lastPublishCounter: number;
+}
+
+/** A change set together with the committed `change_counter` it covers (`readSyncSnapshot`). */
+export interface SyncSnapshot {
+  changeSet: SyncChangeSet;
+  /**
+   * `change_counter` as read in the SAME writer slot as the change set: committed, and covered by it.
+   * Every change counted by this value is in `changeSet`; a change committed later is not.
+   */
+  changeCounter: number;
 }
 
 /** The result of `AppRepository.markSyncPublished`. */

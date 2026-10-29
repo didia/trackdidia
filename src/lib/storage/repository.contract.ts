@@ -6951,6 +6951,8 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(typeof repository.recordSyncPeerApplied).toBe("function");
         expect(typeof repository.markSyncPublished).toBe("function");
         expect(typeof repository.queueSyncRepublish).toBe("function");
+        expect(typeof repository.readSyncPublishCounters).toBe("function");
+        expect(typeof repository.readSyncSnapshot).toBe("function");
       });
 
       const PEER = "dev:7d1e2c3b-4a5f-4e6d-8c7b-9a0b1c2d3e4f";
@@ -6975,6 +6977,12 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             /unavailable in browser preview/,
           );
           await expect(repository.queueSyncRepublish()).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.readSyncPublishCounters()).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.readSyncSnapshot("gtd")).rejects.toThrow(
             /unavailable in browser preview/,
           );
           return;
@@ -7061,11 +7069,28 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(clean.supported && clean.pendingChanges).toBe(0);
         await expect(repository.markSyncPublished(-1)).rejects.toThrow(/Invalid change counter/);
 
+        // The committed counters, and a change set read together with the counter it covers.
+        const counters = await repository.readSyncPublishCounters();
+        expect(counters).toEqual({
+          changeCounter: after.supported ? after.changeCounter : -1,
+          lastPublishCounter: after.supported ? after.changeCounter : -1,
+        });
+        await repository.createTask({ id: "task-3", title: "Trois", bucket: "inbox" });
+        const snapshot = await repository.readSyncSnapshot("gtd");
+        const moved = await repository.readSyncPublishCounters();
+        expect(snapshot.changeCounter).toBe(moved?.changeCounter);
+        expect(snapshot.changeCounter).toBeGreaterThan(counters?.changeCounter ?? 0);
+        expect(snapshot.changeSet.entities.map((entity) => entity.entityId)).toContain("task-3");
+        expect(snapshot.changeSet).toEqual(await repository.listSyncChanges("gtd"));
+        await expect(repository.readSyncSnapshot("nope" as never)).rejects.toThrow(
+          /Unknown sync domain/,
+        );
+
         // A republish request makes everything pending again, without touching any row.
         await expect(repository.queueSyncRepublish()).resolves.toBeUndefined();
         const requeued = await repository.getSyncStatus();
-        expect(requeued.supported && requeued.pendingChanges).toBe(1);
-        await expect(repository.listTasks({})).resolves.toHaveLength(2);
+        expect(requeued.supported && requeued.pendingChanges).toBeGreaterThan(0);
+        await expect(repository.listTasks({})).resolves.toHaveLength(3);
         await expect(repository.markSyncPublished(1.5)).rejects.toThrow(/Invalid change counter/);
       });
 
@@ -7157,6 +7182,11 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           captureEnabled: false,
           peers: [],
         });
+        // Before the identity exists there are no counters to read, and no snapshot to take.
+        await expect(repository.readSyncPublishCounters()).resolves.toBeNull();
+        await expect(repository.readSyncSnapshot("gtd")).rejects.toThrow(
+          /identity has not been created/,
+        );
       });
 
       it("creates an identity only where sync is supported, and rejects in browser preview", async () => {

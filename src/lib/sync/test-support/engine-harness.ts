@@ -26,7 +26,7 @@ import {
  * ```
  *
  * Each engine's clock is its device's fake clock, so "later" is explicit. The repository handed to
- * the engine is a recording wrapper: `device.calls` lists every `listSyncChanges` and
+ * the engine is a recording wrapper: `device.calls` lists every `readSyncSnapshot` and
  * `applySyncBundle` the engine made, in order.
  */
 
@@ -42,7 +42,7 @@ export interface EngineDeviceSpec {
 }
 
 export interface RepoCall {
-  method: "listSyncChanges" | "applySyncBundle" | "markSyncPublished" | "recordSyncPeerApplied";
+  method: "readSyncSnapshot" | "applySyncBundle" | "markSyncPublished" | "recordSyncPeerApplied";
   domain?: SyncDomain;
 }
 
@@ -63,10 +63,11 @@ export interface EngineWorld {
 
 const recordingRepo = (device: SyncDevice, calls: RepoCall[]): SyncEngineRepository => ({
   getSyncStatus: () => device.repo.getSyncStatus(),
-  listSyncChanges: (domain) => {
-    calls.push({ method: "listSyncChanges", domain });
-    return device.repo.listSyncChanges(domain);
+  readSyncSnapshot: (domain) => {
+    calls.push({ method: "readSyncSnapshot", domain });
+    return device.repo.readSyncSnapshot(domain);
   },
+  readSyncPublishCounters: () => device.repo.readSyncPublishCounters(),
   applySyncBundle: (domain, changeSet, options) => {
     calls.push({ method: "applySyncBundle", domain });
     return device.repo.applySyncBundle(domain, changeSet, options);

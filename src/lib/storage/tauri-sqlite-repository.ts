@@ -180,7 +180,9 @@ import {
   type SyncIdentityRow,
   type SyncPeerAppliedInput,
   type SyncPeerRow,
+  type SyncPublishCounters,
   type SyncPublishMark,
+  type SyncSnapshot,
   type SyncStatus,
   toCounter,
 } from "../sync/status";
@@ -3433,6 +3435,37 @@ export class TauriSqliteRepository implements AppRepository {
            last_applied_sha_by_domain = excluded.last_applied_sha_by_domain`,
         [peer.peerId, peer.peerName, peer.manifestJson, peer.syncedAt, JSON.stringify(shas)],
       );
+    });
+  }
+
+  async readSyncPublishCounters(): Promise<SyncPublishCounters | null> {
+    // A writer slot: any transaction in flight has committed or rolled back before this runs.
+    return this.writeQueue.run(async () => {
+      const rows = await (await this.getDb()).select<
+        { change_counter: number; last_publish_counter: number }[]
+      >("SELECT change_counter, last_publish_counter FROM sync_identity WHERE id = 1");
+      const row = rows[0];
+      return row
+        ? {
+            changeCounter: toCounter(row.change_counter),
+            lastPublishCounter: toCounter(row.last_publish_counter),
+          }
+        : null;
+    });
+  }
+
+  async readSyncSnapshot(domain: SyncDomain): Promise<SyncSnapshot> {
+    if (!(SYNC_DOMAINS as readonly string[]).includes(domain)) {
+      throw new Error(`Unknown sync domain "${String(domain)}"`);
+    }
+    // One writer slot for both reads: the counter is the committed one, and the change set covers it.
+    return this.writeQueue.run(async () => {
+      const db = await this.getDb();
+      const changeSet = await readChangeSet(db, domain, this.syncSettingsAccess());
+      const rows = await db.select<{ change_counter: number }[]>(
+        "SELECT change_counter FROM sync_identity WHERE id = 1",
+      );
+      return { changeSet, changeCounter: toCounter(rows[0]?.change_counter) };
     });
   }
 

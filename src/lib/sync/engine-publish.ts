@@ -16,7 +16,7 @@ import { SyncTransportError, type SyncTransport } from "./transport";
  * One publish: for every domain this device's profile may publish and a transport carries, write the
  * current state of the domain when something changed since the last publish.
  *
- * What gets read. The repository is asked for `listSyncChanges(domain)` ONLY for domains the profile
+ * What gets read. The repository is asked for `readSyncSnapshot(domain)` ONLY for domains the profile
  * can publish and a transport is routed to: a work device never reads its personal or finance tables
  * for publishing, whatever is in the database.
  *
@@ -24,13 +24,18 @@ import { SyncTransportError, type SyncTransport } from "./transport";
  * the pairing again right before the hand-over: a bundle is never given to a transport that does not
  * carry its domain, so a `personal` bundle cannot reach the shared GTD folder.
  *
- * "Something changed". `change_counter` is a single counter for the whole database. It is read BEFORE
- * the change sets are, and the publish is recorded as "everything up to that value" with a
- * compare-and-set (`markSyncPublished`), so an edit made while the bundle is being written keeps the
- * counter dirty and is published next time. A domain published earlier in this process at the same
- * counter is not written again when a retry follows a partial failure. A domain whose transport never
- * received a bundle from this device (a folder configured later) is published although the counter
- * is clean. The counter advances only when every domain that was attempted succeeded.
+ * "Something changed". `change_counter` is a single counter for the whole database. Every counter
+ * that DECIDES or RECORDS anything is read through the writer queue (`readSyncPublishCounters`,
+ * `readSyncSnapshot`), never from `getSyncStatus`, which reads outside the queue and can observe a
+ * counter that another operation advanced but has not committed (and may roll back). The counter a
+ * domain's published snapshot COVERS is the one returned together with its change set, in one writer
+ * slot; that value, not an earlier one, is what the process remembers for the domain and what
+ * `markSyncPublished` records, as the smallest of the covered values (a compare-and-set), so an edit
+ * made while a bundle is being written keeps the counter dirty and is published next time. A domain
+ * published earlier in this process at a counter that is still current is not written again when a
+ * retry follows a partial failure. A domain whose transport never received a bundle from this device
+ * (a folder configured later) is published although the counter is clean. The counter advances only
+ * when every domain that was attempted succeeded and none was left without a transport.
  */
 
 /** State that outlives one publish: what was already written in this process. */
@@ -39,7 +44,7 @@ export interface PublishMemory {
   engineId: string;
   /** The last `publishSeq` handed to a transport. */
   seq: number;
-  /** The change counter each domain was last published at. */
+  /** The committed change counter each domain's last published snapshot covered. */
   publishedAt: Map<SyncDomain, number>;
   /** Domains a transport is known to hold a bundle of (no need to ask it again). */
   knownPublished: Set<SyncDomain>;
@@ -123,9 +128,25 @@ export const runPublish = async (
     return finish(0, false);
   }
 
-  // Read BEFORE the change sets: whatever is written after this point stays pending.
-  const counterAtRead = status.changeCounter;
-  const dirty = status.changeCounter > status.lastPublishCounter;
+  // The COMMITTED counters, through the writer queue: `status` came from outside it and may hold
+  // another operation's uncommitted (and perhaps later rolled back) counter.
+  let counters: Awaited<ReturnType<EngineContext["repo"]["readSyncPublishCounters"]>>;
+  try {
+    counters = await ctx.repo.readSyncPublishCounters();
+  } catch (error) {
+    skip(`The sync counters could not be read: ${messageOf(error)}`);
+    return finish(0, false);
+  }
+  if (counters === null) {
+    skip("Sync is not set up on this device (identity missing).");
+    return finish(0, false);
+  }
+  const counterAtRead = counters.changeCounter;
+  const dirty = counters.changeCounter > counters.lastPublishCounter;
+  const pendingBefore = Math.max(0, counters.changeCounter - counters.lastPublishCounter);
+  /** What each domain's snapshot (written now, or by an earlier run still current) covers. */
+  const covered: number[] = [];
+  let superseded = false;
   let calendarSyncEnabled = false;
   try {
     calendarSyncEnabled = Boolean(await ctx.calendarSyncEnabled());
@@ -146,7 +167,6 @@ export const runPublish = async (
     writtenAtMs: ctx.now(),
   };
 
-  let attempted = 0;
   let failed = 0;
 
   for (const domain of domainsPublishable(ctx.profile)) {
@@ -173,11 +193,12 @@ export const runPublish = async (
       }
       if (!needed) {
         domains.push({ domain, outcome: "clean", transport: transport.id });
+        const current = memory.publishedAt.get(domain);
+        if (dirty && current !== undefined) covered.push(current);
         continue;
       }
 
-      attempted += 1;
-      const changeSet = await ctx.repo.listSyncChanges(domain);
+      const { changeSet, changeCounter: snapshotCounter } = await ctx.repo.readSyncSnapshot(domain);
       assertRouted(transport, domain, changeSet);
       const { generation } = await withTimeout(
         () =>
@@ -190,12 +211,15 @@ export const runPublish = async (
         `Publishing the ${domain} data`,
         () => repairAfterLatePublish(ctx, memory, domain),
       );
-      memory.publishedAt.set(domain, counterAtRead);
+      memory.publishedAt.set(domain, snapshotCounter);
+      covered.push(snapshotCounter);
       memory.knownPublished.add(domain);
       domains.push({ domain, outcome: "published", transport: transport.id, generation });
     } catch (error) {
       if (error instanceof SyncTransportError && error.code === "stale_publish") {
         // A newer publish of this domain has already committed: nothing was lost, nothing to show.
+        // What it covered is not known here, so this run does not claim the counter.
+        superseded = true;
         domains.push({ domain, outcome: "clean", transport: transport.id });
         issues.push({
           severity: "info",
@@ -250,13 +274,11 @@ export const runPublish = async (
       detail: unpublished.map((result) => result.domain).join(","),
     });
   }
-  const alreadyCurrent = domains.some(
-    (result) =>
-      result.outcome === "clean" && (memory.publishedAt.get(result.domain) ?? -1) >= counterAtRead,
-  );
-  if ((attempted > 0 || alreadyCurrent) && failed === 0 && dirty && unpublished.length === 0) {
+  // "Published up to" the smallest counter any domain's snapshot covers: a domain whose snapshot was
+  // taken earlier must not be claimed up to a later one.
+  if (covered.length > 0 && failed === 0 && !superseded && dirty && unpublished.length === 0) {
     try {
-      counterAdvanced = (await ctx.repo.markSyncPublished(counterAtRead)).advanced;
+      counterAdvanced = (await ctx.repo.markSyncPublished(Math.min(...covered))).advanced;
     } catch (error) {
       issues.push({
         severity: "warning",
@@ -266,5 +288,5 @@ export const runPublish = async (
       });
     }
   }
-  return finish(status.pendingChanges, counterAdvanced);
+  return finish(pendingBefore, counterAdvanced);
 };

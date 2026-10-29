@@ -148,7 +148,9 @@ import type { SyncDomain } from "../sync/registry";
 import {
   SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE,
   type SyncPeerAppliedInput,
+  type SyncPublishCounters,
   type SyncPublishMark,
+  type SyncSnapshot,
   type SyncStatus,
 } from "../sync/status";
 import type { AppRepository, PomodoroStartOptions, StorageInfo } from "./repository";
@@ -2233,6 +2235,14 @@ export class MemoryRepository implements AppRepository {
   }
 
   async markSyncPublished(_changeCounterAtRead: number): Promise<SyncPublishMark> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async readSyncPublishCounters(): Promise<SyncPublishCounters | null> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async readSyncSnapshot(_domain: SyncDomain): Promise<SyncSnapshot> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 

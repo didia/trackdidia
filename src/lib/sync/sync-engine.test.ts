@@ -321,7 +321,7 @@ describe("pulling and publishing only when something changed", () => {
     const second = await a.engine.publish();
     expect(second.domains.every((domain) => domain.outcome === "clean")).toBe(true);
     expect(world.folders.calls(a.deviceId, "gtd").publish).toBe(0);
-    expect(a.calls.filter((call) => call.method === "listSyncChanges")).toEqual([]);
+    expect(a.calls.filter((call) => call.method === "readSyncSnapshot")).toEqual([]);
 
     // An edit lands while the gtd bundle is being written.
     await a.repo.createTask({ id: "t2", title: "Before", bucket: "inbox" });

@@ -5,7 +5,9 @@ import type { SyncDomain } from "../sync/registry";
 import type {
   SyncIdentityResult,
   SyncPeerAppliedInput,
+  SyncPublishCounters,
   SyncPublishMark,
+  SyncSnapshot,
   SyncStatus,
 } from "../sync/status";
 import type {
@@ -624,6 +626,21 @@ export interface AppRepository {
    */
   markSyncPublished(changeCounterAtRead: number): Promise<SyncPublishMark>;
   /**
+   * The COMMITTED `change_counter` and `last_publish_counter`, read in a writer slot: no other write
+   * transaction is in flight, so a counter that another operation has advanced but not yet committed
+   * (and may still roll back) is never observed. `null` before `ensureSyncIdentity`. This, not
+   * `getSyncStatus` (a cheap read outside the queue, fine for showing "pending" in the UI), is what
+   * the decision to publish and `markSyncPublished` must be based on. Memory rejects.
+   */
+  readSyncPublishCounters(): Promise<SyncPublishCounters | null>;
+  /**
+   * `listSyncChanges(domain)` together with the committed `change_counter` read in the same writer
+   * slot, so the counter is exactly what the returned change set covers. A publisher records THIS
+   * value as "published up to here" (and passes it to `markSyncPublished`), never a counter read
+   * earlier or elsewhere. Requires the sync identity. Memory rejects.
+   */
+  readSyncSnapshot(domain: SyncDomain): Promise<SyncSnapshot>;
+  /**
    * Makes the whole synced state pending again: bumps `change_counter` by one, durably, without
    * touching any row. The sync engine uses it when a publish that it had given up on (timed out)
    * eventually settles, because that late write may have replaced a newer snapshot in the folder:
@@ -639,6 +656,8 @@ export type {
   SyncIdentityResult,
   SyncPeerAppliedInput,
   SyncPeerSummary,
+  SyncPublishCounters,
   SyncPublishMark,
+  SyncSnapshot,
   SyncStatus,
 } from "../sync/status";
