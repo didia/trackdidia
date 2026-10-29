@@ -32,7 +32,9 @@ pub fn device_id_file_name() -> &'static str {
     }
 }
 
-fn is_valid_device_id(value: &str) -> bool {
+/// The one device-id rule (`dev:` + lowercase UUID v4), shared by every native module that takes a
+/// device id from the webview so none of them can accept a path separator or `..`.
+pub fn is_valid_device_id(value: &str) -> bool {
     if value.len() != DEVICE_ID_LENGTH {
         return false;
     }
@@ -81,12 +83,12 @@ fn corrupt_error(path: &Path) -> String {
 /// cannot make the name durable we say so instead of pretending the identity is safe. The final
 /// file is left in place (it is valid), so a retry reads that same id rather than minting another.
 #[cfg(unix)]
-fn sync_directory(directory: &Path) -> std::io::Result<()> {
+pub(crate) fn sync_directory(directory: &Path) -> std::io::Result<()> {
     fs::File::open(directory)?.sync_all()
 }
 
 #[cfg(not(unix))]
-fn sync_directory(_directory: &Path) -> std::io::Result<()> {
+pub(crate) fn sync_directory(_directory: &Path) -> std::io::Result<()> {
     Ok(())
 }
 

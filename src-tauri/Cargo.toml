@@ -34,10 +34,19 @@ sqlx = { version = "0.8", default-features = false, features = ["sqlite", "runti
 keyring = "3"
 # Device id generation (src-tauri/src/device_id.rs); already in the lockfile transitively.
 uuid = { version = "1", features = ["v4"] }
+# Folder sync (src-tauri/src/sync_folder.rs): SHA-256 of published bundles and base64 transfer of
+# bundle bytes over IPC. Both are already in the lockfile transitively at these versions.
+sha2 = "0.10"
+base64 = "0.22"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "time"] }
 tempfile = "3"
+
+# O_NOFOLLOW / O_NONBLOCK differ per OS and architecture; used by sync_folder.rs to open files for
+# reading without following a symlink. Already in the lockfile transitively.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 # App Nap opt-out while a Pomodoro alarm is pending (see src/app_nap.rs); same versions tauri/wry
 # already resolve to, so no new crates are pulled in.
