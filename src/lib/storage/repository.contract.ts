@@ -3570,6 +3570,28 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ]);
       });
 
+      it("persists the manual verification day, keeps it when a save omits it, and clears it with null", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(
+          account({ lastVerifiedOn: "2026-10-12" }),
+        );
+        expect(saved.lastVerifiedOn).toBe("2026-10-12");
+
+        const { lastVerifiedOn: _omitted, ...withoutVerified } = saved;
+        await repository.saveFinanceAccount({ ...withoutVerified, name: "Renommé" });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, name: "Renommé", lastVerifiedOn: "2026-10-12" }),
+        ]);
+
+        await repository.saveFinanceAccount({ ...saved, lastVerifiedOn: null });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, lastVerifiedOn: null }),
+        ]);
+
+        const plain = await repository.saveFinanceAccount(account({ id: "account-plain" }));
+        expect(plain.lastVerifiedOn ?? null).toBeNull();
+      });
+
       it("persists a credit payment due day and minimum, and clears them with explicit nulls", async () => {
         const repository = await factory();
         const saved = await repository.saveFinanceAccount(
@@ -4348,6 +4370,216 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(result.deleted).toBe(1);
         expect(result.refusedUserCategorized).toBe(1);
         await expect(repository.countFinanceTransactions({})).resolves.toBe(1);
+      });
+
+      it("skips imported rows dated before the account's opening balance date and reports them", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(
+          account({ id: "account-1", name: "Chèques", balanceAsOf: "2026-03-01" }),
+        );
+        await repository.saveFinanceAccount(account({ id: "account-2", name: "Sans date" }));
+
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-opening-date",
+          rows: [
+            importRow({ postedDate: "2026-02-15", descriptionRaw: "OLD", merchantKey: "OLD" }),
+            importRow({ postedDate: "2026-03-01", descriptionRaw: "EDGE", merchantKey: "EDGE" }),
+            importRow({ postedDate: "2026-04-01", descriptionRaw: "NEW", merchantKey: "NEW" }),
+            importRow({
+              accountId: "account-2",
+              postedDate: "2000-01-01",
+              descriptionRaw: "ANCIENT",
+              merchantKey: "ANCIENT",
+            }),
+          ],
+        });
+
+        expect(summary.imported).toBe(3);
+        expect(summary.skipped).toBe(1);
+        expect(summary.rowCount).toBe(4);
+        expect(summary.warnings.join("\n")).toContain(
+          "before its opening balance date (2026-03-01)",
+        );
+
+        const stored = await repository.listFinanceTransactions({});
+        expect(stored.map((txn) => txn.descriptionRaw).sort()).toEqual(["ANCIENT", "EDGE", "NEW"]);
+
+        const [batch] = await repository.listFinanceImportBatches(1);
+        expect(batch.skippedCount).toBe(1);
+        expect(batch.importedCount).toBe(3);
+      });
+
+      it("deleteFinanceTransactionsBeforeOpeningDate removes only rows before the date, so the balance matches", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(
+          account({ id: "account-1", openingBalanceMinor: 100_000, balanceAsOf: "2026-03-01" }),
+        );
+        await repository.saveFinanceAccount(
+          account({ id: "account-2", openingBalanceMinor: 0, balanceAsOf: "2026-03-01" }),
+        );
+        for (const [id, postedDate, amountMinor, categorySource, accountId] of [
+          ["txn-old", "2026-02-10", -500, "default", "account-1"],
+          ["txn-old-user", "2026-02-11", -700, "user", "account-1"],
+          ["txn-edge", "2026-03-01", -200, "default", "account-1"],
+          ["txn-new", "2026-04-01", -100, "default", "account-1"],
+          ["txn-other-account", "2026-02-10", -900, "default", "account-2"],
+        ] as const) {
+          await repository.saveFinanceTransaction(
+            buildFinanceTransaction({
+              id,
+              accountId,
+              postedDate,
+              amountMinor,
+              categorySource,
+              categoryId:
+                categorySource === "user"
+                  ? "fincat:alimentation.epicerie"
+                  : "fincat:non-categorise",
+            }),
+          );
+        }
+
+        const result = await repository.deleteFinanceTransactionsBeforeOpeningDate("account-1");
+
+        expect(result).toEqual({ openingDate: "2026-03-01", deleted: 2, userCategorized: 1 });
+        const remaining = await repository.listFinanceTransactions({});
+        expect(remaining.map((txn) => txn.id).sort()).toEqual([
+          "txn-edge",
+          "txn-new",
+          "txn-other-account",
+        ]);
+        // opening balance + the rows on or after the opening date.
+        const remainingForAccount = remaining.filter((txn) => txn.accountId === "account-1");
+        expect(remainingForAccount.reduce((sum, txn) => sum + txn.amountMinor, 100_000)).toBe(
+          99_700,
+        );
+
+        const again = await repository.deleteFinanceTransactionsBeforeOpeningDate("account-1");
+        expect(again).toEqual({ openingDate: "2026-03-01", deleted: 0, userCategorized: 0 });
+      });
+
+      it("deleteFinanceTransactionsBeforeOpeningDate is a no-op without an opening date and rejects an unknown account", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-1" }));
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-1",
+            accountId: "account-1",
+            postedDate: "2000-01-01",
+          }),
+        );
+
+        await expect(
+          repository.deleteFinanceTransactionsBeforeOpeningDate("account-1"),
+        ).resolves.toEqual({ openingDate: null, deleted: 0, userCategorized: 0 });
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(1);
+        await expect(
+          repository.deleteFinanceTransactionsBeforeOpeningDate("missing"),
+        ).rejects.toThrow(/not found/);
+      });
+
+      it("exempts a statement-anchored account from the opening date at import and cleanup", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(
+          account({ id: "account-1", openingBalanceMinor: 0, balanceAsOf: "2026-03-01" }),
+        );
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-feb",
+            accountId: "account-1",
+            postedDate: "2026-02-10",
+            amountMinor: -500,
+          }),
+        );
+        const applied = await repository.applyFinanceStatementBalance({
+          accountId: "account-1",
+          statementDate: "2026-03-31",
+          balanceMinor: 200_000,
+        });
+        // The statement date keeps its meaning: balance on 2026-03-31 is exactly the statement.
+        expect(applied.account.balanceAsOf).toBe("2026-03-01");
+        expect(applied.derivedBalanceMinor).toBe(200_000);
+
+        // Cleanup is a no-op: the February row is valid history, and removing it would not move
+        // the balance (the anchor re-bases the opening balance) but would destroy the row.
+        await expect(
+          repository.deleteFinanceTransactionsBeforeOpeningDate("account-1"),
+        ).resolves.toEqual({ openingDate: null, deleted: 0, userCategorized: 0 });
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(1);
+
+        // Import keeps an older row too.
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-anchored",
+          rows: [
+            importRow({ postedDate: "2026-01-15", descriptionRaw: "JAN", merchantKey: "JAN" }),
+          ],
+        });
+        expect(summary.imported).toBe(1);
+        expect(summary.skipped).toBe(0);
+
+        // Editing the opening balance by hand drops the anchor; the date applies again.
+        const [saved] = await repository.listFinanceAccounts({ includeClosed: true });
+        await repository.saveFinanceAccount({ ...saved, openingBalanceMinor: 5_000 });
+        await expect(
+          repository.deleteFinanceTransactionsBeforeOpeningDate("account-1"),
+        ).resolves.toEqual({ openingDate: "2026-03-01", deleted: 2, userCategorized: 0 });
+      });
+
+      it("keeps the surviving leg of an internal transfer a transfer when its partner is cleaned up", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking", onBudget: true }));
+        await repository.saveFinanceAccount(
+          account({ id: "account-savings", name: "Épargne", onBudget: true }),
+        );
+        // A debit on Feb 28 pairs with a credit on Mar 1.
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-transfer",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              postedDate: "2026-02-28",
+              amountMinor: -50_000,
+              descriptionRaw: "VIREMENT EPARGNE",
+              merchantKey: "VIREMENT EPARGNE",
+            }),
+            importRow({
+              accountId: "account-savings",
+              postedDate: "2026-03-01",
+              amountMinor: 50_000,
+              descriptionRaw: "VIREMENT EPARGNE",
+              merchantKey: "VIREMENT EPARGNE",
+            }),
+          ],
+        });
+        const before = await repository.listFinanceTransactions({});
+        expect(before.every((txn) => txn.isTransfer && txn.transferGroupId !== null)).toBe(true);
+
+        // Only the checking account gets an opening date, so only its leg is stale.
+        const [checking] = (await repository.listFinanceAccounts({ includeClosed: true })).filter(
+          (item) => item.id === "account-checking",
+        );
+        await repository.saveFinanceAccount({ ...checking, balanceAsOf: "2026-03-01" });
+
+        const result =
+          await repository.deleteFinanceTransactionsBeforeOpeningDate("account-checking");
+        expect(result.deleted).toBe(1);
+
+        const [survivor] = await repository.listFinanceTransactions({});
+        expect(survivor.accountId).toBe("account-savings");
+        // Still an internal transfer: excluded from the budget, not income, group link detached.
+        expect(survivor.isTransfer).toBe(true);
+        expect(survivor.categoryId).toBe("fincat:transfert");
+        expect(survivor.excludedFromBudget).toBe(true);
+        expect(survivor.transferGroupId).toBeNull();
       });
 
       const buildSplit = (

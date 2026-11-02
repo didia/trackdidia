@@ -38,6 +38,7 @@ import type {
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
+  DeleteFinanceTransactionsBeforeOpeningDateResult,
 } from "../../domain/finance";
 import {
   assertFinanceCategoryAssignable,
@@ -60,6 +61,12 @@ import {
   type FinanceNetWorthHistoryPoint,
   type FinanceNetWorthSnapshot,
 } from "../../domain/finance/net-worth";
+import {
+  effectiveOpeningDate,
+  openingDateSkipWarning,
+  partitionRowsByOpeningDate,
+  selectTransactionsBeforeOpeningDate,
+} from "../../domain/finance/opening-date";
 import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
 import {
   buildFinanceAlerts,
@@ -235,6 +242,10 @@ export class FinanceMemoryStore {
         account.updateCadenceDays === undefined
           ? (existing?.updateCadenceDays ?? null)
           : account.updateCadenceDays,
+      lastVerifiedOn:
+        account.lastVerifiedOn === undefined
+          ? (existing?.lastVerifiedOn ?? null)
+          : account.lastVerifiedOn,
       paymentDueDay:
         account.paymentDueDay === undefined
           ? (existing?.paymentDueDay ?? null)
@@ -806,8 +817,23 @@ export class FinanceMemoryStore {
     const now = nowIso();
     const batchId = createEntityId("finance-import-batch");
 
-    const occurrenceIndices = assignOccurrenceIndices(input.rows);
-    const prepared = input.rows.map((row, index) => ({
+    // Rows posted before their account's opening balance date are already inside that opening
+    // balance: skip them (docs/finance.md "Opening balance date").
+    // A statement-anchored account has no opening date: its opening balance is re-derived from
+    // every transaction through the statement date, so older rows are valid history.
+    const opening = partitionRowsByOpeningDate(
+      input.rows,
+      new Map(
+        [...this.accounts.values()].map((account) => [
+          account.id,
+          { balanceAsOf: effectiveOpeningDate(account, this.hasStatementAnchor(account.id)) },
+        ]),
+      ),
+    );
+    const rows = opening.kept;
+
+    const occurrenceIndices = assignOccurrenceIndices(rows);
+    const prepared = rows.map((row, index) => ({
       row,
       dedupeHash: computeDedupeHash({
         accountId: row.accountId,
@@ -1006,16 +1032,22 @@ export class FinanceMemoryStore {
     // history — see specs/done/finance.md "Recurring bills".
     this.detectRecurringSeries(today);
 
-    const skipped = input.rejected?.skipped ?? 0;
+    const rejectedSkipped = input.rejected?.skipped ?? 0;
+    const skipped = rejectedSkipped + opening.skippedCount;
     const errors = input.rejected?.errors ?? 0;
     warnings.push(...(input.rejected?.warnings ?? []));
+    for (const skip of opening.skipped) {
+      warnings.push(
+        openingDateSkipWarning(skip, this.accounts.get(skip.accountId)?.name ?? skip.accountId),
+      );
+    }
     const batch: FinanceImportBatch = {
       id: batchId,
       profileId: input.profileId,
       fileName: input.fileName,
       fileHash: input.fileHash,
       accountId: input.accountId,
-      rowCount: input.rows.length + skipped + errors,
+      rowCount: input.rows.length + rejectedSkipped + errors,
       importedCount: imported,
       duplicateCount: duplicates,
       skippedCount: skipped,
@@ -1031,7 +1063,7 @@ export class FinanceMemoryStore {
 
     return {
       batchId,
-      rowCount: input.rows.length + skipped + errors,
+      rowCount: input.rows.length + rejectedSkipped + errors,
       imported,
       duplicates,
       skipped,
@@ -1300,56 +1332,129 @@ export class FinanceMemoryStore {
         continue;
       }
 
-      for (const [splitId, split] of [...this.splits.entries()]) {
-        if (split.transactionId === row.id) {
-          this.splits.delete(splitId);
-        }
-      }
-      for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
-        if (suggestion.transactionId === row.id) {
-          this.categorySuggestions.delete(suggestionId);
-        }
-      }
-
-      if (row.transferGroupId) {
-        for (const partner of [...this.transactions.values()]) {
-          if (partner.transferGroupId === row.transferGroupId && partner.id !== row.id) {
-            if (partner.categorySource === "user") {
-              // Keep the user's category, provenance, and exclusions; only drop the dead link.
-              this.transactions.set(partner.id, {
-                ...partner,
-                isTransfer: false,
-                transferGroupId: null,
-                updatedAt: now,
-              });
-              continue;
-            }
-            this.transactions.set(partner.id, {
-              ...partner,
-              isTransfer: false,
-              transferGroupId: null,
-              categoryId: "fincat:non-categorise",
-              categorySource: "default",
-              excludedFromBudget: false,
-              updatedAt: now,
-            });
-            for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
-              if (suggestion.transactionId === partner.id && suggestion.status === "pending") {
-                this.categorySuggestions.delete(suggestionId);
-              }
-            }
-            this.insertPendingSuggestion(partner.id, "fincat:non-categorise");
-          }
-        }
-      }
-
-      this.transactions.delete(row.id);
+      this.removeTransactionRow(row, now);
       deleted += 1;
     }
 
     this.detectRecurringSeries(getTodayDate());
 
     return { deleted, refusedUserCategorized };
+  }
+
+  /**
+   * Deletes one transaction with its splits and suggestions and repairs the transfer partner it
+   * leaves behind. Shared by import undo and the opening-date cleanup.
+   *
+   * `partnerRepair` says how the surviving transfer leg is treated: `demote` (import undo) turns
+   * it back into an ordinary uncategorized row, since the import that produced the pair is being
+   * reverted; `detach` (opening-date cleanup) only drops the dead group link and keeps the leg a
+   * transfer with its category and budget exclusion, because the money really moved between the
+   * two accounts and the survivor must not turn into income or an expense.
+   */
+  private removeTransactionRow(
+    row: FinanceTransaction,
+    now: string,
+    partnerRepair: "demote" | "detach" = "demote",
+  ): void {
+    for (const [splitId, split] of [...this.splits.entries()]) {
+      if (split.transactionId === row.id) {
+        this.splits.delete(splitId);
+      }
+    }
+    for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
+      if (suggestion.transactionId === row.id) {
+        this.categorySuggestions.delete(suggestionId);
+      }
+    }
+
+    if (row.transferGroupId) {
+      for (const partner of [...this.transactions.values()]) {
+        if (partner.transferGroupId === row.transferGroupId && partner.id !== row.id) {
+          if (partnerRepair === "detach") {
+            // Single-leg transfers (`isTransfer`, no group) are an existing state.
+            this.transactions.set(partner.id, {
+              ...partner,
+              transferGroupId: null,
+              updatedAt: now,
+            });
+            continue;
+          }
+          if (partner.categorySource === "user") {
+            // Keep the user's category, provenance, and exclusions; only drop the dead link.
+            this.transactions.set(partner.id, {
+              ...partner,
+              isTransfer: false,
+              transferGroupId: null,
+              updatedAt: now,
+            });
+            continue;
+          }
+          this.transactions.set(partner.id, {
+            ...partner,
+            isTransfer: false,
+            transferGroupId: null,
+            categoryId: "fincat:non-categorise",
+            categorySource: "default",
+            excludedFromBudget: false,
+            updatedAt: now,
+          });
+          for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
+            if (suggestion.transactionId === partner.id && suggestion.status === "pending") {
+              this.categorySuggestions.delete(suggestionId);
+            }
+          }
+          this.insertPendingSuggestion(partner.id, "fincat:non-categorise");
+        }
+      }
+    }
+
+    this.transactions.delete(row.id);
+  }
+
+  /** True while the account has a standing `source = 'statement'` balance snapshot. */
+  private hasStatementAnchor(accountId: string): boolean {
+    for (const snapshot of this.balanceSnapshots.values()) {
+      if (snapshot.accountId === accountId && snapshot.source === "statement") {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  deleteTransactionsBeforeOpeningDate(
+    accountId: string,
+  ): DeleteFinanceTransactionsBeforeOpeningDateResult {
+    const account = this.accounts.get(accountId);
+    if (!account) {
+      throw new Error(`finance account not found: ${accountId}`);
+    }
+    const openingDate = effectiveOpeningDate(account, this.hasStatementAnchor(accountId));
+    const stale = selectTransactionsBeforeOpeningDate(
+      { balanceAsOf: openingDate },
+      [...this.transactions.values()].filter((txn) => txn.accountId === accountId),
+    );
+    if (openingDate === null || stale.length === 0) {
+      return { openingDate, deleted: 0, userCategorized: 0 };
+    }
+
+    const now = nowIso();
+    let userCategorized = 0;
+    for (const row of stale) {
+      // A transfer partner earlier in this loop may already have rewritten the row; use the
+      // current copy so a partner kept as `user` is not mistaken for a default one.
+      const current = this.transactions.get(row.id);
+      if (!current) {
+        continue;
+      }
+      if (current.categorySource === "user") {
+        userCategorized += 1;
+      }
+      this.removeTransactionRow(current, now, "detach");
+    }
+
+    this.detectRecurringSeries(getTodayDate());
+    this.reanchorStatementAccounts();
+    return { openingDate, deleted: stale.length, userCategorized };
   }
 
   // --- category suggestions -------------------------------------------------------------

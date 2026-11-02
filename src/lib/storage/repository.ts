@@ -99,6 +99,7 @@ import type {
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
+  DeleteFinanceTransactionsBeforeOpeningDateResult,
 } from "../../domain/finance";
 import type { CoverOverspendingResult, FinanceBudgetState } from "../../domain/finance/budget";
 import type { FinanceCashFlowSummary } from "../../domain/finance/cash-flow";
@@ -397,6 +398,18 @@ export interface AppRepository {
   listFinanceImportBatches(limit?: number): Promise<FinanceImportBatch[]>;
   /** Restricted to the most recent batch for the batch's account; never touches `user`-set rows. */
   undoFinanceImportBatch(batchId: string): Promise<UndoFinanceImportBatchResult>;
+  /**
+   * Deletes every transaction of the account posted strictly before its `balanceAsOf` opening
+   * balance date (already inside the opening balance, so they skew the derived balance). Hand-
+   * categorized rows are deleted too: the caller confirms first. Splits, suggestions and transfer
+   * links are cleaned like `undoFinanceImportBatch`, and statement anchors are re-based. A surviving
+   * transfer partner keeps its transfer semantics (only the group link is dropped). No-op
+   * (`openingDate: null`) when the account has no effective opening date: none set, or a statement
+   * anchors its opening balance. Throws for an unknown account.
+   */
+  deleteFinanceTransactionsBeforeOpeningDate(
+    accountId: string,
+  ): Promise<DeleteFinanceTransactionsBeforeOpeningDateResult>;
   listFinanceCategorySuggestions(
     status?: FinanceCategorySuggestion["status"],
     limit?: number,

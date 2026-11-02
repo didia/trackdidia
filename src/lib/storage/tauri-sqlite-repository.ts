@@ -3038,6 +3038,12 @@ export class TauriSqliteRepository implements AppRepository {
     return this.writeExclusive(() => this.getFinanceStore().undoImportBatch(batchId));
   }
 
+  async deleteFinanceTransactionsBeforeOpeningDate(accountId: string) {
+    return this.writeExclusive(() =>
+      this.getFinanceStore().deleteTransactionsBeforeOpeningDate(accountId),
+    );
+  }
+
   async listFinanceCategorySuggestions(
     status?: import("../../domain/finance").FinanceCategorySuggestion["status"],
     limit?: number,

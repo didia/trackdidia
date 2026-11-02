@@ -339,6 +339,10 @@ export class MemoryRepository implements AppRepository {
     return Promise.resolve(this.finance.undoImportBatch(batchId));
   }
 
+  async deleteFinanceTransactionsBeforeOpeningDate(accountId: string) {
+    return Promise.resolve(this.finance.deleteTransactionsBeforeOpeningDate(accountId));
+  }
+
   async listFinanceCategorySuggestions(
     status?: import("../../domain/finance").FinanceCategorySuggestion["status"],
     limit?: number,

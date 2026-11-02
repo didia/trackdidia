@@ -74,6 +74,12 @@ export interface FinanceAccount {
   externalKey: string | null;
   /** Days between expected data updates; null/absent falls back to weekly (on-budget) or monthly. */
   updateCadenceDays?: number | null;
+  /**
+   * Local `YYYY-MM-DD` day the user confirmed the account is up to date (balance matches the
+   * bank) even without new transactions; null/absent = never confirmed. Counts as data coverage
+   * through that day in the freshness engine.
+   */
+  lastVerifiedOn?: string | null;
   /** Day of the month (1–31) a credit card / line of credit payment is due; null/absent = unset. */
   paymentDueDay?: number | null;
   /** Minimum payment in minor units; null/absent = infer it from the balance owed. */
@@ -449,6 +455,18 @@ export interface DecideFinanceCategorySuggestionInput {
 export interface UndoFinanceImportBatchResult {
   deleted: number;
   refusedUserCategorized: number;
+}
+
+/**
+ * `deleted` is every transaction removed because it predates the account's opening balance date;
+ * `userCategorized` is how many of those carried a hand-set category (they are removed too, the
+ * caller asked for it explicitly). `openingDate` is the cutoff used, or null when the account has
+ * no effective one: none set, or a statement anchors its opening balance (nothing is deleted then).
+ */
+export interface DeleteFinanceTransactionsBeforeOpeningDateResult {
+  openingDate: string | null;
+  deleted: number;
+  userCategorized: number;
 }
 
 /**

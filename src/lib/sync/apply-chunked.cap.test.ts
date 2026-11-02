@@ -189,7 +189,7 @@ const changeSetOf = (entities: SyncEntity[], occurrences = 0): SyncChangeSet => 
   formatVersion: 1,
   deviceId: "dev:00000000-0000-4000-8000-000000000001",
   domain: "gtd",
-  schemaVersion: 45,
+  schemaVersion: 46,
   hlcHigh: "0000000000009-0000-dev:00000000-0000-4000-8000-000000000001",
   entities,
   unionRows: {},

@@ -174,7 +174,8 @@ covered below under "Forecasting and proactive alerts (Phase 7)". Phase 8
 added `listFinanceUnknownMerchants` and
 `applyFinanceCategorizationResults` — covered below under "AI categorization
 (Phase 8)". Statement import added `applyFinanceStatementBalance` — covered
-below under "Statement import".
+below under "Statement import". `deleteFinanceTransactionsBeforeOpeningDate` is covered
+under "Opening balance date".
 
 ### Learning entry point
 
@@ -300,6 +301,8 @@ than a suggestion.
 column mapping are Phase 1/3 concerns; see `src/lib/finance/csv.ts` and
 `import-profile.ts`) and, in **one** write:
 
+0. Drops rows posted before their account's opening balance date (see
+   [Opening balance date](#opening-balance-date)); they are reported as skipped.
 1. Computes each row's `occurrenceIndex` (`assignOccurrenceIndices`) and 128-bit
    `dedupeHash` (`src/lib/finance/hash.ts`), then inserts in chunks of ≤ 200 rows
    per `INSERT … VALUES (…),(…) ON CONFLICT(account_id, dedupe_hash) DO NOTHING`,
@@ -353,6 +356,47 @@ provenance, and exclusions and only loses the dead group link; otherwise clearin
 does not silently fall out of the budget), and **refuses to delete any row whose
 `category_source = 'user'`** — those rows are counted in `refusedUserCategorized`
 and left exactly as they were, with their `import_batch_id` intact.
+
+### Opening balance date
+
+An account's `balance_as_of` ("Date du solde d'ouverture" on `/finances/accounts`) is the date
+its opening balance is stated at. It is the balance at the **start** of that day: a transaction
+posted on the date counts, one posted strictly before it is already inside the opening balance.
+The rule lives in `src/domain/finance/opening-date.ts` (pure, tested directly).
+
+- **Import skips older rows.** `importFinanceTransactions` drops every row whose `postedDate` is
+  before its own account's `balance_as_of` before hashing and inserting (in both stores). They are
+  counted in `FinanceImportSummary.skipped` (and the batch's `skipped_count`, added to any rows the
+  CSV parser rejected), and one warning per account names the count and the date. `rowCount` still
+  counts every submitted row. An account with no effective date (none set, for example one created
+  by the import page, or a statement anchor, below) never skips anything. The new-account form pre-fills the date with today, so
+  clear it before importing history into an account that should keep older transactions.
+- **Cleaning up rows imported earlier.** Rows stored before this rule existed, or before the date
+  was set or moved later, are still counted on top of the opening balance.
+  `deleteFinanceTransactionsBeforeOpeningDate(accountId)` deletes them in one write: splits and
+  suggestions go with them, recurring-series detection re-runs, and a statement anchor is re-based.
+  A surviving transfer partner only loses the dead group link (`transfer_group_id` cleared) and
+  **stays a transfer** with its category and budget exclusion, so the other account's leg does not
+  turn into income or an expense; this differs from [Undo](#undo), which demotes the partner
+  because the import that paired it is being reverted (the per-row delete is shared and takes a
+  `demote` / `detach` mode). Unlike undo it also deletes hand-categorized rows (reported in
+  `userCategorized`) because the caller confirms first. It returns `openingDate: null` and deletes
+  nothing when the account has no effective date (below), and throws for an unknown account. There
+  is no undo button, so take a manual backup first. Deleted rows also leave the reports and budget
+  history.
+- **Where it shows.** `FinanceAccountsPage` computes the stale rows with
+  `selectTransactionsBeforeOpeningDate` and shows a banner on the account (count, date, and the
+  amount by which the balance is off) with "Supprimer ces transactions", a two-step confirmation
+  that restates the count and the hand-categorized subset, and a result line.
+- **Statement-anchored accounts have no effective date.** An account with a standing statement
+  anchor (see "Statement import") is exempt from all of the above, whatever `balance_as_of` still
+  says: its opening balance is re-derived from **every** transaction through the statement date,
+  so an earlier transaction is valid history and the balance already matches. Import keeps those
+  rows, the banner does not appear, and the cleanup deletes nothing. `effectiveOpeningDate`
+  (`opening-date.ts`) is the one place that decides this, used by both stores and the accounts
+  page; editing the opening balance by hand drops the anchor, and the date applies again.
+- **Not covered.** Rows added by hand (`saveFinanceTransaction`) are not filtered; the cleanup
+  banner covers them.
 
 ## Budget (Phase 5)
 
@@ -544,7 +588,9 @@ result can be negative.
 CRUD for both household members (`finance_people`: add, archive/unarchive —
 there is no hard delete) and accounts (`finance_accounts`: name, institution,
 type, currency, owner person, ownership, on-budget toggle, opening balance as
-of a date, an optional manual balance for reconciliation, close/reopen).
+of a date, an optional manual balance for reconciliation, close/reopen). Transactions
+dated before an account's opening balance date are ignored at import and flagged, with a
+confirmed delete, when already stored: see [Opening balance date](#opening-balance-date).
 
 A `credit_card` or `line_of_credit` account also shows two extra fields in the form, "Jour
 d'échéance du paiement (1–31)" and "Paiement minimum" (see "Credit payment due date and
@@ -827,10 +873,22 @@ Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
   account); the card labels 7 and 30 as weekly/monthly and anything else as "tous les N
   jours". `saveFinanceAccount` keeps the stored cadence when a caller omits the field
   (`undefined`); only an explicit `null` clears it.
-- **Data-through date** = the newer of the account's latest transaction `posted_date`
-  (transfers included) and its latest `source = 'statement'` balance snapshot date. Import
-  time is deliberately not used — importing an old file must not make an account look
-  current.
+- **Data-through date** = the newest of the account's latest transaction `posted_date`
+  (transfers included), its latest `source = 'statement'` balance snapshot date, and its
+  manual **verified-on** day. Import time is deliberately not used — importing an old file
+  must not make an account look current.
+- **Manual verification** (`finance_accounts.last_verified_on`, migration 45, local
+  `YYYY-MM-DD`, nullable): a quiet account with no new transactions would otherwise stay
+  "À mettre à jour" forever. Each due row in `FinanceAccountFreshnessCard` has a "Marquer à
+  jour" button (`markFinanceAccountVerified`, `account-freshness-loader.ts`; the same button sits on
+  the `/finances` account rows, and only on rows flagged `À mettre à jour`) for when the
+  balance matches the bank: it stamps today's `calendarDay` on the account and the row leaves
+  the list until one full cadence has passed again. The verified day only wins when strictly
+  newer than the transaction/statement date (a tie keeps the imported-data label); it reads as
+  "Vérifié le …" (`dataThroughSource = "verified"`) in the card and on the `/finances`
+  account rows. A malformed stored value is ignored and a future day counts as age 0.
+  `saveFinanceAccount` keeps the stored day when a caller omits the field (`undefined`); only
+  an explicit `null` clears it, and the accounts form never touches it.
 - **Due** when the data-through date is at least one full cadence old (a Sunday review sees
   last Sunday's data as due). An account with no transactions and no statement has no
   "never imported" state: it counts from its creation date (local day of `created_at`), so an
@@ -845,8 +903,8 @@ in by the caller) gathers the two dates through `listFinanceAccounts`,
 on SQLite, a single pass in memory — never a table scan per account) and
 `listFinanceAccountBalanceSnapshots`. Both stores behave identically, covered by
 `repository.contract.ts`. A quiet account that is
-genuinely current but had no activity for a cadence still shows as due until a statement is
-applied — give it a longer cadence if that is the usual rhythm.
+genuinely current but had no activity for a cadence shows as due until it is marked verified
+(or a statement is applied) — or give it a longer cadence if that is the usual rhythm.
 
 ### Credit payment due date and minimum
 

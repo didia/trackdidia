@@ -78,6 +78,7 @@
       "onBudget": "Compté dans le budget",
       "openingBalance": "Solde d'ouverture",
       "balanceAsOf": "Date du solde d'ouverture",
+      "balanceAsOfHint": "Le solde d'ouverture est celui du début de cette journée. Les transactions antérieures à cette date sont ignorées à l'import.",
       "manualBalance": "Solde manuel (relevé)",
       "manualBalancePlaceholder": "Optionnel",
       "updateCadence": "Fréquence de mise à jour (jours)",
@@ -120,7 +121,17 @@
     "derivedBalance": "Solde calculé",
     "discrepancy": "Écart de réconciliation : calculé {{derived}}, relevé {{manual}}.",
     "reopen": "Rouvrir",
-    "close": "Fermer"
+    "close": "Fermer",
+    "stale": {
+      "banner": "{{count}} transaction(s) antérieure(s) au {{date}} sont comptées en double : le solde d'ouverture les inclut déjà (écart de {{amount}}).",
+      "delete": "Supprimer ces transactions",
+      "confirm": "Supprimer définitivement {{count}} transaction(s) antérieure(s) au {{date}} ? Elles disparaîtront aussi des rapports et du budget. Faites une sauvegarde manuelle d'abord : il n'y a pas d'annulation.",
+      "confirmUser": "{{count}} d'entre elles ont une catégorie choisie à la main.",
+      "confirmYes": "Oui, supprimer",
+      "cancel": "Annuler",
+      "done": "{{count}} transaction(s) supprimée(s).",
+      "failed": "La suppression a échoué."
+    }
   },
   "import": {
     "hero": {
@@ -570,6 +581,11 @@
     "import": "Importer des transactions ou un relevé",
     "transactionThrough": "Données jusqu'au {{date}}",
     "statementThrough": "Relevé du {{date}}",
+    "verifiedThrough": "Vérifié le {{date}}",
+    "verify": "Marquer à jour",
+    "verifyAria": "Marquer {{name}} comme à jour aujourd'hui",
+    "verifyHint": "Le solde correspond à la banque : aucune nouvelle transaction, mais le compte est à jour.",
+    "verifyError": "Impossible de marquer ce compte comme à jour.",
     "createdThrough": "Aucune donnée importée, compte créé le {{date}}",
     "ageDays_one": "{{count}} jour",
     "ageDays_other": "{{count}} jours",

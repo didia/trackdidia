@@ -1206,6 +1206,24 @@ export const migrations: Migration[] = [
   },
   {
     id: 45,
+    name: "add_finance_account_last_verified",
+    // Preserve-first: one nullable TEXT column (local YYYY-MM-DD), no backfill. Existing accounts
+    // keep NULL, so their freshness is still derived from transactions and statements only.
+    sql: `
+      ALTER TABLE finance_accounts ADD COLUMN last_verified_on TEXT;
+    `,
+    guards: {
+      skipIfColumnExists: [
+        {
+          table: "finance_accounts",
+          column: "last_verified_on",
+          statement: "ALTER TABLE finance_accounts ADD COLUMN last_verified_on TEXT;",
+        },
+      ],
+    },
+  },
+  {
+    id: 46,
     name: "add_sync_backfill_state",
     // Resumable change-capture backfill for multi-laptop sync: ONE new device-local table. No ALTER
     // TABLE, no trigger, no data change to any existing table, no seed row (the repository writes the

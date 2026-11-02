@@ -3,7 +3,7 @@ import { capturedTables } from "./capture-install";
 
 /**
  * Progress of the chunked change-capture backfill, persisted in the single-row device-local table
- * `sync_backfill_state` (migration 45). Pure types and small SQL helpers; the scan itself is in
+ * `sync_backfill_state` (migration 46). Pure types and small SQL helpers; the scan itself is in
  * `capture-backfill.ts`, the writer slots are taken by the repository.
  *
  * State model. `captureInstalled` (the `sync_capture_state` row and the triggers) and

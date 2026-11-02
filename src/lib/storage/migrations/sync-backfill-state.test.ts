@@ -7,7 +7,7 @@ import { migrations, resolveIdempotentMigrationSql, runMigrations } from "./inde
 
 const BACKFILL_TABLES = ["sync_backfill_state"];
 
-const migration = migrations.find((item) => item.id === 45)!;
+const migration = migrations.find((item) => item.id === 46)!;
 
 interface ColumnInfo {
   cid: number;
@@ -75,7 +75,7 @@ const snapshot = async (db: Database, tables: string[]) => {
   return result;
 };
 
-describe("migration 45 add_sync_backfill_state", () => {
+describe("migration 46 add_sync_backfill_state", () => {
   it("is the next id after 44, appended directly after it, and uses only CREATE TABLE IF NOT EXISTS", () => {
     expect(migration.name).toBe("add_sync_backfill_state");
     const index = migrations.indexOf(migration);
@@ -191,9 +191,9 @@ describe("migration 45 add_sync_backfill_state", () => {
     await db.execute(
       "INSERT INTO sync_backfill_state (id, status, step, started_at, updated_at) VALUES (1, 'running', 'settings', 'a', 'b')",
     );
-    await db.execute("DELETE FROM schema_migrations WHERE id = 45");
+    await db.execute("DELETE FROM schema_migrations WHERE id = 46");
     await runMigrations(db);
-    expect(await db.select("SELECT id FROM schema_migrations WHERE id = 45")).toHaveLength(1);
+    expect(await db.select("SELECT id FROM schema_migrations WHERE id = 46")).toHaveLength(1);
     expect(await db.select("SELECT step FROM sync_backfill_state")).toEqual([{ step: "settings" }]);
   });
 });
