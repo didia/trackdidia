@@ -76,10 +76,10 @@ const snapshot = async (db: Database, tables: string[]) => {
 };
 
 describe("migration 46 add_sync_backfill_state", () => {
-  it("is the next id after 44, appended directly after it, and uses only CREATE TABLE IF NOT EXISTS", () => {
+  it("is the next id after 45, appended directly after it, and uses only CREATE TABLE IF NOT EXISTS", () => {
     expect(migration.name).toBe("add_sync_backfill_state");
     const index = migrations.indexOf(migration);
-    expect(migrations[index - 1]?.id).toBe(44);
+    expect(migrations[index - 1]?.id).toBe(45);
     expect(migrations[index + 1]).toBeUndefined();
     expect(migration.guards).toBeUndefined();
     const statements = migration.sql
