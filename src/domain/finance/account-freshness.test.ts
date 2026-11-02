@@ -105,6 +105,72 @@ describe("computeFinanceAccountFreshness", () => {
   });
 });
 
+describe("manual verification day", () => {
+  it("makes a quiet account fresh: verified today beats an old transaction", () => {
+    const stale = build("a", {}, { txn: "2026-09-01" });
+    expect(computeFinanceAccountFreshness(stale, "2026-10-12").status).toBe("due");
+
+    const verified = build("a", { lastVerifiedOn: "2026-10-12" }, { txn: "2026-09-01" });
+    expect(computeFinanceAccountFreshness(verified, "2026-10-12")).toMatchObject({
+      dataThroughDate: "2026-10-12",
+      dataThroughSource: "verified",
+      ageDays: 0,
+      status: "fresh",
+    });
+  });
+
+  it("goes due again one full cadence after the verification day", () => {
+    const account = build("a", { lastVerifiedOn: "2026-10-05" }, { txn: "2026-09-01" });
+    expect(computeFinanceAccountFreshness(account, "2026-10-11").status).toBe("fresh");
+    expect(computeFinanceAccountFreshness(account, "2026-10-12")).toMatchObject({
+      ageDays: 7,
+      status: "due",
+    });
+  });
+
+  it("lets a newer transaction or statement win over an older verification", () => {
+    expect(
+      computeFinanceAccountFreshness(
+        build("a", { lastVerifiedOn: "2026-10-01" }, { txn: "2026-10-08" }),
+        "2026-10-12",
+      ),
+    ).toMatchObject({ dataThroughDate: "2026-10-08", dataThroughSource: "transaction" });
+    expect(
+      computeFinanceAccountFreshness(
+        build("a", { lastVerifiedOn: "2026-10-01" }, { statement: "2026-10-09" }),
+        "2026-10-12",
+      ),
+    ).toMatchObject({ dataThroughDate: "2026-10-09", dataThroughSource: "statement" });
+  });
+
+  it("keeps the imported-data label when the verification day ties", () => {
+    expect(
+      computeFinanceAccountFreshness(
+        build("a", { lastVerifiedOn: "2026-10-08" }, { txn: "2026-10-08" }),
+        "2026-10-12",
+      ),
+    ).toMatchObject({ dataThroughSource: "transaction" });
+  });
+
+  it("replaces the creation-date fallback for an account that never received data", () => {
+    expect(
+      computeFinanceAccountFreshness(build("a", { lastVerifiedOn: "2026-10-10" }), "2026-10-12"),
+    ).toMatchObject({ dataThroughDate: "2026-10-10", dataThroughSource: "verified" });
+  });
+
+  it("ignores a malformed stored value and never reports a negative age for a future day", () => {
+    expect(
+      computeFinanceAccountFreshness(
+        build("a", { lastVerifiedOn: "yesterday" }, { txn: "2026-10-08" }),
+        "2026-10-12",
+      ),
+    ).toMatchObject({ dataThroughSource: "transaction" });
+    expect(
+      computeFinanceAccountFreshness(build("a", { lastVerifiedOn: "2026-10-20" }), "2026-10-12"),
+    ).toMatchObject({ ageDays: 0, status: "fresh" });
+  });
+});
+
 describe("per-account cadence override", () => {
   it("replaces the weekly default for a budget account", () => {
     const account = { updateCadenceDays: 14 };

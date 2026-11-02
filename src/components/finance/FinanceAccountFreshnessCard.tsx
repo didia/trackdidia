@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Link } from "react-router-dom";
 import { useAppContext } from "../../app/app-context";
@@ -9,7 +9,10 @@ import {
   type FinanceAccountFreshness,
 } from "../../domain/finance/account-freshness";
 import { formatDateLong } from "../../lib/date";
-import { loadFinanceAccountFreshness } from "../../lib/finance/account-freshness-loader";
+import {
+  loadFinanceAccountFreshness,
+  markFinanceAccountVerified,
+} from "../../lib/finance/account-freshness-loader";
 import { SectionCard } from "../SectionCard";
 
 /**
@@ -34,6 +37,23 @@ export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: b
       isActive ? loadFinanceAccountFreshness(currentRepository, today) : null,
   );
   const rows = resource.data;
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyError, setVerifyError] = useState(false);
+
+  // "Vérifié, rien de nouveau": the balance matches the bank, so the account is current through
+  // today even though no transaction arrived. Stored on the account; see docs/finance.md.
+  const verifyAccount = async (accountId: string) => {
+    setVerifyingId(accountId);
+    setVerifyError(false);
+    try {
+      await markFinanceAccountVerified(repository, accountId, calendarDay);
+      await resource.reload();
+    } catch {
+      setVerifyError(true);
+    } finally {
+      setVerifyingId(null);
+    }
+  };
 
   if (!active) {
     return null;
@@ -80,6 +100,11 @@ export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: b
       {resource.loading && rows === null ? (
         <p className="empty-copy">{t("freshness.loading")}</p>
       ) : null}
+      {verifyError ? (
+        <div className="banner" role="alert">
+          <p>{t("freshness.verifyError")}</p>
+        </div>
+      ) : null}
       {rows !== null && rows.length === 0 ? (
         <p className="empty-copy">{t("freshness.noAccounts")}</p>
       ) : null}
@@ -101,6 +126,16 @@ export const FinanceAccountFreshnessCard = ({ embedded = false }: { embedded?: b
                   {describeAge(row)} · {describeCadence(row)}
                 </small>
               </span>
+              <button
+                className="button"
+                type="button"
+                disabled={verifyingId === row.accountId}
+                aria-label={t("freshness.verifyAria", { name: row.name })}
+                title={t("freshness.verifyHint")}
+                onClick={() => void verifyAccount(row.accountId)}
+              >
+                {t("freshness.verify")}
+              </button>
             </li>
           ))}
         </ul>

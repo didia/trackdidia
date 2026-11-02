@@ -235,6 +235,7 @@ its existing idempotent `dimancheNotesRelocatedAt` marker.
 | 42 | `add_multi_device_sync_sidecars` | Creates the seven inert `sync_*` sidecar tables and an index on `sync_entity_meta.row_hlc` with `CREATE ... IF NOT EXISTS` only: no `ALTER TABLE`, no data change, no seed rows. See [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables) |
 | 43 | `add_sync_capture_state` | Creates the three device-local change-capture tables `sync_dirty`, `sync_entity_snapshot` and `sync_capture_state` with `CREATE TABLE IF NOT EXISTS` only: no `ALTER TABLE`, no trigger, no data change, no seed rows. See [Multi-device sync change capture](#multi-device-sync-change-capture) |
 | 44 | `add_finance_account_payment_due` | Adds nullable `payment_due_day` and `minimum_payment_minor` to `finance_accounts` via guarded, idempotent `ALTER TABLE`s, no backfill (null = no due day, minimum inferred); see [finance.md](finance.md#credit-payment-due-date-and-minimum) |
+| 45 | `add_finance_account_last_verified` | Adds nullable `last_verified_on` (local `YYYY-MM-DD`) to `finance_accounts` via a guarded, idempotent `ALTER TABLE`, no backfill (null = never manually verified); see [finance.md](finance.md#account-update-tracking-weekly-review-and-finances) |
 
 ## Table reference
 
