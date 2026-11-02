@@ -930,6 +930,11 @@
   font-weight: 600;
 }
 
+.finance-row__verify {
+  padding: 1px 10px;
+  font-size: 0.75rem;
+}
+
 .finance-row__amount {
   grid-area: amount;
   font-size: 1.02rem;

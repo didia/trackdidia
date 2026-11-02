@@ -241,6 +241,10 @@ export class FinanceMemoryStore {
         account.updateCadenceDays === undefined
           ? (existing?.updateCadenceDays ?? null)
           : account.updateCadenceDays,
+      lastVerifiedOn:
+        account.lastVerifiedOn === undefined
+          ? (existing?.lastVerifiedOn ?? null)
+          : account.lastVerifiedOn,
       paymentDueDay:
         account.paymentDueDay === undefined
           ? (existing?.paymentDueDay ?? null)

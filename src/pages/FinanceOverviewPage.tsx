@@ -15,7 +15,10 @@ import type { FinanceNetWorthSnapshot } from "../domain/finance/net-worth";
 import type { FinanceCategorySpendRow, FinanceTrendPoint } from "../domain/finance/reports";
 import { getMonthEndDate, getMonthKey, getMonthStartDate } from "../domain/monthly-review";
 import { formatDateMedium, formatDateShort, getTodayDate } from "../lib/date";
-import { loadFinanceAccountFreshness } from "../lib/finance/account-freshness-loader";
+import {
+  loadFinanceAccountFreshness,
+  markFinanceAccountVerified,
+} from "../lib/finance/account-freshness-loader";
 import { formatMoney } from "../lib/finance/money";
 
 const ALERT_SEVERITY_ORDER: FinanceAlertSeverity[] = ["critical", "warning", "info"];
@@ -109,6 +112,23 @@ export const FinanceOverviewPage = () => {
     () => new Map((freshness.data ?? []).map((row) => [row.accountId, row])),
     [freshness.data],
   );
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
+  const [verifyError, setVerifyError] = useState(false);
+
+  // Only offered on rows flagged "À mettre à jour": the balance matches the bank, so the account
+  // is current through today even without new transactions.
+  const verifyAccount = async (accountId: string) => {
+    setVerifyingId(accountId);
+    setVerifyError(false);
+    try {
+      await markFinanceAccountVerified(repository, accountId, today);
+      await freshness.reload();
+    } catch {
+      setVerifyError(true);
+    } finally {
+      setVerifyingId(null);
+    }
+  };
 
   const categoryNameById = useMemo(
     () => new Map(categories.map((category) => [category.id, category.name])),
@@ -590,6 +610,11 @@ export const FinanceOverviewPage = () => {
               <span>{t("overview.noAccounts")}</span>
             </p>
           ) : null}
+          {verifyError ? (
+            <p className="finance-empty" role="alert">
+              {t("freshness.verifyError")}
+            </p>
+          ) : null}
           <div className="finance-rows">
             {(netWorth?.accounts ?? []).map((line) => {
               const account = accountById.get(line.accountId);
@@ -618,12 +643,24 @@ export const FinanceOverviewPage = () => {
                     {accountFreshness ? (
                       <div className="finance-row__status">
                         {accountFreshness.status !== "fresh" ? (
-                          <span
-                            className="finance-row__update"
-                            data-testid={`finance-account-update-${account.id}`}
-                          >
-                            {t("freshness.status.due")}
-                          </span>
+                          <>
+                            <span
+                              className="finance-row__update"
+                              data-testid={`finance-account-update-${account.id}`}
+                            >
+                              {t("freshness.status.due")}
+                            </span>
+                            <button
+                              className="button finance-row__verify"
+                              type="button"
+                              disabled={verifyingId === account.id}
+                              aria-label={t("freshness.verifyAria", { name: account.name })}
+                              title={t("freshness.verifyHint")}
+                              onClick={() => void verifyAccount(account.id)}
+                            >
+                              {t("freshness.verify")}
+                            </button>
+                          </>
                         ) : null}
                         <span
                           className="finance-row__meta"
