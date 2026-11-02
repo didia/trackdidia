@@ -32,6 +32,7 @@ import {
 } from "./field-clocks";
 import { encodeHlc } from "./hlc";
 import { FINANCE_SPLITS, FINANCE_TRANSACTIONS } from "./merge-finance";
+import { parseTombstoneRow, type TombstoneRow, tombstoneRowJson } from "./tombstone-row";
 import { bumpChangeCounterSql } from "./domain-counters";
 import {
   getTableRegistration,
@@ -63,7 +64,10 @@ import {
  *   (`capture-recurrence.ts`), derived from the same snapshot diff.
  * - delete: tombstone an entity that has a live meta row (`deleted_at` = `row_hlc` = a fresh clock;
  *   the field clocks are kept) and drop its snapshot. An entity that never had a meta row was never
- *   published, so nothing is written for it.
+ *   published, so nothing is written for it. A field-clock entity's tombstone also keeps the deleted
+ *   row's values (`deleted_row_json`, from the `old_row` the delete trigger recorded): an edit made in
+ *   the same transaction before the delete, which no stamp has seen, is stamped first (a clock before
+ *   the delete's), so the values always agree with the clocks.
  * - a row that exists again after a tombstone starts over as a creation and clears `deleted_at`.
  * - `app_settings`: per synced key (device keys and secrets are skipped, never stored), an entity of
  *   type `setting`. The baseline of a key with no snapshot is its default value, so a database that
@@ -85,6 +89,8 @@ interface DirtyMark {
   entity_type: string;
   entity_id: string;
   op: string;
+  /** The deleted row as JSON (field-clock tables' delete marks only). */
+  old_row?: string | null;
 }
 
 export interface MetaRow {
@@ -92,7 +98,24 @@ export interface MetaRow {
   field_clocks_json: string;
   row_hlc: string;
   deleted_at: string | null;
+  /** The tombstone's values as JSON; `null` / absent: unknown. */
+  deleted_row_json?: string | null;
 }
+
+/** A stored meta row as the merge reads it. */
+export const localMetaOf = (
+  meta: MetaRow,
+): {
+  fieldClocks: FieldClocks;
+  rowHlc: string;
+  deletedAt: string | null;
+  deletedRow: TombstoneRow | null;
+} => ({
+  fieldClocks: parseClocks(meta.field_clocks_json),
+  rowHlc: meta.row_hlc,
+  deletedAt: meta.deleted_at,
+  deletedRow: meta.deleted_at === null ? null : parseTombstoneRow(meta.deleted_row_json),
+});
 
 export interface SnapshotRow {
   entity_id: string;
@@ -105,6 +128,8 @@ export interface MetaWrite {
   fieldClocksJson: string;
   rowHlc: string;
   deletedAt: string | null;
+  /** A tombstone's values (`tombstoneRowJson`); leave out for a live entity or unknown values. */
+  deletedRowJson?: string | null;
 }
 
 export interface SnapshotWrite {
@@ -318,7 +343,7 @@ export const fetchMeta = async (
   const found = new Map<string, MetaRow>();
   if (ids.length === 0) return found;
   const rows = await db.select<MetaRow[]>(
-    `SELECT entity_id, field_clocks_json, row_hlc, deleted_at FROM sync_entity_meta
+    `SELECT entity_id, field_clocks_json, row_hlc, deleted_at, deleted_row_json FROM sync_entity_meta
      WHERE entity_type = $1 AND entity_id IN (${placeholders(ids.length, 2)})`,
     [entityType, ...ids],
   );
@@ -348,16 +373,18 @@ export const writeOutcome = async (
   outcome: Outcome,
 ): Promise<void> => {
   for (const batch of chunked(outcome.metaWrites)) {
-    const values = batch.map((_, row) => `(${placeholders(5, row * 5 + 1)})`).join(", ");
+    const values = batch.map((_, row) => `(${placeholders(6, row * 6 + 1)})`).join(", ");
     await db.execute(
       `INSERT OR REPLACE INTO sync_entity_meta
-         (entity_type, entity_id, field_clocks_json, row_hlc, deleted_at) VALUES ${values}`,
+         (entity_type, entity_id, field_clocks_json, row_hlc, deleted_at, deleted_row_json)
+       VALUES ${values}`,
       batch.flatMap((write) => [
         entityType,
         write.entityId,
         write.fieldClocksJson,
         write.rowHlc,
         write.deletedAt,
+        write.deletedRowJson ?? null,
       ]),
     );
   }
@@ -403,11 +430,16 @@ const stampTableMarks = async (
 
   // Re-encode every mark through entityIdOf so meta keys are always canonical.
   const wanted = new Map<string, PrimaryKeyValue[]>();
+  /** The deleted rows the delete triggers recorded, by canonical entity id. */
+  const oldRows = new Map<string, TombstoneRow>();
   for (const mark of marks) {
     const key = parseEntityId(table, mark.entity_id);
     if (key === null) continue;
     try {
-      wanted.set(entityIdOf(table, key), key);
+      const id = entityIdOf(table, key);
+      wanted.set(id, key);
+      const oldRow = parseTombstoneRow(mark.old_row);
+      if (oldRow !== null && mark.op === "delete") oldRows.set(id, oldRow);
     } catch {
       /* a malformed mark carries nothing to stamp */
     }
@@ -456,12 +488,32 @@ const stampTableMarks = async (
         if (behavior === "drop") {
           if (meta) outcome.metaDeletes.push(id);
         } else if (meta && meta.deleted_at === null) {
+          let fieldClocksJson = behavior === "tombstone-clear" ? "{}" : meta.field_clocks_json;
+          let deletedRow: TombstoneRow | null = null;
+          const oldRow = oldRows.get(id);
+          if (codec.kind === "field" && behavior === "tombstone" && oldRow !== undefined) {
+            // The tombstone's values are the row as the delete saw it. An edit made earlier in the
+            // same transaction was never stamped (stamping happens once, at the end), so it is
+            // stamped now, one clock before the delete's: values and clocks then describe the same
+            // state, and the edit is part of what a later resurrection recovers.
+            const previous = parseSnapshot(snapshot?.snapshot_json);
+            const known = parseClocks(meta.field_clocks_json);
+            const record = codec.decode(oldRow);
+            if (previous !== null && !jsonDeepEqual(previous, record)) {
+              const editHlc = await issuer.next();
+              fieldClocksJson = canonicalJson(
+                computeClocks(previous, record, editHlc, codec.spec, known),
+              );
+            }
+            deletedRow = oldRow;
+          }
           const hlc = await issuer.next();
           outcome.metaWrites.push({
             entityId: id,
-            fieldClocksJson: behavior === "tombstone-clear" ? "{}" : meta.field_clocks_json,
+            fieldClocksJson,
             rowHlc: hlc,
             deletedAt: hlc,
+            deletedRowJson: tombstoneRowJson(deletedRow),
           });
         }
         continue;
@@ -652,7 +704,7 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
 
   for (;;) {
     const marks = await db.select<DirtyMark[]>(
-      "SELECT rowid AS rid, entity_type, entity_id, op FROM sync_dirty ORDER BY rowid LIMIT $1",
+      "SELECT rowid AS rid, entity_type, entity_id, op, old_row FROM sync_dirty ORDER BY rowid LIMIT $1",
       [MARK_CHUNK],
     );
     if (marks.length === 0) break;

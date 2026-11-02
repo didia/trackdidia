@@ -1,6 +1,6 @@
 import { hash128 } from "../finance/hash";
 import type { FieldCodec, RawRow } from "./capture-decode";
-import type { SyncEntity } from "./change-set";
+import type { SyncEntity, SyncRow } from "./change-set";
 import {
   asMap,
   canonicalJson,
@@ -54,14 +54,21 @@ import type { SettingRule } from "./registry";
  *   edit resurrects it. Field clocks of a tombstone are kept so a delete can still be compared
  *   with an edit that arrives later.
  *
- * Known limit, documented rather than hidden: a tombstone carries no field VALUES, so the merge is
- * NOT a join across a tombstone that is later resurrected. When a delete and edits from two other
- * devices meet in different orders, the values of the side the tombstone swallowed cannot be
- * recovered, and the resurrected row holds the surviving side's values only. The loss is not silent:
- * when an entity is resurrected, every field the tombstone held a newer clock for is logged as an
- * overwritten edit whose local value is unknown. OPEN ITEM for a later slice: tombstones should
- * carry the last field values (in the change set and in the local meta), which would make the
- * resurrection a join as well.
+ * Tombstones carry values (migration 48). The tombstone of a field-clock entity keeps the last VALUES of
+ * the row (`deletedRow`, unknown when `null`) next to its clocks, so a tombstone is a version of the entity
+ * like a live row, only without an aliveness of its own. Aliveness is decided first, from the clocks
+ * alone ({@link mergeTombstone}); the DATA of both sides then joins field by field with the rules above
+ * ({@link joinFieldClockRows}), whether the result is a live row or a tombstone:
+ * - the delete wins: the row goes, and the tombstone keeps the join of the values of both sides;
+ * - an edit as late as the delete survives (or resurrects the entity): the row is the join, so an edit
+ *   the delete swallowed comes back, in any order the three bundles arrive in, and a swallowed edit that a
+ *   later one replaced is logged as an overwritten edit with its real value;
+ * - a side with no values (a tombstone from before the migration, from a format 1 peer, or from the
+ *   verifying scan) contributes only what it can vouch for: the other side's row stands for the
+ *   tombstone if it covers every clock the tombstone ends with, otherwise the values are unknown, and a
+ *   resurrection from a tombstone without values behaves as it always did (the swallowed fields are
+ *   logged with an unknown local value). A value is never guessed.
+ * The lifecycle tuple of a task is joined as a unit by `merge-task.ts`, for tombstones too.
  */
 
 /**
@@ -81,7 +88,13 @@ export interface LocalEntityState {
   /** The stored row, or `null` when the entity has no row here. */
   row: RawRow | null;
   /** Its `sync_entity_meta` row, or `null` when it never had one. */
-  meta: { fieldClocks: FieldClocks; rowHlc: string; deletedAt: string | null } | null;
+  meta: {
+    fieldClocks: FieldClocks;
+    rowHlc: string;
+    deletedAt: string | null;
+    /** A tombstone's last values; `null` / absent: unknown. */
+    deletedRow?: RawRow | null;
+  } | null;
 }
 
 export interface MergeEntityInput {
@@ -132,6 +145,8 @@ export interface EntityMeta {
   fieldClocks: FieldClocks;
   rowHlc: string;
   deletedAt: string | null;
+  /** The tombstone's last values (field-clock entities only); `null` / absent: unknown. */
+  deletedRow?: RawRow | null;
 }
 
 export interface EntityMergeOutcome {
@@ -183,7 +198,8 @@ export const sameMeta = (a: EntityMeta | null, b: EntityMeta): boolean =>
   a !== null &&
   a.rowHlc === b.rowHlc &&
   a.deletedAt === b.deletedAt &&
-  canonicalJson(a.fieldClocks) === canonicalJson(b.fieldClocks);
+  canonicalJson(a.fieldClocks) === canonicalJson(b.fieldClocks) &&
+  canonicalJson(a.deletedRow ?? null) === canonicalJson(b.deletedRow ?? null);
 
 /**
  * Whether the SENDER had provably seen `clock`: it carries a clock of the same author that is at
@@ -533,143 +549,46 @@ const resurrectionLosses = (
   return losses;
 };
 
+// ---------------------------------------------------------------------------------------------
+// Joining two rows of one entity
+// ---------------------------------------------------------------------------------------------
+
+interface JoinInput {
+  codec: FieldCodec;
+  notNullColumns: ReadonlySet<string>;
+  /** The row the result is expressed against: a stored row, or a tombstone's values. */
+  localRow: RawRow;
+  localClocks: FieldClocks;
+  /** The incoming row: a bundle row, or a tombstone's values. Only the columns it holds merge. */
+  remoteRow: Json;
+  /** The incoming clocks, already limited to the fields this table knows. */
+  remoteClocks: FieldClocks;
+  /** The sender's clocks as sent, for {@link senderHasSeen}. */
+  senderClocks: Record<string, string>;
+}
+
+interface JoinResult {
+  /** The columns whose merged value differs from `localRow`. */
+  columns: Record<string, unknown>;
+  /** The clocks of the merged state. */
+  clocks: FieldClocks;
+  overwritten: OverwrittenField[];
+}
+
 /**
- * Merges the remote entity into the local state. See the module comment for the rules; the result
- * says which row operation to perform, which columns to write and what the meta row becomes.
+ * The field-by-field join of two versions of one entity, each a row with its clocks (a live row, or
+ * the values a tombstone kept). Every column kind merges by its own rule (see the module comment);
+ * the result says which columns change relative to `localRow`, what the clocks become and which of
+ * the local values a remote one replaced without the sender having seen them.
  */
-export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutcome => {
-  const { codec, local, remote } = input;
+const joinFieldClockRows = (input: JoinInput): JoinResult => {
+  const { codec, notNullColumns, localRow, localClocks, remoteRow, remoteClocks, senderClocks } =
+    input;
   const spec = codec.spec;
   const scalars = spec.scalars ?? [];
   const maps = spec.maps ?? [];
   const sets = spec.sets ?? [];
-  const fieldNames = new Set([...scalars, ...maps, ...sets]);
-
-  const remoteClocks = knownClocks(remote.fieldClocks, fieldNames);
-  const localClocks = local.meta?.fieldClocks ?? {};
-  const localHasRow = local.row !== null;
-  const localDeletedAt = local.meta?.deletedAt ?? null;
-
-  const tombstone = mergeTombstone(
-    editClock(localClocks, local.meta?.rowHlc ?? null, localDeletedAt === null),
-    localDeletedAt,
-    editClock(remoteClocks, remote.rowHlc, remote.deletedAt === null),
-    remote.deletedAt,
-  );
-
-  // --- The latest delete beats every edit: the row goes, the tombstone and clocks stay. --------
-  // A child of a deleted parent is deleted too, even when an edit is later than every delete it has
-  // seen: the foreign key forbids the row, and "edit wins over delete" applies to the PARENT (its
-  // own edit resurrects it). The forced tombstone must be STRICTLY later than the newest edit the
-  // entity retains (an equal or older one would read as "alive, but without a row" and an equal
-  // clock keeps the edit). It is the latest delete the child or its parent already has when that is
-  // later than the edit (so a replica that already holds the tombstone derives nothing new and
-  // re-applying is a no-op); otherwise it is a clock issued by this device (`orphaned.freshClock`),
-  // never one derived from another device's clock, which that device could issue itself next.
-  // Known limit (docs): when the parent is deleted only TRANSIENTLY (a later parent edit resurrects
-  // it) the child edit is lost on the replicas that applied it during that window.
-  const forced = !tombstone.deleted && input.orphaned !== undefined;
-  let needsFreshClock = false;
-  if (tombstone.deleted || forced) {
-    let deletedAt: string;
-    if (tombstone.deleted) {
-      deletedAt = tombstone.deletedAt as string;
-    } else {
-      const known = maxHlcOf([localDeletedAt, remote.deletedAt, input.orphaned?.deletedAt]);
-      const edit = tombstone.rowClock;
-      const fresh = input.orphaned?.freshClock ?? null;
-      if (fresh !== null && edit !== null && compareHlc(fresh, edit) <= 0) {
-        throw new Error(
-          "The fresh clock for a forced tombstone must be later than the child's edits",
-        );
-      }
-      if (known !== null && (edit === null || compareHlc(known, edit) > 0)) {
-        deletedAt = known;
-      } else if (fresh !== null) {
-        deletedAt = maxHlcOf([known, fresh]) as string;
-      } else {
-        needsFreshClock = true;
-        deletedAt = known ?? (edit as string); // placeholder, see `needsFreshClock`
-      }
-    }
-    const meta: EntityMeta = {
-      fieldClocks: mergeClocksByForm(localClocks, remoteClocks, maps),
-      rowHlc: deletedAt,
-      deletedAt,
-    };
-    const metaChanged = !sameMeta(local.meta, meta);
-    return {
-      rowAction: localHasRow ? "delete" : "none",
-      columns: {},
-      meta,
-      metaChanged,
-      tombstoneApplied: localHasRow || metaChanged,
-      overwritten: [],
-      ...(forced ? { forcedByParent: true as const } : {}),
-      ...(needsFreshClock ? { needsFreshClock: true as const } : {}),
-    };
-  }
-
-  // --- The entity is live from here on. ---------------------------------------------------------
-  if (remote.row === null) {
-    // A tombstone older than a local edit: the local row stands. The edit still survives the
-    // delete, so the memberships the tombstone knew and the row left out get their removals,
-    // exactly as if the tombstone had been here first (see `omittedKeyRemovals`).
-    const removals =
-      localHasRow && local.meta !== null
-        ? omittedKeyRemovals(
-            codec,
-            codec.decode(local.row as RawRow),
-            local.meta.fieldClocks,
-            remoteClocks,
-            remote.deletedAt,
-          )
-        : {};
-    const meta: EntityMeta = local.meta
-      ? { ...local.meta, fieldClocks: { ...local.meta.fieldClocks, ...removals } }
-      : { fieldClocks: {}, rowHlc: remote.rowHlc, deletedAt: null };
-    return {
-      rowAction: "none",
-      columns: {},
-      meta,
-      metaChanged: Object.keys(removals).length > 0,
-      tombstoneApplied: false,
-      overwritten: [],
-    };
-  }
-
-  if (!localHasRow) {
-    // New entity, or a resurrection: the remote values and clocks are the whole truth.
-    const rowHlc = maxFieldClock(remoteClocks) ?? remote.rowHlc;
-    // A resurrection (local tombstone, no row) also dates a removal for every membership the
-    // tombstone knew and the incoming row omits; a brand-new entity has no tombstone to consult.
-    const removals =
-      local.meta !== null && local.meta.deletedAt !== null
-        ? omittedKeyRemovals(
-            codec,
-            codec.decode(remote.row as RawRow),
-            remoteClocks,
-            local.meta.fieldClocks,
-            local.meta.deletedAt,
-          )
-        : {};
-    const meta: EntityMeta = {
-      fieldClocks: { ...remoteClocks, ...removals },
-      rowHlc,
-      deletedAt: null,
-    };
-    return {
-      rowAction: "insert",
-      columns: insertColumns(input),
-      meta,
-      metaChanged: true,
-      tombstoneApplied: false,
-      overwritten: resurrectionLosses(input, remoteClocks),
-    };
-  }
-
-  const localRecord = codec.decode(local.row as RawRow);
-  const remoteRow = remote.row as Json;
+  const localRecord = codec.decode(localRow);
   const remoteRecord = codec.decode(remoteRow as RawRow);
   const has = (column: string): boolean => Object.hasOwn(remoteRow, column);
 
@@ -689,7 +608,7 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
       won === "remote" &&
       !BOOKKEEPING_FIELDS.has(field) &&
       !jsonDeepEqual(localValue, remoteValue) &&
-      !senderHasSeen(localClock, remote.fieldClocks)
+      !senderHasSeen(localClock, senderClocks)
     ) {
       overwritten.push({
         field,
@@ -713,7 +632,7 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
   ): { chosen: "local" | "remote"; clock: string | null } => {
     const result = mergeLww(localRecord[column], localClock, remoteRecord[column], remoteClock);
     const chosen = forced ?? (result.winner === "remote" ? "remote" : "local");
-    if (chosen === "remote" && getOwn(remoteRow, column) !== (local.row as Json)[column]) {
+    if (chosen === "remote" && getOwn(remoteRow, column) !== (localRow as Json)[column]) {
       setOwn(columnsOut, column, getOwn(remoteRow, column));
     }
     noteScalar(column, localRecord[column], localClock, remoteRecord[column], remoteClock, chosen);
@@ -787,7 +706,7 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
           empty &&
             localRecord[column] === null &&
             remoteRecord[column] === null &&
-            !input.notNullColumns.has(column),
+            !notNullColumns.has(column),
         ),
       );
     }
@@ -799,7 +718,7 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
         r !== undefined &&
         sameEntry(item.kept, r) &&
         !sameEntry(item.kept, l) &&
-        !senderHasSeen(l.clock, remote.fieldClocks)
+        !senderHasSeen(l.clock, senderClocks)
       ) {
         overwritten.push({
           field: fieldClockKey(column, item.key),
@@ -833,15 +752,271 @@ export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutco
     }
   }
 
-  const rowHlc = maxFieldClock(clocksOut) ?? local.meta?.rowHlc ?? remote.rowHlc;
-  const meta: EntityMeta = { fieldClocks: clocksOut, rowHlc, deletedAt: null };
+  return { columns: columnsOut, clocks: clocksOut, overwritten };
+};
+
+/**
+ * True when `valued` holds every clock `other` holds, at least as late: the version that has values
+ * then also covers everything the version without values knows, so its row is the state of both.
+ */
+const dominates = (valued: FieldClocks, other: FieldClocks): boolean =>
+  Object.keys(other).every((key) => {
+    const mine = getOwn(valued, key);
+    return mine !== undefined && compareHlc(mine, other[key] as string) >= 0;
+  });
+
+/**
+ * The values a tombstone keeps once two versions of the entity meet and the delete wins. Each side
+ * is a live row, a tombstone's values, or nothing (a tombstone of unknown values, an entity this
+ * device never held). Two rows join field by field, so the swallowed edits of both survive in the
+ * tombstone. One row stands for the entity only if it covers every clock the other side knows
+ * (`dominates` the clocks the tombstone ends with); otherwise some field's newest value is not
+ * available and the values are unknown.
+ */
+const tombstoneValues = (
+  input: MergeEntityInput,
+  local: { row: RawRow; clocks: FieldClocks } | null,
+  incoming: { row: Json; clocks: FieldClocks } | null,
+  mergedClocks: FieldClocks,
+): RawRow | null => {
+  if (local !== null && incoming !== null) {
+    const joined = joinFieldClockRows({
+      codec: input.codec,
+      notNullColumns: input.notNullColumns,
+      localRow: local.row,
+      localClocks: local.clocks,
+      remoteRow: incoming.row,
+      remoteClocks: incoming.clocks,
+      senderClocks: input.remote.fieldClocks,
+    });
+    return { ...local.row, ...joined.columns };
+  }
+  // Judged against the clocks the tombstone will hold, so merging the result with either input
+  // again reaches the same verdict.
+  const only = local ?? incoming;
+  return only !== null && dominates(only.clocks, mergedClocks) ? { ...only.row } : null;
+};
+
+/**
+ * Merges the remote entity into the local state. See the module comment for the rules; the result
+ * says which row operation to perform, which columns to write and what the meta row becomes.
+ */
+export const mergeFieldClockEntity = (input: MergeEntityInput): EntityMergeOutcome => {
+  const { codec, local, remote } = input;
+  const spec = codec.spec;
+  const scalars = spec.scalars ?? [];
+  const maps = spec.maps ?? [];
+  const sets = spec.sets ?? [];
+  const fieldNames = new Set([...scalars, ...maps, ...sets]);
+
+  const remoteClocks = knownClocks(remote.fieldClocks, fieldNames);
+  const localClocks = local.meta?.fieldClocks ?? {};
+  const localHasRow = local.row !== null;
+  const localDeletedAt = local.meta?.deletedAt ?? null;
+  // The values a tombstone kept: the row of a version that is dead but remembered.
+  const localGhost: RawRow | null =
+    !localHasRow && localDeletedAt !== null ? (local.meta?.deletedRow ?? null) : null;
+  const remoteGhost: Json | null = remote.row === null ? (remote.deletedRow ?? null) : null;
+
+  const tombstone = mergeTombstone(
+    editClock(localClocks, local.meta?.rowHlc ?? null, localDeletedAt === null),
+    localDeletedAt,
+    editClock(remoteClocks, remote.rowHlc, remote.deletedAt === null),
+    remote.deletedAt,
+  );
+
+  // --- The latest delete beats every edit: the row goes, the tombstone and clocks stay. --------
+  // A child of a deleted parent is deleted too, even when an edit is later than every delete it has
+  // seen: the foreign key forbids the row, and "edit wins over delete" applies to the PARENT (its
+  // own edit resurrects it). The forced tombstone must be STRICTLY later than the newest edit the
+  // entity retains (an equal or older one would read as "alive, but without a row" and an equal
+  // clock keeps the edit). It is the latest delete the child or its parent already has when that is
+  // later than the edit (so a replica that already holds the tombstone derives nothing new and
+  // re-applying is a no-op); otherwise it is a clock issued by this device (`orphaned.freshClock`),
+  // never one derived from another device's clock, which that device could issue itself next.
+  // Known limit (docs): when the parent is deleted only TRANSIENTLY (a later parent edit resurrects
+  // it) the child edit is lost on the replicas that applied it during that window.
+  const forced = !tombstone.deleted && input.orphaned !== undefined;
+  let needsFreshClock = false;
+  if (tombstone.deleted || forced) {
+    let deletedAt: string;
+    if (tombstone.deleted) {
+      deletedAt = tombstone.deletedAt as string;
+    } else {
+      const known = maxHlcOf([localDeletedAt, remote.deletedAt, input.orphaned?.deletedAt]);
+      const edit = tombstone.rowClock;
+      const fresh = input.orphaned?.freshClock ?? null;
+      if (fresh !== null && edit !== null && compareHlc(fresh, edit) <= 0) {
+        throw new Error(
+          "The fresh clock for a forced tombstone must be later than the child's edits",
+        );
+      }
+      if (known !== null && (edit === null || compareHlc(known, edit) > 0)) {
+        deletedAt = known;
+      } else if (fresh !== null) {
+        deletedAt = maxHlcOf([known, fresh]) as string;
+      } else {
+        needsFreshClock = true;
+        deletedAt = known ?? (edit as string); // placeholder, see `needsFreshClock`
+      }
+    }
+    const localSide = localHasRow
+      ? { row: local.row as RawRow, clocks: localClocks }
+      : localGhost === null
+        ? null
+        : { row: localGhost, clocks: localClocks };
+    const incomingRow = remote.row ?? remoteGhost;
+    const fieldClocks = mergeClocksByForm(localClocks, remoteClocks, maps);
+    const deletedRow = tombstoneValues(
+      input,
+      localSide,
+      incomingRow === null ? null : { row: incomingRow, clocks: remoteClocks },
+      fieldClocks,
+    );
+    const meta: EntityMeta = {
+      fieldClocks,
+      rowHlc: deletedAt,
+      deletedAt,
+      deletedRow,
+    };
+    const metaChanged = !sameMeta(local.meta, meta);
+    return {
+      rowAction: localHasRow ? "delete" : "none",
+      columns: {},
+      meta,
+      metaChanged,
+      tombstoneApplied: localHasRow || metaChanged,
+      overwritten: [],
+      ...(forced ? { forcedByParent: true as const } : {}),
+      ...(needsFreshClock ? { needsFreshClock: true as const } : {}),
+    };
+  }
+
+  // --- The entity is live from here on. ---------------------------------------------------------
+  // A tombstone that carries its values is a version of the entity like any other, only without an
+  // aliveness of its own: it joins the live side field by field (the swallowed edits come back).
+  const localRowEff: RawRow | null = local.row ?? localGhost;
+  const joinsGhost =
+    (remote.row === null && remoteGhost !== null && local.row !== null) ||
+    (local.row === null && localGhost !== null && remote.row !== null);
+
+  if (remote.row === null && !joinsGhost) {
+    // A tombstone older than a local edit: the local row stands. The edit still survives the
+    // delete, so the memberships the tombstone knew and the row left out get their removals,
+    // exactly as if the tombstone had been here first (see `omittedKeyRemovals`).
+    const removals =
+      localHasRow && local.meta !== null
+        ? omittedKeyRemovals(
+            codec,
+            codec.decode(local.row as RawRow),
+            local.meta.fieldClocks,
+            remoteClocks,
+            remote.deletedAt,
+          )
+        : {};
+    const meta: EntityMeta = local.meta
+      ? { ...local.meta, fieldClocks: { ...local.meta.fieldClocks, ...removals } }
+      : { fieldClocks: {}, rowHlc: remote.rowHlc, deletedAt: null };
+    return {
+      rowAction: "none",
+      columns: {},
+      meta,
+      metaChanged: Object.keys(removals).length > 0,
+      tombstoneApplied: false,
+      overwritten: [],
+    };
+  }
+
+  if (!localHasRow && !joinsGhost) {
+    // New entity, or a resurrection: the remote values and clocks are the whole truth.
+    const rowHlc = maxFieldClock(remoteClocks) ?? remote.rowHlc;
+    // A resurrection (local tombstone, no row) also dates a removal for every membership the
+    // tombstone knew and the incoming row omits; a brand-new entity has no tombstone to consult.
+    const removals =
+      local.meta !== null && local.meta.deletedAt !== null
+        ? omittedKeyRemovals(
+            codec,
+            codec.decode(remote.row as RawRow),
+            remoteClocks,
+            local.meta.fieldClocks,
+            local.meta.deletedAt,
+          )
+        : {};
+    const meta: EntityMeta = {
+      fieldClocks: { ...remoteClocks, ...removals },
+      rowHlc,
+      deletedAt: null,
+    };
+    return {
+      rowAction: "insert",
+      columns: insertColumns(input),
+      meta,
+      metaChanged: true,
+      tombstoneApplied: false,
+      overwritten: resurrectionLosses(input, remoteClocks),
+    };
+  }
+
+  // Both versions have values: the two live rows, or a live row and a tombstone's values. The
+  // memberships (map keys, set elements) the tombstone held and the live row omits are removed by
+  // the delete, dated at its `deletedAt`, before the join so a tombstone's old add cannot win.
+  const remoteRowEff = (remote.row ?? remoteGhost) as Json;
+  let joinLocalClocks = localClocks;
+  let joinRemoteClocks = remoteClocks;
+  if (local.row !== null && remote.row === null) {
+    joinLocalClocks = {
+      ...localClocks,
+      ...omittedKeyRemovals(
+        codec,
+        codec.decode(local.row),
+        localClocks,
+        remoteClocks,
+        remote.deletedAt,
+      ),
+    };
+  } else if (local.row === null && remote.row !== null) {
+    joinRemoteClocks = {
+      ...remoteClocks,
+      ...omittedKeyRemovals(
+        codec,
+        codec.decode(remote.row as RawRow),
+        remoteClocks,
+        localClocks,
+        localDeletedAt,
+      ),
+    };
+  }
+  const joined = joinFieldClockRows({
+    codec,
+    notNullColumns: input.notNullColumns,
+    localRow: localRowEff as RawRow,
+    localClocks: joinLocalClocks,
+    remoteRow: remoteRowEff,
+    remoteClocks: joinRemoteClocks,
+    senderClocks: remote.fieldClocks,
+  });
+  const rowHlc =
+    maxFieldClock(joined.clocks) ?? (localHasRow ? local.meta?.rowHlc : undefined) ?? remote.rowHlc;
+  const meta: EntityMeta = { fieldClocks: joined.clocks, rowHlc, deletedAt: null };
+  if (!localHasRow) {
+    // A resurrection: every column the joined row holds, normalized like any insert.
+    const merged: Json = { ...(localRowEff as RawRow), ...joined.columns };
+    return {
+      rowAction: "insert",
+      columns: insertColumns({ ...input, remote: { ...remote, row: merged as SyncRow } }),
+      meta,
+      metaChanged: true,
+      tombstoneApplied: false,
+      overwritten: joined.overwritten,
+    };
+  }
   return {
-    rowAction: Object.keys(columnsOut).length > 0 ? "update" : "none",
-    columns: columnsOut,
+    rowAction: Object.keys(joined.columns).length > 0 ? "update" : "none",
+    columns: joined.columns,
     meta,
     metaChanged: !sameMeta(local.meta, meta),
     tombstoneApplied: false,
-    overwritten,
+    overwritten: joined.overwritten,
   };
 };
 

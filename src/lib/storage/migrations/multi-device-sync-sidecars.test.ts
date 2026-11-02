@@ -152,6 +152,8 @@ describe("migration 42 add_multi_device_sync_sidecars", () => {
       { name: "field_clocks_json", type: "TEXT", notnull: 1, dflt_value: "'{}'", pk: 0 },
       { name: "row_hlc", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "deleted_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      // Migration 48: the last values of a deleted row (NULL: unknown).
+      { name: "deleted_row_json", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
     ]);
     expect(await shape("sync_identity")).toEqual([
       { name: "id", type: "INTEGER", notnull: 0, dflt_value: null, pk: 1 },

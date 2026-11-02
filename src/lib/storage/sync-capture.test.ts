@@ -403,8 +403,9 @@ describe("capture disabled: nothing changes", () => {
     expect(
       recorded.queries
         .filter((query) => SYNC_QUERY.test(query))
-        // Migrations 42 to 47 run on a fresh database; they are not capture work.
+        // Migrations 42 to 48 run on a fresh database; they are not capture work.
         .filter((query) => !query.includes("CREATE TABLE"))
+        .filter((query) => !/ALTER TABLE|PRAGMA table_info/.test(query))
         .filter((query) => !query.includes("sync_identity")),
     ).toEqual(["SELECT id FROM sync_capture_state WHERE id = 1"]);
   });

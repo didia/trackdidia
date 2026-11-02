@@ -537,6 +537,138 @@ describe("stampDirtyEntities: deletes, tombstones and resurrection", () => {
   });
 });
 
+describe("stampDirtyEntities: tombstones carry the last values", () => {
+  const deletedRowOf = async (db: Db, table: string, id: string) => {
+    const meta = await readMetaOf(db, table, id);
+    return meta?.deleted_row_json == null ? null : JSON.parse(meta.deleted_row_json);
+  };
+
+  it("keeps the deleted row next to the kept clocks, and drains the recorded row with its mark", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, () =>
+      insertTask(db, "t1", { title: "Plan", notes: "n", context_ids_json: '["b","a"]' }),
+    );
+    await stamp(db, () => db.execute("DELETE FROM gtd_tasks WHERE id = 't1'"));
+    const tombstone = await readMetaOf(db, "gtd_tasks", "t1");
+    expect(tombstone?.deleted_at).toBeTruthy();
+    // The row exactly as it was stored (the text of an id list included).
+    expect(await deletedRowOf(db, "gtd_tasks", "t1")).toMatchObject({
+      id: "t1",
+      title: "Plan",
+      notes: "n",
+      context_ids_json: '["b","a"]',
+      status: "open",
+      bucket: "inbox",
+    });
+    expect(await db.select("SELECT * FROM sync_dirty")).toEqual([]);
+  });
+
+  it("stamps an edit made earlier in the same transaction before the delete", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, () => insertTask(db, "t1", { title: "Before" }));
+    const created = await readMetaOf(db, "gtd_tasks", "t1");
+    await stamp(db, async () => {
+      await db.execute("UPDATE gtd_tasks SET title = 'Edited then deleted' WHERE id = 't1'");
+      await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    });
+    const tombstone = await readMetaOf(db, "gtd_tasks", "t1");
+    // The values and the clocks describe the same state: the edit has a clock of its own, older
+    // than the delete's, so a later resurrection can tell what it recovers.
+    expect(await deletedRowOf(db, "gtd_tasks", "t1")).toMatchObject({
+      title: "Edited then deleted",
+    });
+    const clocks = clocksOf(tombstone);
+    expect(compareHlc(clocks.title as string, tombstone?.deleted_at as string)).toBe(-1);
+    expect(compareHlc(clocksOf(created).title as string, clocks.title as string)).toBe(-1);
+    expect(clocks.notes).toBe(clocksOf(created).notes);
+  });
+
+  it("keeps the row of the last delete when a row is deleted, re-inserted and deleted again", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, () => insertTask(db, "t1", { title: "First" }));
+    await stamp(db, async () => {
+      await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+      await insertTask(db, "t1", { title: "Second" });
+      await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    });
+    expect(await deletedRowOf(db, "gtd_tasks", "t1")).toMatchObject({ title: "Second" });
+  });
+
+  it("clears the values when the row exists again", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, () => insertTask(db, "t1"));
+    await stamp(db, () => db.execute("DELETE FROM gtd_tasks WHERE id = 't1'"));
+    expect(await deletedRowOf(db, "gtd_tasks", "t1")).not.toBeNull();
+    await stamp(db, () => insertTask(db, "t1", { title: "Back" }));
+    const revived = await readMetaOf(db, "gtd_tasks", "t1");
+    expect(revived?.deleted_at).toBeNull();
+    expect(revived?.deleted_row_json).toBeNull();
+  });
+
+  it("keeps no values for a mark that has none (a delete recorded before migration 48, or by the scan)", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, () => insertTask(db, "t1"));
+    // The scan marks a vanished row without the row: a delete no trigger saw.
+    await db.execute("DELETE FROM sync_dirty");
+    await db.execute("DROP TRIGGER IF EXISTS trg_sync_cap_gtd_tasks_ad");
+    await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    await db.execute(
+      "INSERT INTO sync_dirty (entity_type, entity_id, op) VALUES ('gtd_tasks', 't1', 'delete')",
+    );
+    await stamp(db, async () => undefined);
+    const tombstone = await readMetaOf(db, "gtd_tasks", "t1");
+    expect(tombstone?.deleted_at).toBeTruthy();
+    expect(tombstone?.deleted_row_json).toBeNull();
+  });
+
+  it("ignores a recorded row that is not a row", async () => {
+    const db = await createCaptureDb();
+    await stamp(db, () => insertTask(db, "t1"));
+    await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    await db.execute("UPDATE sync_dirty SET old_row = '[1,2' WHERE entity_id = 't1'");
+    await stamp(db, async () => undefined);
+    expect((await readMetaOf(db, "gtd_tasks", "t1"))?.deleted_row_json).toBeNull();
+  });
+
+  it("records the row of a cascaded child too (the delete trigger fires for cascades)", async () => {
+    const db = await createCaptureDb();
+    await db.execute("PRAGMA foreign_keys = ON");
+    await stamp(db, async () => {
+      await db.execute(
+        `INSERT INTO weekly_objectives (id, title, kind, target_hours, created_at, updated_at)
+         VALUES ('o1', 'Obj', 'hours', 4, $1, $1)`,
+        [T0],
+      );
+      await db.execute(
+        "INSERT INTO weekly_objective_results (week_start_date, objective_id, achieved, updated_at) VALUES ('2026-10-04', 'o1', 1, $1)",
+        [T0],
+      );
+    });
+    await stamp(db, () => db.execute("DELETE FROM weekly_objectives WHERE id = 'o1'"));
+    const child = (await readMeta(db, "weekly_objective_results"))[0];
+    expect(child?.deleted_at).toBeTruthy();
+    expect(JSON.parse(child?.deleted_row_json as string)).toMatchObject({
+      objective_id: "o1",
+      achieved: 1,
+    });
+  });
+
+  it("leaves row-clock tombstones without values (a whole row is compared by its clock)", async () => {
+    const db = await createCaptureDb();
+    const insertPerson = (id: string) =>
+      db.execute(
+        "INSERT INTO finance_people (id, display_name, color, archived, created_at, updated_at) VALUES ($1, 'Alex', NULL, 0, 't', 't')",
+        [id],
+      );
+    await stamp(db, () => insertPerson("p1"));
+    await stamp(db, () => db.execute("DELETE FROM finance_people WHERE id = 'p1'"));
+    const tombstone = await readMetaOf(db, "finance_people", "p1");
+    expect(tombstone?.deleted_at).toBeTruthy();
+    expect(tombstone?.deleted_row_json).toBeNull();
+    expect(await db.select("SELECT old_row FROM sync_dirty")).toEqual([]);
+  });
+});
+
 describe("stampDirtyEntities: row-clock and related classes", () => {
   const insertPerson = (db: Db, id: string, name = "Alex") =>
     db.execute(
@@ -768,7 +900,9 @@ describe("stampDirtyEntities: mechanics", () => {
 
   it("discards marks, without failing, when the identity row disappeared", async () => {
     const db = await createCaptureDb();
-    await db.execute("INSERT INTO sync_dirty VALUES ('gtd_contexts', 'c1', 'upsert')");
+    await db.execute(
+      "INSERT INTO sync_dirty (entity_type, entity_id, op) VALUES ('gtd_contexts', 'c1', 'upsert')",
+    );
     await db.execute("DELETE FROM sync_identity");
     expect(await stampDirtyEntities(db, CAPTURE_NOW)).toBe(0);
     expect(await readMarks(db)).toEqual([]);
@@ -777,7 +911,7 @@ describe("stampDirtyEntities: mechanics", () => {
   it("drops marks for unknown entity types and malformed keys", async () => {
     const db = await createCaptureDb();
     await db.execute(
-      `INSERT INTO sync_dirty VALUES ('nope', 'x', 'upsert'), ('weekly_objective_results', 'not json', 'upsert'), ('device_thing', 'y', 'delete')`,
+      `INSERT INTO sync_dirty (entity_type, entity_id, op) VALUES ('nope', 'x', 'upsert'), ('weekly_objective_results', 'not json', 'upsert'), ('device_thing', 'y', 'delete')`,
     );
     expect(await stampDirtyEntities(db, CAPTURE_NOW)).toBe(0);
     expect(await readMarks(db)).toEqual([]);
@@ -856,6 +990,23 @@ describe("backfillSyncCapture", () => {
     expect((await readMetaOf(db, "gtd_contexts", "c1"))?.deleted_at).toBeTruthy();
     expect((await readMetaOf(db, "gtd_contexts", "c2"))?.deleted_at).toBeNull();
     expect(await backfillSyncCapture(db, CAPTURE_NOW + 2_000)).toBe(0);
+  });
+
+  it("keeps the row of a pending delete mark when the scan marks the same vanished row", async () => {
+    const db = await createCaptureDb();
+    await baseline(db);
+    await stamp(db, () => insertContext(db, "c1", "Maison"));
+    // A delete whose mark was never drained (a failed stamp): the trigger recorded the row.
+    await db.execute("DELETE FROM gtd_contexts WHERE id = 'c1'");
+    const [pending] = await db.select<{ old_row: string | null }[]>(
+      "SELECT old_row FROM sync_dirty",
+    );
+    expect(JSON.parse(pending?.old_row as string)).toMatchObject({ id: "c1", name: "Maison" });
+    // The verifying scan finds the vanished row and marks it again: that must not drop the row.
+    expect(await backfillSyncCapture(db, CAPTURE_NOW + 1_000)).toBe(1);
+    const tombstone = await readMetaOf(db, "gtd_contexts", "c1");
+    expect(tombstone?.deleted_at).toBeTruthy();
+    expect(JSON.parse(tombstone?.deleted_row_json as string)).toMatchObject({ name: "Maison" });
   });
 
   it("still tombstones deleted rows when another row has a NULL primary key", async () => {

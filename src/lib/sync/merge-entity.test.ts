@@ -939,7 +939,13 @@ describe("whole-entity delete and edit", () => {
     );
     expect(result.rowAction).toBe("delete");
     expect(result.tombstoneApplied).toBe(true);
-    expect(result.meta).toEqual({ fieldClocks: clocks, rowHlc: at(20, B), deletedAt: at(20, B) });
+    // The tombstone keeps the values the local row had, next to the clocks.
+    expect(result.meta).toEqual({
+      fieldClocks: clocks,
+      rowHlc: at(20, B),
+      deletedAt: at(20, B),
+      deletedRow: task(),
+    });
   });
 
   it("a local edit later than the delete keeps the row and ignores the tombstone", () => {
@@ -1040,6 +1046,7 @@ describe("properties of the entity merge", () => {
     table,
     entityId,
     row: state.row,
+    ...(state.meta.deletedRow ? { deletedRow: state.meta.deletedRow } : {}),
     fieldClocks: state.meta.fieldClocks,
     rowHlc: state.meta.rowHlc,
     deletedAt: state.meta.deletedAt,
@@ -1068,7 +1075,7 @@ describe("properties of the entity merge", () => {
   // same clock never carries two different values (the real-world invariant).
   const writeOf = (clock: string | undefined) => (clock === undefined ? "none" : `v@${clock}`);
 
-  const randomTask = (rand: () => number, withTomb: boolean): State => {
+  const randomTask = (rand: () => number, withTomb: boolean, valued = false): State => {
     const devices = [A, B, C];
     const pick = () =>
       at(
@@ -1094,10 +1101,52 @@ describe("properties of the entity merge", () => {
     const rowHlc = Object.values(clocks).sort().at(-1) ?? at(1);
     if (withTomb && rand() < 0.3) {
       const deletedAt = at(13 + Math.floor(rand() * 4), devices[Math.floor(rand() * 3)] as string);
-      return { row: null, meta: { fieldClocks: clocks, rowHlc: deletedAt, deletedAt } };
+      return {
+        row: null,
+        meta: {
+          fieldClocks: clocks,
+          rowHlc: deletedAt,
+          deletedAt,
+          // A tombstone keeps the values its clocks describe, or none (an older one).
+          ...(valued ? { deletedRow: row } : {}),
+        },
+      };
     }
     return { row, meta: { fieldClocks: clocks, rowHlc, deletedAt: null } };
   };
+
+  // Tombstones that carry their last values: the same properties, and the deleted state is part of
+  // what is merged (no value can be lost to a delete, whatever the order).
+  for (const seed of Array.from({ length: 120 }, (_, index) => index + 1)) {
+    it(`is commutative and idempotent with tombstones that carry values (seed ${seed})`, () => {
+      const rand = prng(seed * 104729);
+      const left = randomTask(rand, true, true);
+      const right = randomTask(rand, true, true);
+      const ab = mergeInto("gtd_tasks", TASK_COLUMNS, left, right, "t1");
+      const ba = mergeInto("gtd_tasks", TASK_COLUMNS, right, left, "t1");
+      const norm = (state: State) => normalize("gtd_tasks", TASK_COLUMNS, state);
+      expect(norm(ab)).toBe(norm(ba));
+      for (const again of [left, right, ab]) {
+        expect(norm(mergeInto("gtd_tasks", TASK_COLUMNS, ab, again, "t1"))).toBe(norm(ab));
+      }
+    });
+
+    it(`is associative for three replicas when every tombstone carries values (seed ${seed})`, () => {
+      const rand = prng(seed * 7919 + 13);
+      const x = randomTask(rand, true, true);
+      const y = randomTask(rand, true, true);
+      const z = randomTask(rand, true, true);
+      const merge = (l: State, r: State) => mergeInto("gtd_tasks", TASK_COLUMNS, l, r, "t1");
+      const groupings = [
+        merge(merge(x, y), z),
+        merge(x, merge(y, z)),
+        merge(merge(x, z), y),
+        merge(merge(z, y), x),
+        merge(merge(y, z), x),
+      ].map((state) => normalize("gtd_tasks", TASK_COLUMNS, state));
+      expect(new Set(groupings).size).toBe(1);
+    });
+  }
 
   for (const seed of Array.from({ length: 60 }, (_, index) => index + 1)) {
     it(`is commutative and idempotent for two replicas (seed ${seed})`, () => {
@@ -1380,9 +1429,293 @@ describe("a child kept off a deleted parent (orphaned)", () => {
     const again = mergeResult(stored, editByB, { deletedAt: at(10, A) });
     expect(again.needsFreshClock).toBeUndefined();
     expect(again.meta.deletedAt).toBe(at(70, C));
-    expect(again).toMatchObject({ metaChanged: false, rowAction: "none" });
+    // The edit the delete swallowed is kept as the tombstone's values (it had none), and only that.
+    expect(again).toMatchObject({ metaChanged: true, rowAction: "none" });
+    expect(again.meta.deletedRow).toBeTruthy();
     const parentLater = mergeResult(localOld, editByB, { deletedAt: at(80, A) });
     expect(parentLater.needsFreshClock).toBeUndefined();
     expect(parentLater.meta.deletedAt).toBe(at(80, A));
+  });
+});
+
+describe("tombstones that carry the last field values", () => {
+  const dailyRow = (metrics: Record<string, unknown>, extra: RawRow = {}): RawRow => ({
+    date: "2026-10-04",
+    status: "s",
+    metrics_json: JSON.stringify(metrics),
+    morning_intention: "",
+    updated_at: "u",
+    ...extra,
+  });
+  const mergeDaily = (local: LocalEntityState, remote: SyncEntity) =>
+    mergeFieldClockEntity(input("daily_entries", DAILY_COLUMNS, local, remote));
+
+  /** A tombstone that kept its last row. */
+  const tombOf = (row: RawRow, clocks: FieldClocks, deletedAt: string): LocalEntityState => ({
+    row: null,
+    meta: { fieldClocks: clocks, rowHlc: deletedAt, deletedAt, deletedRow: row },
+  });
+  const remoteTombOf = (
+    row: RawRow | undefined,
+    clocks: FieldClocks,
+    deletedAt: string,
+  ): SyncEntity => ({
+    ...remoteTomb("gtd_tasks", "t1", clocks, deletedAt),
+    ...(row === undefined ? {} : { deletedRow: row }),
+  });
+
+  // B edited the title at 20 and A deleted at 30 without having seen it; C edits the notes at 40
+  // without having seen either. C still holds the title it had before B's edit (clock 10).
+  const swallowedTitle = {
+    row: task({ title: "Title edited on B", notes: "n" }),
+    clocks: { title: at(20, B), notes: at(10), status: at(10) },
+  };
+  const cRow = task({ title: "Original", notes: "Notes edited on C" });
+  const cClocks = { title: at(10), notes: at(40, C), status: at(10) };
+
+  it("a delete keeps the values of the local row it removes", () => {
+    const result = mergeTask(
+      live(swallowedTitle.row, swallowedTitle.clocks),
+      remoteTombOf(undefined, { title: at(10) }, at(30)),
+    );
+    expect(result.rowAction).toBe("delete");
+    expect(result.meta.deletedRow).toEqual(swallowedTitle.row);
+    expect(result.meta.fieldClocks).toEqual(swallowedTitle.clocks);
+  });
+
+  it("a delete that wins over a live row joins it with the values the tombstone already holds", () => {
+    // The tombstone (A) holds a later notes edit than the live row (B) has; B's title is later.
+    const ghost = task({ title: "Original", notes: "Notes edited on A" });
+    const result = mergeTask(
+      live(swallowedTitle.row, swallowedTitle.clocks),
+      remoteTombOf(ghost, { title: at(10), notes: at(25, A), status: at(10) }, at(30)),
+    );
+    expect(result.rowAction).toBe("delete");
+    expect(result.meta.deletedRow).toMatchObject({
+      title: "Title edited on B",
+      notes: "Notes edited on A",
+    });
+    expect(result.meta.fieldClocks).toMatchObject({ title: at(20, B), notes: at(25, A) });
+  });
+
+  it("a later tombstone absorbs a live row it swallows: its edits are kept, not forgotten", () => {
+    const local = tombOf(task(), { title: at(10), notes: at(10), status: at(10) }, at(30));
+    const result = mergeTask(
+      local,
+      remoteLive("gtd_tasks", "t1", swallowedTitle.row, swallowedTitle.clocks),
+    );
+    expect(result.rowAction).toBe("none");
+    expect(result.meta.deletedAt).toBe(at(30));
+    expect(result.meta.deletedRow).toMatchObject({ title: "Title edited on B" });
+    expect(result.metaChanged).toBe(true);
+    // Merging it again changes nothing.
+    const again = mergeTask(
+      { row: null, meta: result.meta },
+      remoteLive("gtd_tasks", "t1", swallowedTitle.row, swallowedTitle.clocks),
+    );
+    expect(again.metaChanged).toBe(false);
+  });
+
+  it("an edit that resurrects the entity brings back the edit the delete swallowed", () => {
+    const result = mergeTask(
+      tombOf(swallowedTitle.row, swallowedTitle.clocks, at(30)),
+      remoteLive("gtd_tasks", "t1", cRow, cClocks),
+    );
+    expect(result.rowAction).toBe("insert");
+    expect(result.columns).toMatchObject({
+      id: "t1",
+      title: "Title edited on B",
+      notes: "Notes edited on C",
+    });
+    expect(result.meta).toMatchObject({
+      deletedAt: null,
+      fieldClocks: { title: at(20, B), notes: at(40, C), status: at(10) },
+    });
+    // Nothing was lost, so nothing is logged (and nothing is "unknown").
+    expect(result.overwritten).toEqual([]);
+  });
+
+  it("the same edit in the other order gives the same entity", () => {
+    // C's live row first, then the tombstone: the delete (30) is older than C's edit (40).
+    const result = mergeTask(
+      live(cRow, cClocks),
+      remoteTombOf(swallowedTitle.row, swallowedTitle.clocks, at(30)),
+    );
+    expect(result.rowAction).toBe("update");
+    expect(result.columns).toEqual({ title: "Title edited on B" });
+    expect(result.meta).toMatchObject({
+      deletedAt: null,
+      fieldClocks: { title: at(20, B), notes: at(40, C), status: at(10) },
+    });
+    expect(result.tombstoneApplied).toBe(false);
+  });
+
+  it("the old behaviour for a tombstone without values: the edit is lost, and logged as unknown", () => {
+    const result = mergeTask(
+      tomb(swallowedTitle.clocks, at(30)),
+      remoteLive("gtd_tasks", "t1", cRow, cClocks),
+    );
+    expect(result.columns).toMatchObject({ title: "Original" });
+    expect(result.overwritten).toEqual([
+      {
+        field: "title",
+        local: { unknown: true, clock: at(20, B) },
+        remote: { value: "Original", clock: at(10) },
+      },
+    ]);
+  });
+
+  it("logs a swallowed edit that a later one replaced with its real value", () => {
+    // C also edited the title (40): B's title (20) lost, and the log shows what it was.
+    const result = mergeTask(
+      tombOf(swallowedTitle.row, swallowedTitle.clocks, at(30)),
+      remoteLive("gtd_tasks", "t1", task({ title: "Title edited on C" }), {
+        title: at(40, C),
+        notes: at(10),
+        status: at(10),
+      }),
+    );
+    expect(result.columns).toMatchObject({ title: "Title edited on C" });
+    expect(result.overwritten).toEqual([
+      {
+        field: "title",
+        local: { value: "Title edited on B", clock: at(20, B) },
+        remote: { value: "Title edited on C", clock: at(40, C) },
+      },
+    ]);
+  });
+
+  it("does not log an edit the sender had seen", () => {
+    // C's clocks include a clock of B at or after 20: C saw B's title and chose to replace it.
+    const result = mergeTask(
+      tombOf(swallowedTitle.row, swallowedTitle.clocks, at(30)),
+      remoteLive("gtd_tasks", "t1", task({ title: "Title edited on C" }), {
+        title: at(40, C),
+        notes: at(25, B),
+        status: at(10),
+      }),
+    );
+    expect(result.overwritten).toEqual([]);
+  });
+
+  it("a tombstone without values stays valid next to one with values", () => {
+    // Values are only kept when the row that has them covers every clock the tombstone ends with.
+    const covered = mergeTask(
+      tomb({ title: at(10) }, at(30)),
+      remoteLive("gtd_tasks", "t1", swallowedTitle.row, swallowedTitle.clocks),
+    );
+    expect(covered.meta.deletedRow).toEqual(swallowedTitle.row);
+    const uncovered = mergeTask(
+      tomb({ title: at(25, C) }, at(30)),
+      remoteLive("gtd_tasks", "t1", swallowedTitle.row, swallowedTitle.clocks),
+    );
+    expect(uncovered.meta.deletedRow).toBeNull();
+    expect(uncovered.meta.fieldClocks).toMatchObject({ title: at(25, C) });
+  });
+
+  it("an unreadable or absent value set is simply unknown", () => {
+    const local = live(swallowedTitle.row, swallowedTitle.clocks);
+    expect(
+      mergeTask(local, remoteTombOf(undefined, { title: at(10) }, at(30))).meta.deletedRow,
+    ).toEqual(swallowedTitle.row);
+    const first = mergeTask(
+      { row: null, meta: null },
+      remoteTombOf(undefined, { title: at(10) }, at(30)),
+    );
+    expect(first.meta.deletedRow).toBeNull();
+    expect(first.tombstoneApplied).toBe(true);
+  });
+
+  it("a map key the delete removed stays removed when the resurrecting row omits it", () => {
+    const ghost = dailyRow({ course: 5, marche: 3 });
+    const local: LocalEntityState = {
+      row: null,
+      meta: {
+        fieldClocks: { "metrics_json.course": at(22, B), "metrics_json.marche": at(5) },
+        rowHlc: at(30),
+        deletedAt: at(30),
+        deletedRow: ghost,
+      },
+    };
+    const result = mergeDaily(
+      local,
+      remoteLive("daily_entries", "2026-10-04", dailyRow({ marche: 3 }), {
+        "metrics_json.marche": at(5),
+        morning_intention: at(40, C),
+      }),
+    );
+    expect(result.rowAction).toBe("insert");
+    // The delete (30) removed `course` (set at 22): the resurrecting row never had it.
+    expect(JSON.parse(result.columns.metrics_json as string)).toEqual({ marche: 3 });
+    expect(result.meta.fieldClocks["metrics_json.course"]).toBe(at(30));
+    // The add the delete removed is logged with its real value, not as unknown.
+    expect(result.overwritten).toEqual([
+      {
+        field: "metrics_json.course",
+        local: { value: 5, clock: at(22, B) },
+        remote: { deleted: true, clock: at(30) },
+      },
+    ]);
+  });
+
+  it("a map key edited after the swallowed add survives alongside the resurrecting row", () => {
+    const ghost = dailyRow({ course: 5 });
+    const local: LocalEntityState = {
+      row: null,
+      meta: {
+        fieldClocks: { "metrics_json.course": at(22, B) },
+        rowHlc: at(30),
+        deletedAt: at(30),
+        deletedRow: ghost,
+      },
+    };
+    // The resurrecting row holds the key with an older clock: B's later value wins.
+    const result = mergeDaily(
+      local,
+      remoteLive("daily_entries", "2026-10-04", dailyRow({ course: 1 }), {
+        "metrics_json.course": at(10),
+        morning_intention: at(40, C),
+      }),
+    );
+    expect(JSON.parse(result.columns.metrics_json as string)).toEqual({ course: 5 });
+    expect(result.meta.fieldClocks["metrics_json.course"]).toBe(at(22, B));
+  });
+
+  it("a live row that omits a map key the tombstone held gets a removal for it, not the key back", () => {
+    const ghost = dailyRow({ course: 5, marche: 3 });
+    // The live row's edit (40) is later than the delete (30), so it survives and joins the values.
+    const local = live(dailyRow({ marche: 3 }), {
+      "metrics_json.marche": at(5),
+      morning_intention: at(40, C),
+    });
+    const result = mergeDaily(local, {
+      ...remoteTomb(
+        "daily_entries",
+        "2026-10-04",
+        { "metrics_json.course": at(22, B), "metrics_json.marche": at(5) },
+        at(30),
+      ),
+      deletedRow: ghost,
+    });
+    expect(result.meta.deletedAt).toBeNull();
+    // `course` was removed by the delete (dated 30): the key stays out of the row ...
+    expect(result.columns.metrics_json).toBeUndefined();
+    // ... and the removal is remembered, so an older replica that holds it cannot add it back.
+    expect(result.meta.fieldClocks["metrics_json.course"]).toBe(at(30));
+  });
+
+  it("a forced tombstone (the parent is gone) keeps the child's values too", () => {
+    const outcome = mergeFieldClockEntity({
+      ...input(
+        "gtd_tasks",
+        TASK_COLUMNS,
+        live(cRow, cClocks),
+        remoteLive("gtd_tasks", "t1", cRow, cClocks),
+      ),
+      orphaned: { deletedAt: at(50, A), freshClock: at(60, A) },
+    });
+    expect(outcome.forcedByParent).toBe(true);
+    expect(outcome.rowAction).toBe("delete");
+    expect(outcome.meta.deletedRow).toEqual(cRow);
   });
 });

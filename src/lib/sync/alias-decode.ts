@@ -34,8 +34,17 @@ const parentOrigins = new WeakMap<SyncEntity, string>();
 const rewriteEntity = (entity: SyncEntity, resolve: Resolver): SyncEntity => {
   if (entity.row === null) {
     const entityId = rewriteEntityId(entity.table, entity.entityId, resolve);
-    if (entityId === entity.entityId) return entity;
-    const next: SyncEntity = { ...entity, entityId };
+    // The values a tombstone carries name ids like a live row does.
+    const deletedRow =
+      entity.deletedRow === undefined
+        ? null
+        : rewriteSyncRow(entity.table, entity.deletedRow, resolve);
+    if (entityId === entity.entityId && deletedRow === null) return entity;
+    const next: SyncEntity = {
+      ...entity,
+      entityId,
+      ...(deletedRow === null ? {} : { deletedRow: deletedRow as SyncRow }),
+    };
     origins.set(next, originOf(entity));
     return next;
   }

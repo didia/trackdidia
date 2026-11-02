@@ -7370,7 +7370,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         await repository.createTask({ id: "task-listed", title: "Listed", bucket: "inbox" });
 
         const changeSet = await repository.listSyncChanges("gtd");
-        expect(changeSet).toMatchObject({ formatVersion: 1, domain: "gtd", deviceId: DEVICE });
+        expect(changeSet).toMatchObject({ formatVersion: 2, domain: "gtd", deviceId: DEVICE });
         expect(changeSet.entities.map((entity) => entity.entityId)).toContain("task-listed");
         // Its own state is a no-op, and a domain mismatch is refused.
         await expect(repository.applySyncBundle("gtd", changeSet)).resolves.toMatchObject({

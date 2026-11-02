@@ -174,7 +174,7 @@ describe("publish", () => {
     });
     const manifest = manifestOf(host, PERSONAL_DIR, A);
     expect(manifest).toMatchObject({
-      formatVersion: 1,
+      formatVersion: 2,
       deviceId: A,
       deviceName: "Portable perso",
       appVersion: "0.2.0",

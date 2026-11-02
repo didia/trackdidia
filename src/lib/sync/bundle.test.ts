@@ -98,12 +98,12 @@ const codeOf = async (promise: Promise<unknown>): Promise<SyncBundleErrorCode | 
 
 const textOf = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
 const bytesOf = (text: string) => new TextEncoder().encode(text);
-const preamble = (compression: "gzip" | "none" = "none", version = 1) =>
+const preamble = (compression: "gzip" | "none" = "none", version = 2) =>
   `${BUNDLE_MAGIC} ${version} ${compression}\n`;
 const header = (counts: Record<string, unknown> = {}, overrides: Record<string, unknown> = {}) =>
   JSON.stringify({
     kind: "header",
-    formatVersion: 1,
+    formatVersion: 2,
     domain: "gtd",
     deviceId: DEVICE,
     schemaVersion: 43,
@@ -120,6 +120,93 @@ const header = (counts: Record<string, unknown> = {}, overrides: Record<string, 
     ...overrides,
   });
 const plain = (...lines: string[]) => bytesOf(`${preamble()}${lines.join("\n")}\n`);
+
+describe("tombstones with values", () => {
+  const withValues = (): SyncChangeSet =>
+    base({
+      entities: [
+        task(1),
+        {
+          ...task(2),
+          row: null,
+          deletedAt: hlc(5000),
+          deletedRow: {
+            id: "context:2",
+            name: 'Été à Zürich — 日本語 — 🚀 " \\ \n',
+            created_at: "2026-10-01",
+            updated_at: "2026-10-02",
+            color: null,
+            position: 3.5,
+          },
+        },
+        { ...task(3), row: null, deletedAt: hlc(5001), fieldClocks: {} },
+      ],
+    });
+
+  for (const compression of ["gzip", "none"] as const) {
+    it(`round-trips a tombstone's values (${compression}) and a tombstone without any`, async () => {
+      const input = withValues();
+      const { decoded } = await roundTrip(input, compression);
+      expect(validateChangeSet(decoded)).toEqual(input);
+      const entities = (decoded as { entities: { deletedRow?: unknown }[] }).entities;
+      expect(entities[1]?.deletedRow).toMatchObject({ position: 3.5, color: null });
+      expect("deletedRow" in (entities[2] as object)).toBe(false);
+    });
+  }
+
+  it("writes format 2, and names it in the preamble and in the header", async () => {
+    const { bytes } = await encodeBundle(withValues(), { compression: "none" });
+    const lines = textOf(bytes).split("\n");
+    expect(lines[0]).toBe(`${BUNDLE_MAGIC} 2 none`);
+    expect(JSON.parse(lines[1] as string)).toMatchObject({ kind: "header", formatVersion: 2 });
+  });
+
+  it("still reads a format 1 bundle: the same records, tombstones without values", async () => {
+    const legacy = base({
+      formatVersion: 1,
+      entities: [task(1), { ...task(2), row: null, deletedAt: hlc(5000), fieldClocks: {} }],
+    });
+    const { bytes } = await encodeBundle(legacy, { compression: "none" });
+    expect(textOf(bytes).startsWith(`${BUNDLE_MAGIC} 1 none\n`)).toBe(true);
+    const decoded = await decodeBundle(bytes);
+    expect(decoded.formatVersion).toBe(1);
+    expect(validateChangeSet(decoded)).toEqual(legacy);
+    const gzip = await decodeBundle((await encodeBundle(legacy)).bytes);
+    expect(validateChangeSet(gzip)).toEqual(legacy);
+  });
+
+  it("refuses a preamble and a header that name different formats", async () => {
+    expect(
+      await codeOf(
+        decodeBundle(bytesOf(`${preamble("none", 1)}${header({}, { formatVersion: 2 })}\n`)),
+      ),
+    ).toBe("unknown_version");
+    expect(
+      await codeOf(
+        decodeBundle(bytesOf(`${preamble("none", 2)}${header({}, { formatVersion: 1 })}\n`)),
+      ),
+    ).toBe("unknown_version");
+  });
+
+  it("carries the values of many tombstones within the same line and body limits", async () => {
+    const entities = Array.from({ length: 2_000 }, (_, index) => ({
+      ...task(index),
+      row: null,
+      deletedAt: hlc(9_000),
+      deletedRow: {
+        id: `context:${index}`,
+        name: `Contexte ${index}`,
+        created_at: "2026-10-01",
+        updated_at: "2026-10-01",
+      },
+    }));
+    const { encoded, decoded } = await roundTrip(base({ entities }));
+    expect(encoded.records).toBe(2_000);
+    expect(validateChangeSet(decoded).entities).toHaveLength(2_000);
+    expect(encoded.uncompressedBytes).toBeLessThan(MAX_DECODED_BUNDLE_BYTES);
+    expect(encoded.bytes.length).toBeLessThan(MAX_ENCODED_BUNDLE_BYTES);
+  });
+});
 
 describe("bundle round trip", () => {
   for (const compression of ["gzip", "none"] as const) {
@@ -181,7 +268,7 @@ describe("bundle round trip", () => {
     const second = await encodeBundle(rich(), { compression: "none" });
     expect(textOf(first.bytes)).toBe(textOf(second.bytes));
     const lines = textOf(first.bytes).split("\n");
-    expect(lines[0]).toBe(`${BUNDLE_MAGIC} 1 none`);
+    expect(lines[0]).toBe(`${BUNDLE_MAGIC} 2 none`);
     expect(JSON.parse(lines[1] as string)).toMatchObject({
       kind: "header",
       domain: "gtd",
@@ -189,7 +276,7 @@ describe("bundle round trip", () => {
     });
     expect(lines.at(-1)).toBe("");
     const gzip = await encodeBundle(rich());
-    expect(textOf(gzip.bytes.subarray(0, 40))).toContain(`${BUNDLE_MAGIC} 1 gzip\n`);
+    expect(textOf(gzip.bytes.subarray(0, 40))).toContain(`${BUNDLE_MAGIC} 2 gzip\n`);
   });
 
   it("writes uncompressed when the runtime has no CompressionStream, and refuses gzip it cannot read", async () => {
@@ -322,11 +409,11 @@ describe("decodeBundle rejects hostile input", () => {
   });
 
   it("an unknown format version, in the preamble or the header", async () => {
-    expect(await codeOf(decodeBundle(bytesOf(`${preamble("none", 2)}${header()}\n`)))).toBe(
+    expect(await codeOf(decodeBundle(bytesOf(`${preamble("none", 3)}${header()}\n`)))).toBe(
       "unknown_version",
     );
     expect(
-      await codeOf(decodeBundle(bytesOf(`${preamble()}${header({}, { formatVersion: 2 })}\n`))),
+      await codeOf(decodeBundle(bytesOf(`${preamble()}${header({}, { formatVersion: 3 })}\n`))),
     ).toBe("unknown_version");
   });
 

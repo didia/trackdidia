@@ -135,3 +135,19 @@ describe("the chunked apply is equivalent to the whole apply (randomized)", () =
     }, 120_000);
   }
 });
+
+// Seeds that found tombstones with values merging differently after a live merge than before (a
+// swallowed row joined per field instead of by the lifecycle tuple): re-applying a chunk changed the
+// tombstone. Pinned so they run whatever the default seed count is.
+describe("the chunked apply, seeds that once broke tombstones with values", () => {
+  for (const seed of [101, 144, 216, 221, 224]) {
+    it(`seed ${seed}`, async () => {
+      const holder: { ctx: OpContext | null } = { ctx: null };
+      await withSeedReport(
+        seed,
+        () => holder.ctx,
+        () => runSeed(seed, holder),
+      );
+    }, 120_000);
+  }
+});

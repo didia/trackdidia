@@ -33,7 +33,8 @@ describe("migration 47 add_sync_domain_change_counters", () => {
     expect(migration.name).toBe("add_sync_domain_change_counters");
     const index = migrations.indexOf(migration);
     expect(migrations[index - 1]?.id).toBe(46);
-    expect(migrations[index + 1]).toBeUndefined();
+    // Later migrations may follow (48 adds the tombstone value columns); this one stays untouched.
+    expect(migrations[index + 1]?.id).toBe(48);
     expect(migration.sql).not.toMatch(/\b(DROP|DELETE|INSERT|REPLACE|TRIGGER|CREATE)\b/i);
     expect(migration.guards?.skipIfColumnExists.map((guard) => guard.column)).toEqual([
       "gtd_changed_counter",

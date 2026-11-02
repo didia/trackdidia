@@ -217,6 +217,61 @@ describe("a project minted under two ids for one source_external_id", () => {
   });
 });
 
+describe("the values a tombstone keeps follow an alias like a live row", () => {
+  const ghostProject = async (device: SyncDevice, id: string) => {
+    const [meta] = await device.db.select<{ deleted_row_json: string | null }[]>(
+      "SELECT deleted_row_json FROM sync_entity_meta WHERE entity_type = 'gtd_tasks' AND entity_id = $1",
+      [id],
+    );
+    return meta?.deleted_row_json == null
+      ? undefined
+      : (JSON.parse(meta.deleted_row_json) as { project_id: string | null }).project_id;
+  };
+
+  const twoLaptops = async () => {
+    const sim = await createSyncHarness(["A", "B"]);
+    const [a, b] = [sim.device("A"), sim.device("B")];
+    await a.repo.saveProject(project("proj-z", "legacy:42"));
+    await a.repo.createTask({
+      id: "t-a",
+      title: "In z",
+      bucket: "next_action",
+      projectId: "proj-z",
+    });
+    a.clock.advance(2_000);
+    await a.db.execute("DELETE FROM gtd_tasks WHERE id = 't-a'");
+    await a.stamp();
+    b.clock.advance(5_000);
+    // The canonical project is the smaller id, proj-b.
+    await b.repo.saveProject(project("proj-b", "legacy:42"));
+    return { sim, a, b };
+  };
+
+  it("on the laptop that deleted it: learning the alias rewrites the values it kept", async () => {
+    const { a, b, sim } = await twoLaptops();
+    expect(await ghostProject(a, "t-a")).toBe("proj-z");
+    await sim.exchange(b, a, "gtd"); // A learns the alias, and nothing flows back yet
+    expect(await ghostProject(a, "t-a")).toBe("proj-b");
+  });
+
+  it("on the laptop that never held the task: the tombstone's values are read through the alias", async () => {
+    const { a, b, sim } = await twoLaptops();
+    expect(await ghostProject(b, "t-a")).toBeUndefined();
+    await sim.exchange(a, b, "gtd"); // B learns the alias from the same bundle
+    expect(await ghostProject(b, "t-a")).toBe("proj-b");
+  });
+
+  it("both ends converge", async () => {
+    const { a, b, sim } = await twoLaptops();
+    await sim.syncAll("gtd");
+    for (const device of [a, b]) {
+      expect(await ghostProject(device, "t-a")).toBe("proj-b");
+      expect((await device.repo.listProjects()).map((p) => p.id)).toEqual(["proj-b"]);
+    }
+    await sim.expectConverged("gtd", { snapshots: true });
+  });
+});
+
 describe("three laptops, three ids", () => {
   const ids = ["task-m", "task-c", "task-x"]; // the smallest, "task-c", is on the middle laptop
 

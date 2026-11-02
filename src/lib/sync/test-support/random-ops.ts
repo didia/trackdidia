@@ -30,15 +30,14 @@ import type { SyncDevice } from "./two-device-harness";
  */
 
 /**
- * THE DELETE ENVELOPE. A delete in these scenarios only targets an entity with a SINGLE WRITER: a
- * task named `eph-<laptop>-<n>` that only that laptop edits, moves, completes or deletes, a goal named
+ * THE DELETE ENVELOPE. Most deletes in these scenarios target an entity with a SINGLE WRITER: a task
+ * named `eph-<laptop>-<n>` that only that laptop edits, moves, completes or deletes, a goal named
  * `goal-<laptop>-<n>` likewise, an objective or a finance rule created by the laptop that deletes it.
- * The merge is a join everywhere EXCEPT across a delete that races edits the deleting laptop never saw
- * from two other laptops: a tombstone carries no field values (documented in `merge-entity.ts`, the
- * known open item), so the outcome then depends on the order the bundles arrive in. The laptops
- * deleting a shared task is deliberately not generated; `merge.property.test.ts` pins that known
- * limit with a deterministic reproducer instead. Deletes that race ONE other editor (resurrection)
- * have their own deterministic scenarios.
+ * Since tombstones carry the last field values (migration 48, `merge-entity.ts`) the merge is a join
+ * across deletes too, so the generators ALSO delete SHARED tasks and goals (any laptop, whatever the
+ * others edit, complete or move meanwhile): a delete that races edits from two other laptops used to
+ * make the outcome depend on the order the bundles arrive in. `merge.property.test.ts` and
+ * `sync-engine.property.test.ts` hold the convergence and idempotence properties for them.
  */
 export type Rand = () => number;
 
@@ -290,6 +289,19 @@ const gtdOps: Op[] = [
     await device.db.execute("DELETE FROM gtd_tasks WHERE id = $1", [task.id]);
     await device.stamp();
     return `deleteTask ${task.id}`;
+  },
+  async (device, ctx) => {
+    // A hard delete of a SHARED task: edits, completions and moves of the other laptops race it, and
+    // the tombstone keeps the values they would have changed.
+    const tasks = (await device.repo.listTasks({ includeCompleted: true })).filter(
+      (task) =>
+        !task.isRecurringInstance && !task.id.startsWith("eph-") && touchable(device, task.id),
+    );
+    if (tasks.length === 0) return undefined;
+    const task = pickOf(ctx.rand, tasks);
+    await device.db.execute("DELETE FROM gtd_tasks WHERE id = $1", [task.id]);
+    await device.stamp();
+    return `deleteSharedTask ${task.id}`;
   },
   async (device, ctx) => {
     const at = (ctx.day.get(device.name) ?? 5) + 1 + Math.floor(ctx.rand() * 3);

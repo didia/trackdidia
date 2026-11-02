@@ -4,6 +4,7 @@ import {
   assertRegistryMatchesSchema,
   buildCaptureTriggers,
   buildTableCaptureTriggers,
+  CAPTURE_FORMAT_VERSION,
   CAPTURE_TRIGGER_PREFIX,
   capturedTables,
   captureTriggerTables,
@@ -14,6 +15,7 @@ import {
   installSyncCapture,
   isCapturedTable,
   isSyncCaptureInstalled,
+  MAX_OLD_ROW_COLUMNS,
   readLiveSchema,
   SETTINGS_TABLE,
 } from "./capture-install";
@@ -144,6 +146,90 @@ describe("generated trigger SQL", () => {
     const before = await hashNow();
     await db.execute("ALTER TABLE gtd_contexts ADD COLUMN color TEXT");
     expect(await hashNow()).not.toBe(before);
+  });
+});
+
+describe("delete triggers record the deleted row of field-clock tables", () => {
+  const COLUMNS = ["id", "title", "notes"];
+
+  it("adds the row as JSON to the delete mark and to the mark of a rewritten key", () => {
+    const [, update, remove] = buildTableCaptureTriggers(
+      "gtd_tasks",
+      ["id"],
+      ["insert", "update", "delete"],
+      COLUMNS,
+    );
+    expect(remove?.sql).toContain(
+      `json_object('id', OLD."id", 'title', OLD."title", 'notes', OLD."notes")`,
+    );
+    expect(remove?.sql).toContain("old_row = excluded.old_row");
+    expect(update?.sql).toContain(`'delete', json_object('id', OLD."id"`);
+    expect(update?.sql).toContain("old_row = excluded.old_row");
+  });
+
+  it("leaves the marks of every other table as they were (no row, no extra column)", () => {
+    const [, update, remove] = buildTableCaptureTriggers("finance_people", ["id"]);
+    expect(remove?.sql).not.toContain("old_row");
+    expect(update?.sql).not.toContain("old_row");
+  });
+
+  it("refuses a table with more columns than one json_object call can carry", () => {
+    const wide = Array.from({ length: MAX_OLD_ROW_COLUMNS + 1 }, (_, index) => `c${index}`);
+    expect(() => buildTableCaptureTriggers("gtd_tasks", ["id"], ["delete"], wide)).toThrow(
+      /exceeds the 60/,
+    );
+  });
+
+  it("is on for exactly the field-clock tables, whose columns are all ordinary text or numbers", async () => {
+    const db = await createCaptureDb({ capture: false });
+    const schema = await readLiveSchema(db, captureTriggerTables());
+    const triggers = buildCaptureTriggers(schema);
+    const fieldClock = TABLE_REGISTRY.filter((entry) => entry.mergeClass === "field-clock");
+    expect(fieldClock.length).toBeGreaterThan(8);
+    for (const entry of capturedTables()) {
+      const remove = triggers.find(
+        (trigger) => trigger.name === `${CAPTURE_TRIGGER_PREFIX}${entry.table}_ad`,
+      );
+      expect(remove?.sql.includes("old_row"), entry.table).toBe(entry.mergeClass === "field-clock");
+    }
+    for (const entry of fieldClock) {
+      const columns = await db.select<{ name: string; type: string }[]>(
+        `PRAGMA table_info(${entry.table})`,
+      );
+      expect(columns.length, entry.table).toBeLessThanOrEqual(MAX_OLD_ROW_COLUMNS);
+      // json_object cannot hold a BLOB: the delete would fail and roll the user's write back.
+      expect(
+        columns.filter((column) => /BLOB/i.test(column.type)).map((column) => column.name),
+        entry.table,
+      ).toEqual([]);
+    }
+  });
+
+  it("bumps the capture format version and moves the installed hash of an older install", async () => {
+    expect(CAPTURE_FORMAT_VERSION).toBe(2);
+    const db = await createCaptureDb();
+    // An install of the previous release: the delete trigger of a field-clock table has no row.
+    await db.execute(`DROP TRIGGER "${CAPTURE_TRIGGER_PREFIX}gtd_tasks_ad"`);
+    await db.execute(
+      `CREATE TRIGGER "${CAPTURE_TRIGGER_PREFIX}gtd_tasks_ad" AFTER DELETE ON "gtd_tasks"
+       WHEN (SELECT applying FROM sync_identity WHERE id = 1) = 0
+       BEGIN
+         INSERT INTO sync_dirty (entity_type, entity_id, op) VALUES ('gtd_tasks', CAST(OLD."id" AS TEXT), 'delete') ON CONFLICT (entity_type, entity_id) DO UPDATE SET op = excluded.op;
+       END`,
+    );
+    await db.execute("UPDATE sync_capture_state SET installed_hash = 'previous-release'");
+    expect((await ensureSyncCapture(db)).state).toBe("reinstalled");
+    await db.execute(
+      "INSERT INTO gtd_tasks (id, title, notes, status, bucket, context_ids_json, source, created_at, updated_at) VALUES ('t1', 'Plan', '', 'open', 'inbox', '[]', 'manual', 't', 't')",
+    );
+    await db.execute("DELETE FROM sync_dirty");
+    await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    const [mark] = await db.select<{ op: string; old_row: string | null }[]>(
+      "SELECT op, old_row FROM sync_dirty",
+    );
+    expect(mark?.op).toBe("delete");
+    expect(JSON.parse(mark?.old_row as string)).toMatchObject({ id: "t1", title: "Plan" });
+    expect((await ensureSyncCapture(db)).state).toBe("current");
   });
 });
 

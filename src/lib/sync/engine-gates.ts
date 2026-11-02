@@ -2,7 +2,7 @@ import type { SyncIssue } from "./engine-types";
 import { hlcSkewMs, HLC_SKEW_WARNING_MS, isHlcAheadOfLocalTime, parseHlc } from "./hlc";
 import { domainsPublishable, domainsReadable, isDeviceProfile } from "./profile";
 import { SYNC_DOMAINS, type SyncDomain } from "./registry";
-import { SYNC_FORMAT_VERSION } from "./change-set";
+import { isSupportedFormatVersion } from "./change-set";
 import { isValidDeviceId, type SyncPeerSummary } from "./status";
 import type { PeerDomainEntry, PeerManifest } from "./transport";
 import type { DeviceProfile } from "./profile";
@@ -133,7 +133,7 @@ export const evaluateManifest = (input: ManifestGateInput): ManifestVerdict => {
   const base = { transport: transportId, ...(peerId === undefined ? {} : { peerId }), peerName };
 
   // The format version first: an unknown format's other fields cannot be trusted to mean anything.
-  if (isRecord(manifest) && manifest.formatVersion !== SYNC_FORMAT_VERSION) {
+  if (isRecord(manifest) && !isSupportedFormatVersion(manifest.formatVersion)) {
     return {
       kind: "format_unsupported",
       issue: {

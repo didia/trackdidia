@@ -1293,6 +1293,36 @@ export const migrations: Migration[] = [
       ],
     },
   },
+  {
+    id: 48,
+    name: "add_sync_tombstone_row_values",
+    // Tombstones carry the last field values of the deleted row (multi-laptop sync). Preserve-first:
+    // two nullable TEXT columns, no backfill and no data change. `sync_entity_meta.deleted_row_json`
+    // holds the deleted row's raw column values next to `deleted_at` (NULL: the values are unknown,
+    // which is what every tombstone written before this migration means; a deleted row cannot be
+    // recovered). `sync_dirty.old_row` is where the delete capture trigger leaves the row it saw in
+    // `OLD`; the stamper turns it into `deleted_row_json` and drains it with the mark. A mark that
+    // is already pending when the migration runs has no row and stamps an "unknown" tombstone. The
+    // capture triggers are rebuilt by `ensureSyncCapture` at startup (the trigger hash changes).
+    sql: `
+      ALTER TABLE sync_entity_meta ADD COLUMN deleted_row_json TEXT;
+      ALTER TABLE sync_dirty ADD COLUMN old_row TEXT;
+    `,
+    guards: {
+      skipIfColumnExists: [
+        {
+          table: "sync_entity_meta",
+          column: "deleted_row_json",
+          statement: "ALTER TABLE sync_entity_meta ADD COLUMN deleted_row_json TEXT;",
+        },
+        {
+          table: "sync_dirty",
+          column: "old_row",
+          statement: "ALTER TABLE sync_dirty ADD COLUMN old_row TEXT;",
+        },
+      ],
+    },
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */

@@ -142,8 +142,11 @@ const insertMarks = async (
 ): Promise<void> => {
   for (const batch of chunked(marks, MARK_BATCH)) {
     const values = batch.map((_, index) => `($1, $${index * 2 + 2}, $${index * 2 + 3})`).join(", ");
+    // An UPSERT that only sets `op`, not a REPLACE: a pending delete mark may already hold the row
+    // its trigger recorded (`old_row`), which is the tombstone's values and must survive the scan.
     await db.execute(
-      `INSERT OR REPLACE INTO sync_dirty (entity_type, entity_id, op) VALUES ${values}`,
+      `INSERT INTO sync_dirty (entity_type, entity_id, op) VALUES ${values}
+       ON CONFLICT (entity_type, entity_id) DO UPDATE SET op = excluded.op`,
       [table, ...batch.flatMap((mark) => [mark.id, mark.op])],
     );
   }

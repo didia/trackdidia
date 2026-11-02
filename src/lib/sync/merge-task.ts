@@ -433,6 +433,64 @@ const resolveEpoch = (args: {
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * The values of the remote tombstone, when they take part in the merge: the local task is live and
+ * the delete did not win (the generic merge says so by leaving the entity live).
+ */
+const ghostOfRemote = (localRow: RawRow | null, remote: SyncEntity | null): RawRow | null =>
+  localRow !== null && remote !== null && remote.row === null ? (remote.deletedRow ?? null) : null;
+
+/** The values of the local tombstone, when an incoming live row resurrects the task. */
+const ghostOfLocal = (local: LocalEntityState, remote: SyncEntity | null): RawRow | null =>
+  local.row === null && remote?.row != null && local.meta?.deletedAt != null
+    ? (local.meta.deletedRow ?? null)
+    : null;
+
+/**
+ * The values a tombstone keeps follow the same rule as the live row would: the generic merge joined
+ * every field on its own, but the lifecycle tuple is one unit (the winner's values AND clocks, not a
+ * per-member maximum). When the delete wins and both sides had values, the tombstone gets the tuple
+ * the live merge would have chosen, so a live row that was merged first and then deleted, and a
+ * delete that swallowed the same two rows, end on the same values and clocks, and swallowing a row
+ * the tombstone already absorbed changes nothing.
+ */
+const withLifecycleValues = (
+  input: TaskMergeInput,
+  generic: EntityMergeOutcome,
+): EntityMergeOutcome => {
+  const { local, remote, columns } = input;
+  const kept = generic.meta.deletedRow;
+  if (remote === null || kept === null || kept === undefined) return generic;
+  const localData =
+    local.row ?? (local.meta?.deletedAt != null ? (local.meta.deletedRow ?? null) : null);
+  const remoteData = remote.row ?? remote.deletedRow ?? null;
+  if (localData === null || remoteData === null) return generic;
+
+  const members = LIFECYCLE_FIELDS.filter((field) => columns.includes(field));
+  const localTuple = readTuple(localData, local.meta?.fieldClocks ?? {}, members, null);
+  const remoteTuple = readTuple(
+    remoteData,
+    knownClocks(remote.fieldClocks, fieldNamesOf(input)),
+    members,
+    localTuple,
+  );
+  const chosen = compareTuples(localTuple, remoteTuple) >= 0 ? localTuple : remoteTuple;
+  const row: RawRow = { ...kept };
+  for (const field of members) {
+    if (Object.hasOwn(kept, field)) row[field] = chosen.values[field];
+  }
+  const clocks = withoutKeys(generic.meta.fieldClocks, new Set(members));
+  for (const field of members) setClock(clocks, field, chosen.clocks[field]);
+  const meta: EntityMeta = { ...generic.meta, fieldClocks: clocks, deletedRow: row };
+  const metaChanged = !sameMeta(local.meta, meta);
+  return {
+    ...generic,
+    meta,
+    metaChanged,
+    tombstoneApplied: generic.rowAction === "delete" || metaChanged,
+  };
+};
+
+/**
  * Merges the remote `gtd_tasks` entity into the local state (or, with `remote: null`, recomputes
  * the local recurring instance from the occurrences alone). Everything not in the lifecycle tuple,
  * and not epoch-scoped on an instance, keeps the generic per-field / OR-set behaviour: the generic
@@ -448,14 +506,18 @@ export const mergeTaskEntity = (
 
   const generic = remote === null ? null : mergeFieldClockEntity({ ...input, remote });
   if (generic !== null && generic.meta.deletedAt !== null) {
-    return { ...generic, conflicts: [], finalRow: null };
+    return { ...withLifecycleValues(input, generic), conflicts: [], finalRow: null };
   }
-  const remoteRow = remote?.row ?? null;
+  // A tombstone that keeps its values is a version of the task like a live row (the generic merge
+  // already joined its fields): the lifecycle tuple is chosen between the two as usual, so a
+  // completion made on the laptop whose edit the delete swallowed comes back with the task.
+  const remoteRow = remote?.row ?? ghostOfRemote(localRow, remote);
   if (remote !== null && remoteRow === null) {
     // A tombstone older than a local edit: the local state stands.
     return { ...(generic as EntityMergeOutcome), conflicts: [], finalRow: localRow };
   }
   if (localRow === null && remote === null) return emptyOutcome(local);
+  const localVersion = localRow ?? ghostOfLocal(local, remote);
 
   const members = LIFECYCLE_FIELDS.filter((field) => columns.includes(field));
   const localClocks = local.meta?.fieldClocks ?? {};
@@ -467,10 +529,11 @@ export const mergeTaskEntity = (
       : { ...localRow, ...(generic?.columns ?? {}) };
   let clocks: FieldClocks = { ...(generic === null ? localClocks : generic.meta.fieldClocks) };
 
-  const localTuple = localRow === null ? null : readTuple(localRow, localClocks, members, null);
+  const localTuple =
+    localVersion === null ? null : readTuple(localVersion, localClocks, members, null);
   const remoteTuple =
     remoteRow === null ? null : readTuple(remoteRow, remoteClocks, members, localTuple);
-  const templateId = templateIdOf(remoteRow) ?? templateIdOf(localRow);
+  const templateId = templateIdOf(remoteRow) ?? templateIdOf(localVersion);
   const recurrence = context.recurrence ?? { occurrences: [], clearedThroughDate: null };
 
   const overwritten: OverwrittenField[] = [];
@@ -483,9 +546,9 @@ export const mergeTaskEntity = (
       ? null
       : resolveEpoch({
           local:
-            localTuple === null || localRow === null
+            localTuple === null || localVersion === null
               ? null
-              : { tuple: localTuple, due: stringOrNull(localRow.recurrence_due_date) },
+              : { tuple: localTuple, due: stringOrNull(localVersion.recurrence_due_date) },
           remote:
             remoteTuple === null || remoteRow === null
               ? null
@@ -595,7 +658,7 @@ export const mergeTemplateEntity = (
   if (generic !== null && generic.meta.deletedAt !== null) {
     return { ...generic, conflicts: [], finalRow: null };
   }
-  if (remote !== null && remote.row === null) {
+  if (remote !== null && remote.row === null && ghostOfRemote(local.row, remote) === null) {
     return { ...(generic as EntityMergeOutcome), conflicts: [], finalRow: local.row };
   }
   if (local.row === null && remote === null) return emptyOutcome(local);

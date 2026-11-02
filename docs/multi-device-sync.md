@@ -23,7 +23,8 @@ sets, folder commands, bundle format and transport are documented where they liv
 | Personal profile: everything syncs (GTD, journal, reviews, goals, AI memory and proposals, finance, Pomodoro history, shared settings) | Work profile, work shell, join flow for a second laptop, profile switching |
 | Manual "Synchroniser maintenant" on `/sync` | Restore UI |
 | [Automatic triggers](#automatic-triggers): pull at startup (before the day's generators), on focus and hourly; publish after a 2-minute debounce, on blur and on quit; backoff; status chip; reload of open GTD / Today / Daily / Pomodoro screens | Conflict and overwritten-edit list |
-| A forced safety backup before the first merge (taken once, not on every pull; and on a schema change) | Third laptop, tombstones that carry field values (see [limits](#limits)) |
+| A forced safety backup before the first merge (taken once, not on every pull; and on a schema change) | Third laptop (see [limits](#limits)) |
+| Tombstones carry the last field values of a deleted row, so a delete racing edits from other laptops loses nothing ([below](#deletes-and-tombstone-values)) | |
 | Peers table, pending count, last run report, errors, stale-peer approval | Any trigger without the debug gate and `multiDeviceSyncEnabled` |
 | Browser preview shows "unavailable" and persists nothing | Background syncing while the app is fully closed |
 
@@ -282,6 +283,31 @@ peer's hash is recorded only after the last one, so an interrupted merge is simp
 One manual action runs at a time; a second request while one runs is ignored. "Synchroniser maintenant" while an
 automatic run is in flight waits for it, then runs.
 
+## Deletes and tombstone values
+
+A delete leaves a tombstone, and since migration 48 the tombstone of a field-clock entity (tasks, projects,
+contexts, recurring templates, daily entries, reviews, goals, objectives and their results) also keeps the **last
+values of the deleted row** next to its clocks. Consequences you can rely on:
+
+- **Edit wins over delete, and nothing is lost.** Laptop A deletes a task, B edits its notes and C completes it,
+  none having seen the others. Whatever order the laptops sync in, the task comes back completed with B's notes:
+  the edit that outlives the delete resurrects the entity with the values the tombstone kept, joined field by field.
+  Before this change the completion (or an edit to another field) could be lost depending on the order.
+- **What is logged.** When a later edit replaces a value that the other laptop had not seen, an *overwritten edit*
+  is written to `sync_conflicts` with the real values of both sides (before, a tombstone could only log "unknown").
+  There is still no list of them in the UI.
+- **Old tombstones stay valid.** A tombstone made before this update, or by a laptop that has not been updated, has
+  no values; it merges exactly as before. A deleted row cannot be recovered after the fact.
+- **Row-clock data** (finance, Pomodoro history, AI proposals) keeps a tombstone without values: they are compared
+  as whole rows, which needs none. Pomodoro tombstones are still never published.
+
+**Updating the two laptops.** The update raises the database version to 48 and the sync format to 2. A laptop that is
+already on the new version reads everything the old one wrote (format 1 bundles and manifests). A laptop still on the
+old version shows **"Mise à jour requise"** for the updated one and merges nothing from it until it is updated (its own
+changes keep being published and the updated laptop keeps reading them); update both within the same few days. The first
+merge after the update takes the usual safety backup because the schema differs. Details and the format decision:
+[Tombstones carry the last field values](storage-and-backups.md#tombstones-carry-the-last-field-values).
+
 ## Safety
 
 - Plaintext bundles (no encryption in v1); secrets (OpenRouter key, RescueTime key, LLM bridge token) and all
@@ -297,9 +323,11 @@ automatic run is in flight waits for it, then runs.
 - The automatic triggers are described above and are untested in a real desktop window; with the gate closed nothing
   automatic exists. There is still no restore UI, and nothing runs while the app is fully closed (a laptop that is
   off does not sync; the other one publishes and the next start pulls).
-- Personal profile only; two personal laptops. A **third laptop and the work profile are unsupported** until
-  tombstones carry their last field values (a delete racing edits from two laptops that have not seen each other is
-  order dependent; see the merge notes in [storage-and-backups.md](storage-and-backups.md#multi-device-sync-change-sets-and-apply)).
+- Personal profile only. The work profile and the guided join flow are not shipped, and a **third laptop is not
+  supported yet**: the merge no longer blocks it (a delete racing edits from other laptops is a join since tombstones
+  carry their last field values, see [Deletes and tombstone values](#deletes-and-tombstone-values)), but it has only
+  been exercised in the simulation, and the lifecycle and conflict-UI slices that make it a supported setup are
+  still to come.
 - The second laptop is joined by enabling sync on it with the same two folders; there is no guided join flow, and the
   first merge into a database that already holds data relies on the safety backup and the merge rules, not on an
   empty-database check.

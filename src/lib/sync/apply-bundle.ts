@@ -37,7 +37,8 @@ import {
   fetchMeta,
   fetchRows,
   fetchSnapshots,
-  parseClocks,
+  localMetaOf,
+  type MetaRow,
   placeholders,
   stampDirtyEntities,
   writeOutcome,
@@ -72,6 +73,7 @@ import {
   settingRule,
 } from "./registry";
 import { readTableInfo, type TableInfo } from "./table-info";
+import { tombstoneRowJson } from "./tombstone-row";
 
 /**
  * Applying a change set to the local database: the write side of multi-device sync.
@@ -206,23 +208,14 @@ const mergeBatchGenerically = async (
   codec: FieldCodec,
   batch: readonly SyncEntity[],
   rows: Map<string, RawRow>,
-  metas: Map<string, { field_clocks_json: string; row_hlc: string; deleted_at: string | null }>,
+  metas: Map<string, MetaRow>,
   guard: ReferenceGuard,
 ): Promise<StagedEntity[]> => {
   const staged: StagedEntity[] = [];
   for (const entity of batch) {
     const meta = metas.get(entity.entityId);
     const localRow = rows.get(entity.entityId) ?? null;
-    const local = {
-      row: localRow,
-      meta: meta
-        ? {
-            fieldClocks: parseClocks(meta.field_clocks_json),
-            rowHlc: meta.row_hlc,
-            deletedAt: meta.deleted_at,
-          }
-        : null,
-    };
+    const local = { row: localRow, meta: meta ? localMetaOf(meta) : null };
     const parent: ParentStatus =
       entity.row === null ? { state: "present" } : await guard.statusOf(table, entity.row);
     let outcome: EntityMergeOutcome;
@@ -395,6 +388,7 @@ const applyEntityTable = async (
           fieldClocksJson: canonicalJson(merged.meta.fieldClocks),
           rowHlc: merged.meta.rowHlc,
           deletedAt: merged.meta.deletedAt,
+          deletedRowJson: tombstoneRowJson(merged.meta.deletedRow),
         });
       }
       if (merged.rowAction !== "none" || merged.metaChanged) {

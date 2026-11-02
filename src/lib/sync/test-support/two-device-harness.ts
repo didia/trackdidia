@@ -214,6 +214,22 @@ const normalizeRow = (table: string, row: Record<string, unknown>): Record<strin
   return result;
 };
 
+/**
+ * A tombstone's `deleted_row_json` holds the deleted row's raw columns, so it is compared like a row:
+ * its `*_json` cells as JSON (the laptop that deleted keeps the text it stored; one that merged the
+ * row stores the canonical text).
+ */
+const normalizeMeta = (row: Record<string, unknown>): Record<string, unknown> => {
+  if (typeof row.deleted_row_json !== "string" || row.entity_type === SETTING_ENTITY_TYPE) {
+    return row;
+  }
+  const values = JSON.parse(row.deleted_row_json) as Record<string, unknown>;
+  return {
+    ...row,
+    deleted_row_json: canonicalJson(normalizeRow(String(row.entity_type), values)),
+  };
+};
+
 /** A snapshot's `snapshot_json` holds decoded columns: parsed JSON columns, id lists as arrays. */
 const normalizeSnapshot = (row: Record<string, unknown>): Record<string, unknown> => {
   if (typeof row.snapshot_json !== "string" || row.entity_type === SETTING_ENTITY_TYPE) return row;
@@ -266,7 +282,12 @@ export const dumpDomain = async (
     )
   ).filter((row) => isSidecarPublishable("sync_id_aliases", domain, String(row.entity_type)));
 
-  const dump: DomainDump = { tables, meta, settings, aliases };
+  const dump: DomainDump = {
+    tables,
+    meta: options.exact ? meta : meta.map(normalizeMeta),
+    settings,
+    aliases,
+  };
   if (options.snapshots) {
     const snapshots = await device.db.select<Record<string, unknown>[]>(
       `SELECT * FROM sync_entity_snapshot WHERE ${scope} ORDER BY entity_type, entity_id`,
