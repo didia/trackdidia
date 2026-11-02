@@ -204,6 +204,64 @@ describe("FinanceOverviewPage", () => {
     );
   });
 
+  it("offers 'Marquer à jour' only on accounts that need an update and clears the flag", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const baseAccount = {
+      institution: null,
+      type: "checking" as const,
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual" as const,
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: null,
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    };
+    const stale = await repository.saveFinanceAccount({ ...baseAccount, id: "", name: "Chèques" });
+    const current = await repository.saveFinanceAccount({ ...baseAccount, id: "", name: "Crédit" });
+    await repository.saveFinanceTransaction(
+      buildTxn({ accountId: stale.id, postedDate: addDays(getTodayDate(), -20) }),
+    );
+    await repository.saveFinanceTransaction(
+      buildTxn({ accountId: current.id, postedDate: getTodayDate() }),
+    );
+
+    await renderWithApp(<FinanceOverviewPage />, {
+      repository,
+      contextOverrides: {
+        settings: { ...defaultAppSettings(), financeEnabled: true, financeBaseCurrency: "CAD" },
+      },
+    });
+
+    expect(await screen.findByTestId(`finance-account-update-${stale.id}`)).toBeInTheDocument();
+    // Only the account that needs an update gets the button.
+    expect(screen.getAllByRole("button", { name: /Marquer .* comme à jour/ })).toHaveLength(1);
+    expect(
+      screen.queryByRole("button", { name: "Marquer Crédit comme à jour aujourd'hui" }),
+    ).not.toBeInTheDocument();
+
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Marquer Chèques comme à jour aujourd'hui" }));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId(`finance-account-update-${stale.id}`)).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.queryByRole("button", { name: /Marquer .* comme à jour/ }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId(`finance-account-data-date-${stale.id}`)).toHaveTextContent(
+      `Vérifié le ${dateModule.formatDateMedium(getTodayDate())}`,
+    );
+  });
+
   it("shows the next due date and minimum payment on credit accounts only", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

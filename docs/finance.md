@@ -834,7 +834,8 @@ Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
 - **Manual verification** (`finance_accounts.last_verified_on`, migration 45, local
   `YYYY-MM-DD`, nullable): a quiet account with no new transactions would otherwise stay
   "À mettre à jour" forever. Each due row in `FinanceAccountFreshnessCard` has a "Marquer à
-  jour" button (`markFinanceAccountVerified`, `account-freshness-loader.ts`) for when the
+  jour" button (`markFinanceAccountVerified`, `account-freshness-loader.ts`; the same button sits on
+  the `/finances` account rows, and only on rows flagged `À mettre à jour`) for when the
   balance matches the bank: it stamps today's `calendarDay` on the account and the row leaves
   the list until one full cadence has passed again. The verified day only wins when strictly
   newer than the transaction/statement date (a tie keeps the imported-data label); it reads as
