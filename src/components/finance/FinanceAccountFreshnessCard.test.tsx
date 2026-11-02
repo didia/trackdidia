@@ -147,6 +147,35 @@ describe("FinanceAccountFreshnessCard", () => {
     expect(screen.queryByTestId(`finance-freshness-${account.id}`)).not.toBeInTheDocument();
   });
 
+  it("marks a quiet account as verified so it leaves the list, and keeps the other fields", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const today = getTodayDate();
+    const account = await repository.saveFinanceAccount(
+      buildAccount("Chèques", { updateCadenceDays: 14, notes: "garder" }),
+    );
+    await importOn(repository, account.id, addDays(today, -20));
+
+    await renderWithApp(<FinanceAccountFreshnessCard />, {
+      repository,
+      contextOverrides: enabled,
+    });
+
+    expect(await screen.findByText("1 compte à mettre à jour")).toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "Marquer Chèques comme à jour aujourd'hui" }));
+
+    expect(await screen.findByText("Tous les comptes sont à jour.")).toBeInTheDocument();
+    expect(screen.queryByTestId(`finance-freshness-${account.id}`)).not.toBeInTheDocument();
+    expect((await repository.listFinanceAccounts())[0]).toMatchObject({
+      id: account.id,
+      lastVerifiedOn: today,
+      updateCadenceDays: 14,
+      notes: "garder",
+    });
+  });
+
   it("recomputes ages when the local calendar day rolls over under a mounted card", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();

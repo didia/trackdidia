@@ -827,10 +827,21 @@ Rules (pure, `src/domain/finance/account-freshness.ts`, tested directly):
   account); the card labels 7 and 30 as weekly/monthly and anything else as "tous les N
   jours". `saveFinanceAccount` keeps the stored cadence when a caller omits the field
   (`undefined`); only an explicit `null` clears it.
-- **Data-through date** = the newer of the account's latest transaction `posted_date`
-  (transfers included) and its latest `source = 'statement'` balance snapshot date. Import
-  time is deliberately not used — importing an old file must not make an account look
-  current.
+- **Data-through date** = the newest of the account's latest transaction `posted_date`
+  (transfers included), its latest `source = 'statement'` balance snapshot date, and its
+  manual **verified-on** day. Import time is deliberately not used — importing an old file
+  must not make an account look current.
+- **Manual verification** (`finance_accounts.last_verified_on`, migration 45, local
+  `YYYY-MM-DD`, nullable): a quiet account with no new transactions would otherwise stay
+  "À mettre à jour" forever. Each due row in `FinanceAccountFreshnessCard` has a "Marquer à
+  jour" button (`markFinanceAccountVerified`, `account-freshness-loader.ts`) for when the
+  balance matches the bank: it stamps today's `calendarDay` on the account and the row leaves
+  the list until one full cadence has passed again. The verified day only wins when strictly
+  newer than the transaction/statement date (a tie keeps the imported-data label); it reads as
+  "Vérifié le …" (`dataThroughSource = "verified"`) in the card and on the `/finances`
+  account rows. A malformed stored value is ignored and a future day counts as age 0.
+  `saveFinanceAccount` keeps the stored day when a caller omits the field (`undefined`); only
+  an explicit `null` clears it, and the accounts form never touches it.
 - **Due** when the data-through date is at least one full cadence old (a Sunday review sees
   last Sunday's data as due). An account with no transactions and no statement has no
   "never imported" state: it counts from its creation date (local day of `created_at`), so an
@@ -845,8 +856,8 @@ in by the caller) gathers the two dates through `listFinanceAccounts`,
 on SQLite, a single pass in memory — never a table scan per account) and
 `listFinanceAccountBalanceSnapshots`. Both stores behave identically, covered by
 `repository.contract.ts`. A quiet account that is
-genuinely current but had no activity for a cadence still shows as due until a statement is
-applied — give it a longer cadence if that is the usual rhythm.
+genuinely current but had no activity for a cadence shows as due until it is marked verified
+(or a statement is applied) — or give it a longer cadence if that is the usual rhythm.
 
 ### Credit payment due date and minimum
 

@@ -21,6 +21,7 @@ export interface FinanceAccountFreshnessInput {
     | "onBudget"
     | "closed"
     | "updateCadenceDays"
+    | "lastVerifiedOn"
     | "createdAt"
   >;
   /** Newest `posted_date` of any transaction on the account, or null when it has none. */
@@ -42,7 +43,7 @@ export interface FinanceAccountFreshness {
    * statement counts from the day it was created.
    */
   dataThroughDate: string;
-  dataThroughSource: "transaction" | "statement" | "created";
+  dataThroughSource: "transaction" | "statement" | "verified" | "created";
   /** Whole local days between `dataThroughDate` and today. */
   ageDays: number;
   /** Days past the cadence (0 when exactly due, negative when still inside it). */
@@ -70,6 +71,10 @@ export const cadenceDaysForAccount = (
       ? FINANCE_BUDGET_ACCOUNT_CADENCE_DAYS
       : FINANCE_OTHER_ACCOUNT_CADENCE_DAYS;
 
+/** A stored verification day is honoured only when it is a plain `YYYY-MM-DD` string. */
+const isLocalDateString = (value: string | null | undefined): value is string =>
+  typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value);
+
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /** Whole local days from `from` to `to`; noon anchoring keeps DST shifts from skewing the count. */
@@ -77,8 +82,9 @@ const daysBetween = (from: string, to: string): number =>
   Math.round((atLocalNoon(to).getTime() - atLocalNoon(from).getTime()) / MS_PER_DAY);
 
 /**
- * Freshness of one account at `today`. The newer of the latest transaction date and the
- * latest statement date is the "data through" date; an account that never received either
+ * Freshness of one account at `today`. The newest of the latest transaction date, the latest
+ * statement date and the manual "verified on" day is the "data through" date; an account that
+ * never received any of them
  * counts from its creation date, so it only becomes `due` once a full cadence has passed
  * since it was created (accounts the user never imports stay quiet until then).
  * An account is `due` once that date is at least one full cadence old (a Sunday review sees
@@ -101,6 +107,14 @@ export const computeFinanceAccountFreshness = (
   if (latestStatementDate && (dataThroughDate === null || latestStatementDate > dataThroughDate)) {
     dataThroughDate = latestStatementDate;
     dataThroughSource = "statement";
+  }
+  // A manual "verified" day means the user checked the account against the bank that day, so a
+  // quiet account with no new transactions is still known to be current. It only wins when it is
+  // strictly newer, so imported data keeps its more specific label on a tie.
+  const lastVerifiedOn = isLocalDateString(account.lastVerifiedOn) ? account.lastVerifiedOn : null;
+  if (lastVerifiedOn && (dataThroughDate === null || lastVerifiedOn > dataThroughDate)) {
+    dataThroughDate = lastVerifiedOn;
+    dataThroughSource = "verified";
   }
   if (dataThroughDate === null) {
     dataThroughDate = toLocalDateString(account.createdAt);

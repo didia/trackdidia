@@ -148,6 +148,7 @@ interface AccountRow {
   balance_as_of: string | null;
   external_key: string | null;
   update_cadence_days: number | null;
+  last_verified_on: string | null;
   payment_due_day: number | null;
   minimum_payment_minor: number | null;
   notes: string | null;
@@ -171,6 +172,7 @@ const mapAccount = (row: AccountRow): FinanceAccount => ({
   balanceAsOf: row.balance_as_of,
   externalKey: row.external_key,
   updateCadenceDays: row.update_cadence_days,
+  lastVerifiedOn: row.last_verified_on,
   paymentDueDay: row.payment_due_day,
   minimumPaymentMinor: row.minimum_payment_minor,
   notes: row.notes,
@@ -594,11 +596,13 @@ export class FinanceSqliteStore {
       {
         opening_balance_minor: number;
         update_cadence_days: number | null;
+        last_verified_on: string | null;
         payment_due_day: number | null;
         minimum_payment_minor: number | null;
       }[]
     >(
-      `SELECT opening_balance_minor, update_cadence_days, payment_due_day, minimum_payment_minor
+      `SELECT opening_balance_minor, update_cadence_days, last_verified_on, payment_due_day,
+        minimum_payment_minor
         FROM finance_accounts WHERE id = $1`,
       [id],
     );
@@ -615,8 +619,8 @@ export class FinanceSqliteStore {
         id, name, institution, type, currency, owner_person_id, ownership, on_budget, closed,
         opening_balance_minor, current_balance_minor, balance_as_of, external_key, notes,
         sort_order, created_at, updated_at, update_cadence_days, payment_due_day,
-        minimum_payment_minor
-      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+        minimum_payment_minor, last_verified_on
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
         institution = excluded.institution,
@@ -635,6 +639,7 @@ export class FinanceSqliteStore {
         update_cadence_days = excluded.update_cadence_days,
         payment_due_day = excluded.payment_due_day,
         minimum_payment_minor = excluded.minimum_payment_minor,
+        last_verified_on = excluded.last_verified_on,
         updated_at = excluded.updated_at`,
       [
         id,
@@ -664,6 +669,10 @@ export class FinanceSqliteStore {
         account.minimumPaymentMinor === undefined
           ? (existing?.minimum_payment_minor ?? null)
           : account.minimumPaymentMinor,
+        // Omitted (undefined) keeps the stored verification day; only an explicit null clears it.
+        account.lastVerifiedOn === undefined
+          ? (existing?.last_verified_on ?? null)
+          : account.lastVerifiedOn,
       ],
     );
     const rows = await db.select<AccountRow[]>("SELECT * FROM finance_accounts WHERE id = $1", [

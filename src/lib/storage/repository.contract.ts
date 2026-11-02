@@ -3570,6 +3570,28 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ]);
       });
 
+      it("persists the manual verification day, keeps it when a save omits it, and clears it with null", async () => {
+        const repository = await factory();
+        const saved = await repository.saveFinanceAccount(
+          account({ lastVerifiedOn: "2026-10-12" }),
+        );
+        expect(saved.lastVerifiedOn).toBe("2026-10-12");
+
+        const { lastVerifiedOn: _omitted, ...withoutVerified } = saved;
+        await repository.saveFinanceAccount({ ...withoutVerified, name: "Renommé" });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, name: "Renommé", lastVerifiedOn: "2026-10-12" }),
+        ]);
+
+        await repository.saveFinanceAccount({ ...saved, lastVerifiedOn: null });
+        await expect(repository.listFinanceAccounts()).resolves.toEqual([
+          expect.objectContaining({ id: saved.id, lastVerifiedOn: null }),
+        ]);
+
+        const plain = await repository.saveFinanceAccount(account({ id: "account-plain" }));
+        expect(plain.lastVerifiedOn ?? null).toBeNull();
+      });
+
       it("persists a credit payment due day and minimum, and clears them with explicit nulls", async () => {
         const repository = await factory();
         const saved = await repository.saveFinanceAccount(
