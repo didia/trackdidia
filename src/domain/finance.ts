@@ -461,7 +461,7 @@ export interface UndoFinanceImportBatchResult {
  * `deleted` is every transaction removed because it predates the account's opening balance date;
  * `userCategorized` is how many of those carried a hand-set category (they are removed too, the
  * caller asked for it explicitly). `openingDate` is the cutoff used, or null when the account has
- * none (nothing is deleted then).
+ * no effective one: none set, or a statement anchors its opening balance (nothing is deleted then).
  */
 export interface DeleteFinanceTransactionsBeforeOpeningDateResult {
   openingDate: string | null;

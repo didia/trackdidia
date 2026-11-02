@@ -5,6 +5,24 @@
 
 import type { FinanceAccount, FinanceImportRow, FinanceTransaction } from "../finance";
 
+/**
+ * The date the "skip / delete older rows" rule uses for an account, or `null` when it does not
+ * apply. An account with a standing statement anchor never has one: its opening balance is
+ * re-derived from every transaction through the statement date (`opening = statement balance −
+ * Σ transactions on or before it`), so an earlier transaction is valid history and already
+ * balanced, whatever `balanceAsOf` still says. Editing the opening balance by hand drops the
+ * anchor, and the date applies again.
+ */
+export const effectiveOpeningDate = (
+  account: Pick<FinanceAccount, "balanceAsOf">,
+  hasStatementAnchor: boolean,
+): string | null => {
+  if (hasStatementAnchor) {
+    return null;
+  }
+  return account.balanceAsOf === null || account.balanceAsOf === "" ? null : account.balanceAsOf;
+};
+
 export interface OpeningDateSkip {
   accountId: string;
   /** The account's `balanceAsOf`, the date the rows predate. */
@@ -22,9 +40,9 @@ export interface OpeningDatePartition {
 
 /**
  * Splits import rows into those on or after their account's opening balance date and those
- * strictly before it. An account with no date (`null`/missing, e.g. one created from a
- * statement) never skips anything. Dates are local `YYYY-MM-DD`, so a string comparison is a
- * calendar comparison.
+ * strictly before it. `accounts` carries each account's *effective* date
+ * ({@link effectiveOpeningDate}); an account with no date (`null`/missing) never skips anything.
+ * Dates are local `YYYY-MM-DD`, so a string comparison is a calendar comparison.
  */
 export const partitionRowsByOpeningDate = (
   rows: readonly FinanceImportRow[],
@@ -58,7 +76,8 @@ export const partitionRowsByOpeningDate = (
 /**
  * Transactions already stored for an account that predate its opening balance date. They were
  * imported before the import-time skip existed (or before the date was set or moved later) and
- * are counted on top of an opening balance that already includes them. `null` date -> none.
+ * are counted on top of an opening balance that already includes them. `account` carries the
+ * *effective* date ({@link effectiveOpeningDate}); `null` date -> none.
  */
 export const selectTransactionsBeforeOpeningDate = <
   T extends Pick<FinanceTransaction, "postedDate">,

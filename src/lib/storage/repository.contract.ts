@@ -4481,6 +4481,107 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         ).rejects.toThrow(/not found/);
       });
 
+      it("exempts a statement-anchored account from the opening date at import and cleanup", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(
+          account({ id: "account-1", openingBalanceMinor: 0, balanceAsOf: "2026-03-01" }),
+        );
+        await repository.saveFinanceTransaction(
+          buildFinanceTransaction({
+            id: "txn-feb",
+            accountId: "account-1",
+            postedDate: "2026-02-10",
+            amountMinor: -500,
+          }),
+        );
+        const applied = await repository.applyFinanceStatementBalance({
+          accountId: "account-1",
+          statementDate: "2026-03-31",
+          balanceMinor: 200_000,
+        });
+        // The statement date keeps its meaning: balance on 2026-03-31 is exactly the statement.
+        expect(applied.account.balanceAsOf).toBe("2026-03-01");
+        expect(applied.derivedBalanceMinor).toBe(200_000);
+
+        // Cleanup is a no-op: the February row is valid history, and removing it would not move
+        // the balance (the anchor re-bases the opening balance) but would destroy the row.
+        await expect(
+          repository.deleteFinanceTransactionsBeforeOpeningDate("account-1"),
+        ).resolves.toEqual({ openingDate: null, deleted: 0, userCategorized: 0 });
+        await expect(repository.countFinanceTransactions({})).resolves.toBe(1);
+
+        // Import keeps an older row too.
+        const summary = await repository.importFinanceTransactions({
+          accountId: "account-1",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-anchored",
+          rows: [
+            importRow({ postedDate: "2026-01-15", descriptionRaw: "JAN", merchantKey: "JAN" }),
+          ],
+        });
+        expect(summary.imported).toBe(1);
+        expect(summary.skipped).toBe(0);
+
+        // Editing the opening balance by hand drops the anchor; the date applies again.
+        const [saved] = await repository.listFinanceAccounts({ includeClosed: true });
+        await repository.saveFinanceAccount({ ...saved, openingBalanceMinor: 5_000 });
+        await expect(
+          repository.deleteFinanceTransactionsBeforeOpeningDate("account-1"),
+        ).resolves.toEqual({ openingDate: "2026-03-01", deleted: 2, userCategorized: 0 });
+      });
+
+      it("keeps the surviving leg of an internal transfer a transfer when its partner is cleaned up", async () => {
+        const repository = await factory();
+        await repository.saveFinanceAccount(account({ id: "account-checking", onBudget: true }));
+        await repository.saveFinanceAccount(
+          account({ id: "account-savings", name: "Épargne", onBudget: true }),
+        );
+        // A debit on Feb 28 pairs with a credit on Mar 1.
+        await repository.importFinanceTransactions({
+          accountId: "account-checking",
+          profileId: null,
+          fileName: "export.csv",
+          fileHash: "hash-transfer",
+          rows: [
+            importRow({
+              accountId: "account-checking",
+              postedDate: "2026-02-28",
+              amountMinor: -50_000,
+              descriptionRaw: "VIREMENT EPARGNE",
+              merchantKey: "VIREMENT EPARGNE",
+            }),
+            importRow({
+              accountId: "account-savings",
+              postedDate: "2026-03-01",
+              amountMinor: 50_000,
+              descriptionRaw: "VIREMENT EPARGNE",
+              merchantKey: "VIREMENT EPARGNE",
+            }),
+          ],
+        });
+        const before = await repository.listFinanceTransactions({});
+        expect(before.every((txn) => txn.isTransfer && txn.transferGroupId !== null)).toBe(true);
+
+        // Only the checking account gets an opening date, so only its leg is stale.
+        const [checking] = (await repository.listFinanceAccounts({ includeClosed: true })).filter(
+          (item) => item.id === "account-checking",
+        );
+        await repository.saveFinanceAccount({ ...checking, balanceAsOf: "2026-03-01" });
+
+        const result =
+          await repository.deleteFinanceTransactionsBeforeOpeningDate("account-checking");
+        expect(result.deleted).toBe(1);
+
+        const [survivor] = await repository.listFinanceTransactions({});
+        expect(survivor.accountId).toBe("account-savings");
+        // Still an internal transfer: excluded from the budget, not income, group link detached.
+        expect(survivor.isTransfer).toBe(true);
+        expect(survivor.categoryId).toBe("fincat:transfert");
+        expect(survivor.excludedFromBudget).toBe(true);
+        expect(survivor.transferGroupId).toBeNull();
+      });
+
       const buildSplit = (
         transactionId: string,
         amountMinor: number,

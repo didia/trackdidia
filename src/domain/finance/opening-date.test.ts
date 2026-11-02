@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { FinanceImportRow } from "../finance";
 import {
+  effectiveOpeningDate,
   openingDateSkipWarning,
   partitionRowsByOpeningDate,
   selectTransactionsBeforeOpeningDate,
@@ -90,5 +91,20 @@ describe("openingDateSkipWarning", () => {
     expect(
       openingDateSkipWarning({ accountId: "a", openingDate: "2026-03-01", count: 4 }, "Chèques"),
     ).toContain('4 row(s) for "Chèques" dated before its opening balance date (2026-03-01)');
+  });
+});
+
+describe("effectiveOpeningDate", () => {
+  it("is the stored date for an account without a statement anchor", () => {
+    expect(effectiveOpeningDate({ balanceAsOf: "2026-03-01" }, false)).toBe("2026-03-01");
+  });
+
+  it("is null when a statement anchors the account, whatever the stored date", () => {
+    expect(effectiveOpeningDate({ balanceAsOf: "2026-03-01" }, true)).toBeNull();
+  });
+
+  it("is null for a missing or empty date", () => {
+    expect(effectiveOpeningDate({ balanceAsOf: null }, false)).toBeNull();
+    expect(effectiveOpeningDate({ balanceAsOf: "" }, false)).toBeNull();
   });
 });

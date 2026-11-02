@@ -368,26 +368,35 @@ The rule lives in `src/domain/finance/opening-date.ts` (pure, tested directly).
   before its own account's `balance_as_of` before hashing and inserting (in both stores). They are
   counted in `FinanceImportSummary.skipped` (and the batch's `skipped_count`, added to any rows the
   CSV parser rejected), and one warning per account names the count and the date. `rowCount` still
-  counts every submitted row. An account with no date (for example one created from a statement or
-  by the import page) never skips anything. The new-account form pre-fills the date with today, so
+  counts every submitted row. An account with no effective date (none set, for example one created
+  by the import page, or a statement anchor, below) never skips anything. The new-account form pre-fills the date with today, so
   clear it before importing history into an account that should keep older transactions.
 - **Cleaning up rows imported earlier.** Rows stored before this rule existed, or before the date
   was set or moved later, are still counted on top of the opening balance.
   `deleteFinanceTransactionsBeforeOpeningDate(accountId)` deletes them in one write: splits and
-  suggestions go with them and a surviving transfer partner is repaired exactly as in
-  [Undo](#undo) (shared per-row helper in each store), recurring-series detection re-runs, and a
-  statement anchor is re-based. Unlike undo it also deletes hand-categorized rows (reported in
+  suggestions go with them, recurring-series detection re-runs, and a statement anchor is re-based.
+  A surviving transfer partner only loses the dead group link (`transfer_group_id` cleared) and
+  **stays a transfer** with its category and budget exclusion, so the other account's leg does not
+  turn into income or an expense; this differs from [Undo](#undo), which demotes the partner
+  because the import that paired it is being reverted (the per-row delete is shared and takes a
+  `demote` / `detach` mode). Unlike undo it also deletes hand-categorized rows (reported in
   `userCategorized`) because the caller confirms first. It returns `openingDate: null` and deletes
-  nothing when the account has no date, and throws for an unknown account. There is no undo
-  button, so take a manual backup first. Deleted rows also leave the reports and budget history.
+  nothing when the account has no effective date (below), and throws for an unknown account. There
+  is no undo button, so take a manual backup first. Deleted rows also leave the reports and budget
+  history.
 - **Where it shows.** `FinanceAccountsPage` computes the stale rows with
   `selectTransactionsBeforeOpeningDate` and shows a banner on the account (count, date, and the
   amount by which the balance is off) with "Supprimer ces transactions", a two-step confirmation
   that restates the count and the hand-categorized subset, and a result line.
+- **Statement-anchored accounts have no effective date.** An account with a standing statement
+  anchor (see "Statement import") is exempt from all of the above, whatever `balance_as_of` still
+  says: its opening balance is re-derived from **every** transaction through the statement date,
+  so an earlier transaction is valid history and the balance already matches. Import keeps those
+  rows, the banner does not appear, and the cleanup deletes nothing. `effectiveOpeningDate`
+  (`opening-date.ts`) is the one place that decides this, used by both stores and the accounts
+  page; editing the opening balance by hand drops the anchor, and the date applies again.
 - **Not covered.** Rows added by hand (`saveFinanceTransaction`) are not filtered; the cleanup
-  banner covers them. A statement applied with "use as the starting balance" does not need any of
-  this, since it re-derives the opening balance from every transaction through the statement date
-  (see "Statement import").
+  banner covers them.
 
 ## Budget (Phase 5)
 

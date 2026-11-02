@@ -396,8 +396,10 @@ export interface AppRepository {
    * Deletes every transaction of the account posted strictly before its `balanceAsOf` opening
    * balance date (already inside the opening balance, so they skew the derived balance). Hand-
    * categorized rows are deleted too: the caller confirms first. Splits, suggestions and transfer
-   * links are cleaned like `undoFinanceImportBatch`, and statement anchors are re-based. No-op
-   * (`openingDate: null`) when the account has no opening date. Throws for an unknown account.
+   * links are cleaned like `undoFinanceImportBatch`, and statement anchors are re-based. A surviving
+   * transfer partner keeps its transfer semantics (only the group link is dropped). No-op
+   * (`openingDate: null`) when the account has no effective opening date: none set, or a statement
+   * anchors its opening balance. Throws for an unknown account.
    */
   deleteFinanceTransactionsBeforeOpeningDate(
     accountId: string,

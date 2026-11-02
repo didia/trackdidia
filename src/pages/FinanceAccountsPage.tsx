@@ -8,7 +8,10 @@ import {
   computeDerivedBalanceMinor,
   computeReconciliationDiscrepancy,
 } from "../domain/finance/account-balance";
-import { selectTransactionsBeforeOpeningDate } from "../domain/finance/opening-date";
+import {
+  effectiveOpeningDate,
+  selectTransactionsBeforeOpeningDate,
+} from "../domain/finance/opening-date";
 import type {
   FinanceAccount,
   FinanceAccountOwnership,
@@ -124,6 +127,7 @@ export const FinanceAccountsPage = () => {
   );
   const [accountError, setAccountError] = useState("");
   const [editingAccount, setEditingAccount] = useState<FinanceAccount | null>(null);
+  const [anchoredAccountIds, setAnchoredAccountIds] = useState<Set<string>>(new Set());
   // Two-step delete of transactions that predate an account's opening balance date.
   const [confirmingStaleAccountId, setConfirmingStaleAccountId] = useState<string | null>(null);
   const [staleMessage, setStaleMessage] = useState<{ accountId: string; text: string } | null>(
@@ -136,6 +140,19 @@ export const FinanceAccountsPage = () => {
       repository.listFinanceAccounts({ includeClosed: true }),
       repository.listFinanceTransactions(),
     ]);
+    // A statement-anchored account has no effective opening date (see `effectiveOpeningDate`).
+    const snapshotLists = await Promise.all(
+      nextAccounts.map((account) => repository.listFinanceAccountBalanceSnapshots(account.id)),
+    );
+    setAnchoredAccountIds(
+      new Set(
+        nextAccounts
+          .filter((_, index) =>
+            snapshotLists[index].some((snapshot) => snapshot.source === "statement"),
+          )
+          .map((account) => account.id),
+      ),
+    );
     setPeople(nextPeople);
     setAccounts(nextAccounts);
     const grouped: Record<string, FinanceTransaction[]> = {};
@@ -578,7 +595,11 @@ export const FinanceAccountsPage = () => {
             const transactions = transactionsByAccount[account.id] ?? [];
             const derivedBalanceMinor = computeDerivedBalanceMinor(account, transactions);
             const discrepancy = computeReconciliationDiscrepancy(account, transactions);
-            const staleTransactions = selectTransactionsBeforeOpeningDate(account, transactions);
+            const openingDate = effectiveOpeningDate(account, anchoredAccountIds.has(account.id));
+            const staleTransactions = selectTransactionsBeforeOpeningDate(
+              { balanceAsOf: openingDate },
+              transactions,
+            );
             const staleTotalMinor = staleTransactions.reduce(
               (total, txn) => total + txn.amountMinor,
               0,
@@ -630,12 +651,12 @@ export const FinanceAccountsPage = () => {
                     })}
                   </p>
                 ) : null}
-                {staleTransactions.length > 0 && account.balanceAsOf ? (
+                {staleTransactions.length > 0 && openingDate ? (
                   <div className="banner" data-testid={`finance-account-stale-${account.id}`}>
                     <p>
                       {t("accounts.stale.banner", {
                         count: staleTransactions.length,
-                        date: account.balanceAsOf,
+                        date: openingDate,
                         amount: formatMoney({
                           amountMinor: staleTotalMinor,
                           currency: account.currency,
@@ -647,7 +668,7 @@ export const FinanceAccountsPage = () => {
                         <p>
                           {t("accounts.stale.confirm", {
                             count: staleTransactions.length,
-                            date: account.balanceAsOf,
+                            date: openingDate,
                           })}
                           {staleUserCount > 0
                             ? ` ${t("accounts.stale.confirmUser", { count: staleUserCount })}`

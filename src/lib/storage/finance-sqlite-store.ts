@@ -62,6 +62,7 @@ import {
   type FinanceNetWorthSnapshot,
 } from "../../domain/finance/net-worth";
 import {
+  effectiveOpeningDate,
   openingDateSkipWarning,
   partitionRowsByOpeningDate,
 } from "../../domain/finance/opening-date";
@@ -1498,10 +1499,27 @@ export class FinanceSqliteStore {
       const openingDates = await db.select<
         Array<{ id: string; name: string; balance_as_of: string | null }>
       >("SELECT id, name, balance_as_of FROM finance_accounts");
+      // A statement-anchored account has no opening date: its opening balance is re-derived from
+      // every transaction through the statement date, so older rows are valid history.
+      const anchoredAccountIds = new Set(
+        (
+          await db.select<Array<{ account_id: string }>>(
+            "SELECT DISTINCT account_id FROM finance_account_balance_snapshots WHERE source = 'statement'",
+          )
+        ).map((row) => row.account_id),
+      );
       const opening = partitionRowsByOpeningDate(
         input.rows,
         new Map(
-          openingDates.map((account) => [account.id, { balanceAsOf: account.balance_as_of }]),
+          openingDates.map((account) => [
+            account.id,
+            {
+              balanceAsOf: effectiveOpeningDate(
+                { balanceAsOf: account.balance_as_of },
+                anchoredAccountIds.has(account.id),
+              ),
+            },
+          ]),
         ),
       );
       const openingNames = new Map(openingDates.map((account) => [account.id, account.name]));
@@ -2386,11 +2404,18 @@ export class FinanceSqliteStore {
    * Deletes one transaction with its splits and suggestions and repairs the transfer partner it
    * leaves behind. Shared by import undo and the opening-date cleanup; the caller holds the
    * transaction.
+   *
+   * `partnerRepair` says how the surviving transfer leg is treated: `demote` (import undo) turns
+   * it back into an ordinary uncategorized row, since the import that produced the pair is being
+   * reverted; `detach` (opening-date cleanup) only drops the dead group link and keeps the leg a
+   * transfer with its category and budget exclusion, because the money really moved between the
+   * two accounts and the survivor must not turn into income or an expense.
    */
   private async removeTransactionRowWithDb(
     db: Database,
     row: TransactionRow,
     now: string,
+    partnerRepair: "demote" | "detach" = "demote",
   ): Promise<void> {
     await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [row.id]);
     await db.execute("DELETE FROM finance_category_suggestions WHERE transaction_id = $1", [
@@ -2403,6 +2428,14 @@ export class FinanceSqliteStore {
         [row.transfer_group_id, row.id],
       );
       for (const partner of partnerRows) {
+        if (partnerRepair === "detach") {
+          // Single-leg transfers (`is_transfer = 1`, no group) are an existing state.
+          await db.execute(
+            "UPDATE finance_transactions SET transfer_group_id = NULL, updated_at = $2 WHERE id = $1",
+            [partner.id, now],
+          );
+          continue;
+        }
         if (partner.category_source === "user") {
           // Keep the user's category, provenance, and exclusions; only drop the dead link.
           await db.execute(
@@ -2465,7 +2498,14 @@ export class FinanceSqliteStore {
       if (!account) {
         throw new Error(`finance account not found: ${accountId}`);
       }
-      const openingDate = account.balance_as_of || null;
+      const [anchor] = await db.select<Array<{ account_id: string }>>(
+        "SELECT account_id FROM finance_account_balance_snapshots WHERE account_id = $1 AND source = 'statement' LIMIT 1",
+        [accountId],
+      );
+      const openingDate = effectiveOpeningDate(
+        { balanceAsOf: account.balance_as_of },
+        anchor !== undefined,
+      );
       if (openingDate === null) {
         await db.execute("COMMIT");
         return { openingDate, deleted: 0, userCategorized: 0 };
@@ -2491,7 +2531,7 @@ export class FinanceSqliteStore {
         if (current.category_source === "user") {
           userCategorized += 1;
         }
-        await this.removeTransactionRowWithDb(db, current, now);
+        await this.removeTransactionRowWithDb(db, current, now, "detach");
       }
 
       if (staleIds.length > 0) {

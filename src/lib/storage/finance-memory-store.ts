@@ -62,6 +62,7 @@ import {
   type FinanceNetWorthSnapshot,
 } from "../../domain/finance/net-worth";
 import {
+  effectiveOpeningDate,
   openingDateSkipWarning,
   partitionRowsByOpeningDate,
   selectTransactionsBeforeOpeningDate,
@@ -818,7 +819,17 @@ export class FinanceMemoryStore {
 
     // Rows posted before their account's opening balance date are already inside that opening
     // balance: skip them (docs/finance.md "Opening balance date").
-    const opening = partitionRowsByOpeningDate(input.rows, this.accounts);
+    // A statement-anchored account has no opening date: its opening balance is re-derived from
+    // every transaction through the statement date, so older rows are valid history.
+    const opening = partitionRowsByOpeningDate(
+      input.rows,
+      new Map(
+        [...this.accounts.values()].map((account) => [
+          account.id,
+          { balanceAsOf: effectiveOpeningDate(account, this.hasStatementAnchor(account.id)) },
+        ]),
+      ),
+    );
     const rows = opening.kept;
 
     const occurrenceIndices = assignOccurrenceIndices(rows);
@@ -1333,8 +1344,18 @@ export class FinanceMemoryStore {
   /**
    * Deletes one transaction with its splits and suggestions and repairs the transfer partner it
    * leaves behind. Shared by import undo and the opening-date cleanup.
+   *
+   * `partnerRepair` says how the surviving transfer leg is treated: `demote` (import undo) turns
+   * it back into an ordinary uncategorized row, since the import that produced the pair is being
+   * reverted; `detach` (opening-date cleanup) only drops the dead group link and keeps the leg a
+   * transfer with its category and budget exclusion, because the money really moved between the
+   * two accounts and the survivor must not turn into income or an expense.
    */
-  private removeTransactionRow(row: FinanceTransaction, now: string): void {
+  private removeTransactionRow(
+    row: FinanceTransaction,
+    now: string,
+    partnerRepair: "demote" | "detach" = "demote",
+  ): void {
     for (const [splitId, split] of [...this.splits.entries()]) {
       if (split.transactionId === row.id) {
         this.splits.delete(splitId);
@@ -1349,6 +1370,15 @@ export class FinanceMemoryStore {
     if (row.transferGroupId) {
       for (const partner of [...this.transactions.values()]) {
         if (partner.transferGroupId === row.transferGroupId && partner.id !== row.id) {
+          if (partnerRepair === "detach") {
+            // Single-leg transfers (`isTransfer`, no group) are an existing state.
+            this.transactions.set(partner.id, {
+              ...partner,
+              transferGroupId: null,
+              updatedAt: now,
+            });
+            continue;
+          }
           if (partner.categorySource === "user") {
             // Keep the user's category, provenance, and exclusions; only drop the dead link.
             this.transactions.set(partner.id, {
@@ -1381,6 +1411,16 @@ export class FinanceMemoryStore {
     this.transactions.delete(row.id);
   }
 
+  /** True while the account has a standing `source = 'statement'` balance snapshot. */
+  private hasStatementAnchor(accountId: string): boolean {
+    for (const snapshot of this.balanceSnapshots.values()) {
+      if (snapshot.accountId === accountId && snapshot.source === "statement") {
+        return true;
+      }
+    }
+    return false;
+  }
+
   deleteTransactionsBeforeOpeningDate(
     accountId: string,
   ): DeleteFinanceTransactionsBeforeOpeningDateResult {
@@ -1388,9 +1428,9 @@ export class FinanceMemoryStore {
     if (!account) {
       throw new Error(`finance account not found: ${accountId}`);
     }
-    const openingDate = account.balanceAsOf || null;
+    const openingDate = effectiveOpeningDate(account, this.hasStatementAnchor(accountId));
     const stale = selectTransactionsBeforeOpeningDate(
-      account,
+      { balanceAsOf: openingDate },
       [...this.transactions.values()].filter((txn) => txn.accountId === accountId),
     );
     if (openingDate === null || stale.length === 0) {
@@ -1409,7 +1449,7 @@ export class FinanceMemoryStore {
       if (current.categorySource === "user") {
         userCategorized += 1;
       }
-      this.removeTransactionRow(current, now);
+      this.removeTransactionRow(current, now, "detach");
     }
 
     this.detectRecurringSeries(getTodayDate());

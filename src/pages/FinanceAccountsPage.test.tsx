@@ -425,4 +425,71 @@ describe("FinanceAccountsPage", () => {
       "txn-edge",
     ]);
   });
+
+  it("shows no stale-transaction banner for a statement-anchored account", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = new Date().toISOString();
+    await repository.saveFinanceAccount({
+      id: "finance-account:1",
+      name: "Compte chèques",
+      institution: null,
+      type: "checking",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 0,
+      currentBalanceMinor: null,
+      balanceAsOf: "2026-03-01",
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await repository.saveFinanceTransaction({
+      id: "txn-feb",
+      accountId: "finance-account:1",
+      postedDate: "2026-02-10",
+      amountMinor: -500,
+      currency: "CAD",
+      descriptionRaw: "FEB",
+      descriptionOriginal: null,
+      merchantKey: "FEB",
+      merchantDisplay: null,
+      categoryId: "fincat:non-categorise",
+      categorySource: "default",
+      categoryConfidence: null,
+      categorizedAt: null,
+      personId: null,
+      notes: null,
+      labelsJson: null,
+      pending: false,
+      isTransfer: false,
+      transferGroupId: null,
+      excludedFromBudget: false,
+      excludedFromReports: false,
+      hasSplits: false,
+      importBatchId: null,
+      dedupeHash: "txn-feb",
+      sourceRowJson: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    await repository.applyFinanceStatementBalance({
+      accountId: "finance-account:1",
+      statementDate: "2026-03-31",
+      balanceMinor: 200_000,
+    });
+
+    await renderWithApp(<FinanceAccountsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    expect(await screen.findByRole("heading", { name: "Compte chèques" })).toBeInTheDocument();
+    expect(screen.queryByTestId("finance-account-stale-finance-account:1")).not.toBeInTheDocument();
+  });
 });
