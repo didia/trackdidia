@@ -49,7 +49,21 @@ import { isValidDeviceId } from "./status";
  * be synced, in that domain and not a secret.
  */
 
-export const SYNC_FORMAT_VERSION = 1;
+/**
+ * The format this build WRITES. 2 adds `deletedRow` to a tombstoned entity (the deleted row's values,
+ * field-clock tables only); nothing else changed. Format 1 is still READ: its tombstones simply have
+ * no values ("unknown", exactly what they meant). An older build reads neither (it refuses format 2
+ * at the manifest gate, and it is behind the schema gate anyway: migration 48).
+ */
+export const SYNC_FORMAT_VERSION = 2;
+
+/** Every format version this build can read. */
+export const SUPPORTED_FORMAT_VERSIONS: readonly number[] = [1, 2];
+
+export const isSupportedFormatVersion = (value: unknown): value is SyncFormatVersion =>
+  typeof value === "number" && SUPPORTED_FORMAT_VERSIONS.includes(value);
+
+export type SyncFormatVersion = 1 | 2;
 
 /** Entity ids are primary keys (ids, dates, small JSON arrays); anything longer is not one. */
 export const MAX_ENTITY_ID_LENGTH = 512;
@@ -67,6 +81,12 @@ export interface SyncEntity {
   entityId: string;
   /** The row by column name, or `null` when the entity is tombstoned. */
   row: SyncRow | null;
+  /**
+   * A tombstone's last values: the deleted row by column name (format 2, field-clock tables only).
+   * Absent when the entity is live, or when the values are unknown (a tombstone from format 1 or
+   * from before values were kept). The field clocks of the tombstone describe exactly these values.
+   */
+  deletedRow?: SyncRow;
   /** Clock per field / map key / set element; empty for entities without per-field clocks. */
   fieldClocks: Record<string, string>;
   /** Latest clock of the entity (its ship cursor): the newest field clock, or the delete clock. */
@@ -121,7 +141,8 @@ export interface SyncAlias {
 export const MAX_ALIASES = 500_000;
 
 export interface SyncChangeSet {
-  formatVersion: typeof SYNC_FORMAT_VERSION;
+  /** The version the sender wrote: this build writes 2 and reads 1 and 2. */
+  formatVersion: SyncFormatVersion;
   deviceId: string;
   domain: SyncDomain;
   /** Highest migration id applied on the sending device. */
@@ -264,16 +285,22 @@ const expectEntityTable = (table: unknown, domain: SyncDomain, path: string): st
   return table;
 };
 
-const validateEntity = (raw: unknown, index: number, domain: SyncDomain): SyncEntity => {
+const ENTITY_KEYS = ["table", "entityId", "row", "fieldClocks", "rowHlc", "deletedAt"] as const;
+
+const validateEntity = (
+  raw: unknown,
+  index: number,
+  domain: SyncDomain,
+  formatVersion: SyncFormatVersion,
+): SyncEntity => {
   const path = `entities[${index}]`;
-  const entity = expectRecord(raw, path, [
-    "table",
-    "entityId",
-    "row",
-    "fieldClocks",
-    "rowHlc",
-    "deletedAt",
-  ]);
+  // `deletedRow` is optional and exists from format 2 on; format 1 has exactly the six keys.
+  const hasDeletedRow = isRecord(raw) && Object.hasOwn(raw, "deletedRow");
+  const entity = expectRecord(
+    raw,
+    path,
+    formatVersion >= 2 && hasDeletedRow ? [...ENTITY_KEYS, "deletedRow"] : ENTITY_KEYS,
+  );
   const table = expectEntityTable(entity.table, domain, `${path}.table`);
   if (getTableRegistration(table).mergeClass === "grow-only-union") {
     fail("invalid_entity", `${path}.table`, `"${table}" travels in unionRows, not as an entity`);
@@ -323,13 +350,37 @@ const validateEntity = (raw: unknown, index: number, domain: SyncDomain): SyncEn
     entity.deletedAt === null ? null : expectClock(entity.deletedAt, `${path}.deletedAt`);
 
   let row: SyncRow | null = null;
+  let deletedRow: SyncRow | undefined;
   if (entity.row === null) {
     if (deletedAt === null) {
       fail("invalid_entity", path, "a tombstoned entity (row null) needs deletedAt");
     }
+    if (hasDeletedRow) {
+      if (getTableRegistration(table).mergeClass !== "field-clock") {
+        fail(
+          "invalid_entity",
+          `${path}.deletedRow`,
+          `"${table}" does not merge per field, so its tombstone carries no values`,
+        );
+      }
+      deletedRow = expectRow(entity.deletedRow, `${path}.deletedRow`);
+      const pk = primaryKeyValues(table, deletedRow);
+      let rowId: string | null = null;
+      try {
+        rowId = pk === null ? null : entityIdOf(table, pk);
+      } catch {
+        rowId = null;
+      }
+      if (rowId !== entityId) {
+        fail("invalid_row", `${path}.deletedRow`, "primary key columns do not match entityId");
+      }
+    }
   } else {
     if (deletedAt !== null) {
       fail("invalid_entity", path, "a live entity (row present) must not carry deletedAt");
+    }
+    if (hasDeletedRow) {
+      fail("invalid_entity", `${path}.deletedRow`, "a live entity must not carry deletedRow");
     }
     row = expectRow(entity.row, `${path}.row`);
     const pk = primaryKeyValues(table, row);
@@ -344,7 +395,15 @@ const validateEntity = (raw: unknown, index: number, domain: SyncDomain): SyncEn
     }
   }
 
-  return { table, entityId: entityId as string, row, fieldClocks, rowHlc, deletedAt };
+  return {
+    table,
+    entityId: entityId as string,
+    row,
+    ...(deletedRow === undefined ? {} : { deletedRow }),
+    fieldClocks,
+    rowHlc,
+    deletedAt,
+  };
 };
 
 const validateUnionRows = (raw: unknown, domain: SyncDomain): Record<string, SyncRow[]> => {
@@ -608,7 +667,8 @@ export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
  * Validates an untrusted value as a {@link SyncChangeSet} and returns it typed. Throws a
  * {@link SyncChangeSetError} for the first problem found; never returns a partially valid set.
  *
- * Rejected: a wrong shape or unknown key; a `formatVersion` this build does not know; any clock that
+ * Rejected: a wrong shape or unknown key (`deletedRow` included in a format 1 set, on a live entity,
+ * or on a table that does not merge per field); a `formatVersion` this build does not know; any clock that
  * is not a canonical HLC; a `hlcHigh` below a carried clock; a table that is unknown, device-local,
  * a by-entity-type sidecar or outside the declared domain; a non-canonical, empty or oversized
  * entity id; duplicate entities, union rows, settings or recurrence rows; a recurrence row outside
@@ -634,13 +694,14 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
     "recurrence",
     "aliases",
   ]);
-  if (root.formatVersion !== SYNC_FORMAT_VERSION) {
+  if (!isSupportedFormatVersion(root.formatVersion)) {
     fail(
       "unsupported_format_version",
       "formatVersion",
-      `expected ${SYNC_FORMAT_VERSION}, got ${String(root.formatVersion)}`,
+      `expected ${SUPPORTED_FORMAT_VERSIONS.join(" or ")}, got ${String(root.formatVersion)}`,
     );
   }
+  const formatVersion = root.formatVersion as SyncFormatVersion;
   if (!isValidDeviceId(root.deviceId)) {
     fail("invalid_shape", "deviceId", "expected dev:<uuid v4>");
   }
@@ -665,7 +726,7 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
 
   const seen = new Set<string>();
   const entities = (root.entities as unknown[]).map((item, index) => {
-    const entity = validateEntity(item, index, domain);
+    const entity = validateEntity(item, index, domain, formatVersion);
     const identity = `${entity.table}\u0000${entity.entityId}`;
     if (seen.has(identity)) {
       fail(
@@ -679,7 +740,7 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
   });
 
   const changeSet: SyncChangeSet = {
-    formatVersion: SYNC_FORMAT_VERSION,
+    formatVersion,
     deviceId: root.deviceId as string,
     domain,
     schemaVersion: root.schemaVersion as number,

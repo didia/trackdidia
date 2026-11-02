@@ -17,6 +17,7 @@ import { strategyForTable, tableOrder } from "./merge-strategies";
 import { getTableRegistration, SYNC_DOMAINS, TABLE_REGISTRY } from "./registry";
 import { keyConditions, type Totals } from "./apply-support";
 import { readTableInfo } from "./table-info";
+import { tombstoneRowJson } from "./tombstone-row";
 
 /**
  * Declared foreign keys while applying a bundle. Production enforces them, so three things that are
@@ -297,6 +298,9 @@ export class ReferenceGuard {
       for (const child of children) {
         await this.cascade(edge.childTable, child, deletedAt, totals, nextPath);
       }
+      // A field-clock child keeps its last values with its tombstone, like a child deleted locally.
+      const keepsValues = getTableRegistration(edge.childTable).mergeClass === "field-clock";
+      const rowOf = new Map(ids.map((id, index) => [id, children[index] as RawRow] as const));
       for (const batch of chunked(ids)) {
         const metas = await fetchMeta(this.db, edge.childTable, batch);
         const outcome = emptyOutcome();
@@ -320,6 +324,7 @@ export class ReferenceGuard {
             fieldClocksJson: meta.field_clocks_json,
             rowHlc: tombstoneAt,
             deletedAt: tombstoneAt,
+            deletedRowJson: keepsValues ? tombstoneRowJson(rowOf.get(id)) : null,
           });
           outcome.snapshotDeletes.push(id);
           totals.applied += 1;

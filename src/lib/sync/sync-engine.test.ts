@@ -142,6 +142,40 @@ describe("edits across the folder", () => {
     await world.sim.expectConverged("gtd", { snapshots: true });
   });
 
+  it("delete on A, an edit on B and a completion on C, none having seen the others: nothing is lost, in either order", async () => {
+    for (const order of [
+      ["A", "B", "C"],
+      ["C", "B", "A"],
+      ["B", "A", "C"],
+    ]) {
+      const world = await createEngineWorld([{ name: "A" }, { name: "B" }, { name: "C" }]);
+      const [a, b, c] = [world.device("A"), world.device("B"), world.device("C")];
+      await a.repo.createTask({ id: "t1", title: "Plan", bucket: "next_action" });
+      await settle(world);
+
+      c.clock.advance(1_000);
+      await c.repo.completeTask("t1", "2026-10-02T10:00:00.000Z");
+      a.clock.advance(2_000);
+      await a.db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+      await a.stamp();
+      b.clock.advance(3_000);
+      await editTask(b, "t1", { notes: "Edited on B" });
+      // Each laptop publishes what it did while closed, in a different order each round; a tombstone
+      // that carries the completed task's values lets the edit bring the completion back.
+      for (const name of order) {
+        await world.device(name).engine.publish();
+      }
+      await settle(world);
+
+      for (const device of [a, b, c]) {
+        const task = await findTask(device, "t1");
+        expect(task.status, `${order.join("")} on ${device.name}`).toBe("completed");
+        expect(task.notes).toBe("Edited on B");
+      }
+      await world.sim.expectConverged("gtd", { snapshots: true });
+    }
+  });
+
   it("delete on A, then B pulls: the task is gone", async () => {
     const { world, a, b } = await twoDevices();
     await a.repo.createTask({ id: "t1", title: "Plan", bucket: "inbox" });

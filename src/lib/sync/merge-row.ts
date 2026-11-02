@@ -37,8 +37,9 @@ import {
  *   grow-only column (a segment's `ended_at`) is joined across both versions instead, and kept out
  *   of the tie-break text, so the product of the two joins is still a join.
  *
- * Caveats: this is a join only for plain rows. A tombstone carries no row, so (as for field-clock
- * tables) the merge is not a join across a tombstone that is later resurrected: the resurrecting
+ * Caveats: this is a join only for plain rows. A tombstone of these tables carries no row (only the
+ * field-clock tables keep their last values since migration 48; a whole row is compared by one clock, which
+ * needs none), so the merge is not a join across a tombstone that is later resurrected: the resurrecting
  * version brings its own values only. And with an {@link RowRules.absorb} column (a segment's
  * `ended_at`) a tombstone in between loses the absorbed value, so three versions are not
  * guaranteed to give one result in one pass in every order; replicas converge once they exchange.

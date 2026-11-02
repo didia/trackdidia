@@ -23,6 +23,7 @@ import { assertEntitiesPublishable, publishFilterSql, rowPassesFilter } from "./
 import { type ClearRow, type OccurrenceRow, occurrenceFromRow } from "./recurrence-store";
 import {
   assertTablePublishable,
+  getTableRegistration,
   isSettingPublishable,
   isSidecarPublishable,
   SETTING_ENTITY_TYPE,
@@ -31,6 +32,7 @@ import {
 import type { SyncSettingsAccess } from "./apply-bundle";
 import { quoteIdent } from "./capture-install";
 import { readTableInfo, toSyncRow } from "./table-info";
+import { parseTombstoneRow } from "./tombstone-row";
 
 /**
  * Reading the full synced state of one domain: the read side of multi-device sync.
@@ -89,19 +91,31 @@ const readEntities = async (db: Database, domain: SyncDomain): Promise<SyncEntit
       }
     }
     const metas = await db.select<
-      { entity_id: string; field_clocks_json: string; row_hlc: string; deleted_at: string | null }[]
+      {
+        entity_id: string;
+        field_clocks_json: string;
+        row_hlc: string;
+        deleted_at: string | null;
+        deleted_row_json: string | null;
+      }[]
     >(
-      "SELECT entity_id, field_clocks_json, row_hlc, deleted_at FROM sync_entity_meta WHERE entity_type = $1",
+      "SELECT entity_id, field_clocks_json, row_hlc, deleted_at, deleted_row_json FROM sync_entity_meta WHERE entity_type = $1",
       [table],
     );
     for (const meta of metas) {
       const fieldClocks = parseClocks(meta.field_clocks_json);
       if (meta.deleted_at !== null) {
         if (filter !== null) continue; // see the module comment
+        // Only a table that merges per field keeps values with its tombstone; for any other the
+        // column is never written, and an unreadable value is "unknown", never an error.
+        const deletedRow = parseTombstoneRow(meta.deleted_row_json);
         entities.push({
           table,
           entityId: meta.entity_id,
           row: null,
+          ...(deletedRow === null || getTableRegistration(table).mergeClass !== "field-clock"
+            ? {}
+            : { deletedRow: toSyncRow(deletedRow) as SyncRow }),
           fieldClocks,
           rowHlc: meta.row_hlc,
           deletedAt: meta.deleted_at,

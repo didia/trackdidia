@@ -402,10 +402,12 @@ describe("deletes", () => {
     await sim.expectConverged("personal", { snapshots: true });
   });
 
-  describe("a delete racing two different editors (the tombstone keeps clocks, not values)", () => {
-    // B edits the title at +2s, A deletes at +3s, C edits the description at +4s. Each device
-    // publishes its final state; a fresh replica receives them in different orders.
-    const race = async () => {
+  describe("a delete racing two different editors (the tombstone keeps the last values)", () => {
+    // B edits the title at +2s, A deletes at +3s, C edits at +4s (the description, or the title
+    // too). Each device publishes its final state; a fresh replica receives them in every order.
+    const race = async (
+      cEdit: Partial<AnnualGoal> = { description: "Description edited on C" },
+    ) => {
       const sim = await createSyncHarness(["A", "B", "C"]);
       const [a, b, c] = sim.devices as [SyncDevice, SyncDevice, SyncDevice];
       await a.repo.saveAnnualGoal(goal({ title: "Original title", description: "Original text" }));
@@ -417,10 +419,7 @@ describe("deletes", () => {
       a.clock.advance(3_000);
       await a.repo.deleteAnnualGoal("goal-1");
       c.clock.advance(4_000);
-      await c.repo.saveAnnualGoal({
-        ...(await current(c)),
-        description: "Description edited on C",
-      });
+      await c.repo.saveAnnualGoal({ ...(await current(c)), ...cEdit });
       const bundles = Object.fromEntries(
         await Promise.all(
           [a, b, c].map(async (device) => [
@@ -443,53 +442,90 @@ describe("deletes", () => {
         await replica.repo.applySyncBundle("personal", JSON.parse(JSON.stringify(bundles[name])));
       }
     };
+    const ORDERS = [
+      ["A", "B", "C"],
+      ["A", "C", "B"],
+      ["B", "A", "C"],
+      ["B", "C", "A"],
+      ["C", "A", "B"],
+      ["C", "B", "A"],
+    ];
 
-    it("order B, A, C: the goal is resurrected without B's title, and B's lost edit is logged", async () => {
+    it("different fields: every order ends on B's title and C's description, nothing is lost", async () => {
       const { bundles, replicaOf } = await race();
-      const replica = await replicaOf();
-      await feed(replica, ["B", "A", "C"], bundles as never);
-
-      const [goalNow] = await replica.repo.listAnnualGoals();
-      expect(goalNow).toMatchObject({
-        title: "Original title",
-        description: "Description edited on C",
-      });
-      const lost = await readConflicts(replica);
-      expect(lost).toHaveLength(1);
-      expect(lost[0]).toMatchObject({
-        entity_type: "annual_goals",
-        entity_id: "goal-1",
-        kind: "overwritten_edit",
-      });
-      const local = JSON.parse(lost[0]?.local_json as string) as Record<
-        string,
-        { unknown?: boolean; clock: string }
-      >;
-      expect(Object.keys(local)).toEqual(["title"]);
-      expect(local.title?.unknown).toBe(true);
-      expect(local.title?.clock).toContain(HARNESS_DEVICE_B);
-      expect(JSON.parse(lost[0]?.remote_json as string)).toMatchObject({
-        title: { value: "Original title" },
-      });
+      for (const order of ORDERS) {
+        const replica = await replicaOf();
+        await feed(replica, order, bundles as never);
+        const [goalNow] = await replica.repo.listAnnualGoals();
+        expect(goalNow, order.join("")).toMatchObject({
+          title: "Title edited on B",
+          description: "Description edited on C",
+        });
+        expect(await readConflicts(replica), order.join("")).toEqual([]);
+      }
     });
 
-    it("order B, C, A: B's title survives and nothing is logged (the documented non-join)", async () => {
-      const { bundles, replicaOf } = await race();
-      const replica = await replicaOf();
-      await feed(replica, ["B", "C", "A"], bundles as never);
-      const [goalNow] = await replica.repo.listAnnualGoals();
-      expect(goalNow).toMatchObject({
-        title: "Title edited on B",
-        description: "Description edited on C",
-      });
-      expect(await readConflicts(replica)).toEqual([]);
+    it("the same field: C's later title wins everywhere, and B's lost title is logged with its value", async () => {
+      const { bundles, replicaOf } = await race({ title: "Title edited on C" });
+      const logged: Record<string, number> = {};
+      for (const order of ORDERS) {
+        const replica = await replicaOf();
+        await feed(replica, order, bundles as never);
+        const [goalNow] = await replica.repo.listAnnualGoals();
+        expect(goalNow?.title, order.join("")).toBe("Title edited on C");
+        const conflicts = await readConflicts(replica);
+        logged[order.join("")] = conflicts.length;
+        for (const conflict of conflicts) {
+          expect(conflict).toMatchObject({
+            entity_type: "annual_goals",
+            entity_id: "goal-1",
+            kind: "overwritten_edit",
+          });
+          const local = JSON.parse(conflict.local_json as string) as Record<
+            string,
+            { value?: unknown; unknown?: boolean; clock: string }
+          >;
+          // The value is real: the tombstone kept it. It is never "unknown" any more.
+          expect(Object.keys(local)).toEqual(["title"]);
+          expect(local.title?.unknown).toBeUndefined();
+          expect(local.title?.value).toBe("Title edited on B");
+          expect(local.title?.clock).toContain(HARNESS_DEVICE_B);
+          expect(JSON.parse(conflict.remote_json as string)).toMatchObject({
+            title: { value: "Title edited on C" },
+          });
+        }
+      }
+      // Detected where the two edits meet while the row is held back by the delete, as before.
+      expect(logged.BAC).toBe(1);
+      expect(logged.ABC).toBe(1);
     });
 
     it("re-applying the same bundles never logs the loss twice", async () => {
-      const { bundles, replicaOf } = await race();
+      const { bundles, replicaOf } = await race({ title: "Title edited on C" });
       const replica = await replicaOf();
       await feed(replica, ["B", "A", "C", "B", "A", "C"], bundles as never);
       expect(await readConflicts(replica)).toHaveLength(1);
+    });
+
+    it("a tombstone merged with an older one that lacks values keeps what it can vouch for", async () => {
+      const { bundles, replicaOf } = await race();
+      const replica = await replicaOf();
+      // The same tombstone as a format 1 peer would have sent it: no values.
+      const bare = JSON.parse(JSON.stringify(bundles.A)) as {
+        formatVersion: number;
+        entities: { deletedRow?: unknown }[];
+      };
+      bare.formatVersion = 1;
+      for (const entity of bare.entities) entity.deletedRow = undefined;
+      await replica.repo.applySyncBundle("personal", JSON.parse(JSON.stringify(bare)));
+      await replica.repo.applySyncBundle(
+        "personal",
+        JSON.parse(JSON.stringify((bundles as never)["B"])),
+      );
+      const meta = await readMetaOf(replica.db, "annual_goals", "goal-1");
+      // A's tombstone alone knows no values; B's live row then covers every clock it holds.
+      expect(meta?.deleted_at).not.toBeNull();
+      expect(meta?.deleted_row_json).toContain("Title edited on B");
     });
   });
 

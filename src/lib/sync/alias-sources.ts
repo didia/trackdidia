@@ -21,6 +21,7 @@ import { BASELINE_CLOCK } from "./merge-entity";
 import { FINANCE_SPLITS, FINANCE_TRANSACTIONS } from "./merge-finance";
 import { rewriteEntityId, rewriteSyncRow } from "./reference-rewrite";
 import { readTableInfo, toSyncRow } from "./table-info";
+import { parseTombstoneRow } from "./tombstone-row";
 
 /**
  * Moving local rows to a new entity id THROUGH the ordinary merge pipeline.
@@ -114,6 +115,9 @@ export const captureSources = async (
     const { row, meta } = state;
     if (row === null) {
       const tombstone = meta !== undefined && meta.deleted_at !== null;
+      // The tombstone's values name ids too: they move with it, rewritten like a live row.
+      const kept = tombstone ? parseTombstoneRow(meta.deleted_row_json) : null;
+      const deletedRow = kept === null ? null : (rewriteSyncRow(table, kept, ctx.resolve) ?? kept);
       sources.push({
         table,
         oldId,
@@ -123,6 +127,7 @@ export const captureSources = async (
               table,
               entityId: rewriteEntityId(table, oldId, ctx.resolve),
               row: null,
+              ...(deletedRow === null ? {} : { deletedRow: toSyncRow(deletedRow) }),
               fieldClocks: parseClocks(meta.field_clocks_json),
               rowHlc: meta.row_hlc,
               deletedAt: meta.deleted_at,

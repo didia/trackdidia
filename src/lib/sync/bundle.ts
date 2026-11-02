@@ -1,14 +1,20 @@
-import { SYNC_FORMAT_VERSION, type SyncChangeSet } from "./change-set";
+import {
+  isSupportedFormatVersion,
+  SUPPORTED_FORMAT_VERSIONS,
+  type SyncChangeSet,
+  type SyncFormatVersion,
+} from "./change-set";
 import type { SyncDomain } from "./registry";
 
 /**
  * The file format of one published bundle: a `SyncChangeSet` as gzip-compressed JSON lines.
  *
  * ```text
- * trackdidia-sync-bundle 1 gzip\n       <- preamble, plain ASCII: magic, format version, compression
+ * trackdidia-sync-bundle 2 gzip\n       <- preamble, plain ASCII: magic, format version, compression
  * <body>                                <- gzip stream (or, with `none`, the raw text) of JSON lines:
  *   {"kind":"header", formatVersion, domain, deviceId, schemaVersion, hlcHigh, counts}
- *   ["e", <entity>] ...                 entities, in change-set order
+ *   ["e", <entity>] ...                 entities, in change-set order (a tombstone of a field-clock
+ *                                       table carries its last values as `deletedRow`, format 2)
  *   ["u", "<table>", <row>] ...         grow-only-union rows
  *   ["s", <setting>] ...                synced settings
  *   ["o", <occurrence>] ["c", <clear>]  recurrence sidecars
@@ -16,7 +22,8 @@ import type { SyncDomain } from "./registry";
  * ```
  *
  * The preamble is outside the compressed part so a reader knows how to read the rest (and whether
- * it can) before touching it. `counts` in the header lets a reader prove it received everything: a
+ * it can) before touching it. This build writes format 2 and reads 1 and 2 ({@link SUPPORTED_FORMAT_VERSIONS});
+ * a format 1 bundle has the same records and its tombstones have no values. `counts` in the header lets a reader prove it received everything: a
  * truncated or tampered body is a `count_mismatch`, not a smaller change set. Records are
  * one-per-line so neither side ever builds the whole change set as one string: encoding feeds the
  * compressor line batches, decoding parses line by line as the decompressor produces them.
@@ -115,8 +122,8 @@ export interface EncodedBundle {
 const hasCompression = (): boolean =>
   typeof CompressionStream === "function" && typeof DecompressionStream === "function";
 
-const preambleOf = (compression: BundleCompression): string =>
-  `${BUNDLE_MAGIC} ${SYNC_FORMAT_VERSION} ${compression}\n`;
+const preambleOf = (formatVersion: SyncFormatVersion, compression: BundleCompression): string =>
+  `${BUNDLE_MAGIC} ${formatVersion} ${compression}\n`;
 
 /** The counts the header promises. `unionTables` (in the file only) lists every table, empty or not. */
 interface BundleCounts {
@@ -281,7 +288,7 @@ export const encodeBundle = async (
     changeSet.recurrence.occurrences.length +
     changeSet.recurrence.clears.length +
     changeSet.aliases.length;
-  const preamble = new TextEncoder().encode(preambleOf(compression));
+  const preamble = new TextEncoder().encode(preambleOf(changeSet.formatVersion, compression));
   const body = compression === "gzip" ? await gzipBatches(batches) : [...batches];
   return { bytes: concat([preamble, ...body]), compression, records, uncompressedBytes };
 };
@@ -317,7 +324,9 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 const isCount = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 
-const readPreamble = (bytes: Uint8Array): { compression: BundleCompression; bodyStart: number } => {
+const readPreamble = (
+  bytes: Uint8Array,
+): { formatVersion: SyncFormatVersion; compression: BundleCompression; bodyStart: number } => {
   const limit = Math.min(bytes.length, MAX_PREAMBLE_BYTES);
   let end = -1;
   for (let index = 0; index < limit; index += 1) {
@@ -332,16 +341,17 @@ const readPreamble = (bytes: Uint8Array): { compression: BundleCompression; body
   if (parts.length !== 3 || parts[0] !== BUNDLE_MAGIC) {
     return fail("bad_preamble", "Not a TrackDidia sync bundle (unknown preamble)");
   }
-  if (parts[1] !== String(SYNC_FORMAT_VERSION)) {
+  const formatVersion = SUPPORTED_FORMAT_VERSIONS.find((version) => String(version) === parts[1]);
+  if (formatVersion === undefined || !isSupportedFormatVersion(formatVersion)) {
     return fail(
       "unknown_version",
-      `Bundle format ${String(parts[1]).slice(0, 12)} is not understood by this version (it reads ${SYNC_FORMAT_VERSION})`,
+      `Bundle format ${String(parts[1]).slice(0, 12)} is not understood by this version (it reads ${SUPPORTED_FORMAT_VERSIONS.join(" and ")})`,
     );
   }
   if (parts[2] !== "gzip" && parts[2] !== "none") {
     return fail("unknown_compression", "Bundle compression is not gzip or none");
   }
-  return { compression: parts[2], bodyStart: end + 1 };
+  return { formatVersion, compression: parts[2], bodyStart: end + 1 };
 };
 
 /** Receives the decoded text in order, line by line, and enforces the structure. */
@@ -370,7 +380,10 @@ class BundleAssembler {
     aliases: [],
   };
 
-  constructor(private readonly expectedDomain: SyncDomain | undefined) {}
+  constructor(
+    private readonly expectedDomain: SyncDomain | undefined,
+    private readonly preambleVersion: SyncFormatVersion,
+  ) {}
 
   line(text: string): void {
     if (text.length === 0) {
@@ -394,10 +407,10 @@ class BundleAssembler {
       fail("bad_header", "The first line of a bundle is not its header");
     }
     const header = value as Record<string, unknown>;
-    if (header.formatVersion !== SYNC_FORMAT_VERSION) {
+    if (header.formatVersion !== this.preambleVersion) {
       fail(
         "unknown_version",
-        `Bundle header declares format ${String(header.formatVersion)}, this version reads ${SYNC_FORMAT_VERSION}`,
+        `Bundle header declares format ${String(header.formatVersion)}, its preamble ${this.preambleVersion} (this version reads ${SUPPORTED_FORMAT_VERSIONS.join(" and ")})`,
       );
     }
     if (typeof header.domain !== "string") {
@@ -628,8 +641,8 @@ export const decodeBundle = async (
   options: DecodeBundleOptions = {},
 ): Promise<DecodedBundle> => {
   const limit = options.maxDecodedBytes ?? MAX_DECODED_BUNDLE_BYTES;
-  const { compression, bodyStart } = readPreamble(bytes);
-  const assembler = new BundleAssembler(options.expectedDomain);
+  const { formatVersion, compression, bodyStart } = readPreamble(bytes);
+  const assembler = new BundleAssembler(options.expectedDomain, formatVersion);
   const lines = new LineReader((line) => assembler.line(line));
   if (compression === "gzip") {
     if (typeof DecompressionStream !== "function") {

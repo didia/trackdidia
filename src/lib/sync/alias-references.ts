@@ -13,9 +13,10 @@ import { extraConflictOf, keyConditions } from "./apply-support";
 import { keepsPending, type PendingContender } from "./merge-proposal";
 import { FINANCE_SUGGESTIONS, FINANCE_TRANSACTIONS } from "./merge-finance";
 import { rewriteReferences, rewriteRulesOf, tablesWithRewriteRules } from "./reference-rewrite";
-import { aliasKeysOf } from "./registry";
+import { aliasKeysOf, getTableRegistration } from "./registry";
 import { refreshSnapshots } from "./snapshot-refresh";
 import { readTableInfo, type TableInfo } from "./table-info";
+import { parseTombstoneRow, tombstoneRowJson } from "./tombstone-row";
 import { quoteIdent } from "./capture-install";
 
 /**
@@ -354,6 +355,29 @@ const HANDLERS: Readonly<Record<string, Handler>> = {
 };
 
 /**
+ * The values a tombstone kept (`deleted_row_json`, field-clock tables) name ids like a live row does:
+ * a resurrection must not bring back a reference to an id that has since become an alias. Same
+ * transformation, same no-clock rule; the meta row is otherwise untouched.
+ */
+const rewriteTombstoneValues = async (ctx: AliasContext, table: string): Promise<void> => {
+  if (getTableRegistration(table).mergeClass !== "field-clock") return;
+  const rows = await ctx.db.select<{ entity_id: string; deleted_row_json: string }[]>(
+    `SELECT entity_id, deleted_row_json FROM sync_entity_meta
+     WHERE entity_type = $1 AND deleted_at IS NOT NULL AND deleted_row_json IS NOT NULL`,
+    [table],
+  );
+  for (const row of rows) {
+    const values = parseTombstoneRow(row.deleted_row_json);
+    const next = values === null ? null : rewriteReferences(table, values, ctx.resolve);
+    if (next === null) continue;
+    await ctx.db.execute(
+      "UPDATE sync_entity_meta SET deleted_row_json = $1 WHERE entity_type = $2 AND entity_id = $3",
+      [tombstoneRowJson(next), table, row.entity_id],
+    );
+  }
+};
+
+/**
  * Rewrites every local reference to the aliases `aliasIds` of `target`. Idempotent: rows that no
  * longer name an alias are not found.
  */
@@ -365,6 +389,7 @@ export const rewriteLocalReferences = async (
   for (const table of tablesWithRewriteRules()) {
     if (!rewriteRulesOf(table).some((rule) => rule.target === target)) continue;
     const info = await readTableInfo(ctx.db, table);
+    await rewriteTombstoneValues(ctx, table);
     const items = await findAffected(ctx, table, info, target, aliasIds);
     if (items.length === 0) continue;
     await (HANDLERS[table] ?? plainHandler)(ctx, table, info, items);

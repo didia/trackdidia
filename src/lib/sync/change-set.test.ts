@@ -95,6 +95,33 @@ describe("validateChangeSet accepts", () => {
     expect(codeOf(input)).toBe("no error");
   });
 
+  it("a tombstone that carries its last values (format 2)", () => {
+    const input = variant((d) => {
+      d.entities[0].row = null;
+      d.entities[0].deletedAt = hlc(1500);
+      d.entities[0].deletedRow = { id: "context:home", name: "Home", updated_at: "2026-10-01" };
+    });
+    expect(codeOf(input)).toBe("no error");
+    const entity = validateChangeSet(input).entities[0];
+    expect(entity?.deletedRow).toEqual({
+      id: "context:home",
+      name: "Home",
+      updated_at: "2026-10-01",
+    });
+  });
+
+  it("a format 1 change set, whose tombstones have no values", () => {
+    const input = variant((d) => {
+      d.formatVersion = 1;
+      d.entities[0].row = null;
+      d.entities[0].deletedAt = hlc(1500);
+    });
+    expect(codeOf(input)).toBe("no error");
+    expect(validateChangeSet(input).formatVersion).toBe(1);
+    expect(validateChangeSet(base()).formatVersion).toBe(SYNC_FORMAT_VERSION);
+    expect(SYNC_FORMAT_VERSION).toBe(2);
+  });
+
   it("a composite primary key written canonically", () => {
     const input = variant((d) => {
       d.domain = "personal";
@@ -130,6 +157,63 @@ describe("validateChangeSet accepts", () => {
   });
 });
 
+describe("validateChangeSet rejects deletedRow", () => {
+  const tombstoned = (extra: Record<string, unknown>, mutate?: (draft: Draft) => void): unknown =>
+    variant((d) => {
+      d.entities[0].row = null;
+      d.entities[0].deletedAt = hlc(1500);
+      d.entities[0].deletedRow = { id: "context:home", name: "Home" };
+      Object.assign(d, extra);
+      mutate?.(d);
+    });
+
+  it("in a format 1 change set (an older build never wrote it)", () => {
+    expect(codeOf(tombstoned({ formatVersion: 1 }))).toBe("invalid_shape");
+  });
+
+  it("on a live entity", () => {
+    expect(
+      codeOf(
+        variant((d) => {
+          d.entities[0].deletedRow = { id: "context:home", name: "Home" };
+        }),
+      ),
+    ).toBe("invalid_entity");
+  });
+
+  it("on a table that does not merge per field (a whole row is compared by its clock)", () => {
+    expect(
+      codeOf(
+        tombstoned({ domain: "finance" }, (d) => {
+          d.entities[0].table = "finance_people";
+          d.entities[0].entityId = "p1";
+          d.entities[0].deletedRow = { id: "p1" };
+          d.entities[0].fieldClocks = {};
+        }),
+      ),
+    ).toBe("invalid_entity");
+  });
+
+  it("whose key disagrees with the entity id, that is not a row, or that holds a nested value", () => {
+    expect(
+      codeOf(
+        tombstoned({}, (d) => {
+          d.entities[0].deletedRow = { id: "context:other", name: "Home" };
+        }),
+      ),
+    ).toBe("invalid_row");
+    for (const bad of [null, "text", [1], { id: "context:home", name: { nested: true } }]) {
+      expect(
+        codeOf(
+          tombstoned({}, (d) => {
+            d.entities[0].deletedRow = bad;
+          }),
+        ),
+      ).toBe("invalid_row");
+    }
+  });
+});
+
 describe("validateChangeSet rejects", () => {
   const cases: [string, unknown, SyncChangeSetErrorCode][] = [
     ["a non-object", "nope", "invalid_shape"],
@@ -139,7 +223,7 @@ describe("validateChangeSet rejects", () => {
     ["a missing top-level key", variant((d) => delete d.settings), "invalid_shape"],
     [
       "an unknown format version",
-      variant((d) => (d.formatVersion = 2)),
+      variant((d) => (d.formatVersion = 3)),
       "unsupported_format_version",
     ],
     [

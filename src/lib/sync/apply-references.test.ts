@@ -270,6 +270,18 @@ describe("objectives and results through applySyncBundle (foreign keys on)", () 
       backfilled: 0,
       backfillComplete: true,
     });
+    // The cascaded child keeps its last values, like a child deleted by a local cascade does.
+    const values = await b.db.select<{ entity_type: string; deleted_row_json: string | null }[]>(
+      "SELECT entity_type, deleted_row_json FROM sync_entity_meta WHERE entity_type LIKE 'weekly%' ORDER BY entity_type",
+    );
+    expect(values.map((row) => row.entity_type)).toEqual([
+      "weekly_objective_results",
+      "weekly_objectives",
+    ]);
+    expect(JSON.parse(values[0]?.deleted_row_json as string)).toMatchObject({
+      objective_id: "o1",
+      week_start_date: W1,
+    });
   });
 
   it("rolls everything back, including cascaded tombstones, when a later part of the bundle fails", async () => {

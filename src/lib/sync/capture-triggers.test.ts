@@ -331,3 +331,73 @@ describe("rows inserted into a grow-only-union table count as local changes", ()
     expect(await counter(db)).toBe(1);
   });
 });
+
+describe("delete marks carry the deleted row of a field-clock table", () => {
+  const oldRows = (db: Awaited<ReturnType<typeof createCaptureDb>>) =>
+    db.select<{ entity_type: string; entity_id: string; op: string; old_row: string | null }[]>(
+      "SELECT entity_type, entity_id, op, old_row FROM sync_dirty ORDER BY entity_type, entity_id",
+    );
+
+  it("records the row exactly as stored, with its JSON text unchanged", async () => {
+    const db = await createCaptureDb();
+    await insertTask(db, "t1", { title: "Plan", context_ids_json: '["b", "a"]', notes: 'é\n"q"' });
+    await db.execute("DELETE FROM sync_dirty");
+    await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    const [mark] = await oldRows(db);
+    expect(mark).toMatchObject({ entity_type: "gtd_tasks", entity_id: "t1", op: "delete" });
+    expect(JSON.parse(mark?.old_row as string)).toMatchObject({
+      id: "t1",
+      title: "Plan",
+      context_ids_json: '["b", "a"]',
+      notes: 'é\n"q"',
+      completed_at: null,
+      pending_past_recurrences: 0,
+    });
+  });
+
+  it("keeps the row of the last delete, and an upsert mark after a delete does not erase it", async () => {
+    const db = await createCaptureDb();
+    await insertTask(db, "t1", { title: "First" });
+    await db.execute("DELETE FROM sync_dirty");
+    await db.execute("BEGIN IMMEDIATE");
+    await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    await insertTask(db, "t1", { title: "Second" });
+    await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    await db.execute("COMMIT");
+    const [mark] = await oldRows(db);
+    expect(mark?.op).toBe("delete");
+    expect(JSON.parse(mark?.old_row as string)).toMatchObject({ title: "Second" });
+  });
+
+  it("records the old row for a rewritten key, and none for tables that merge as a whole row", async () => {
+    const db = await createCaptureDb();
+    await insertContext(db, "old", "Maison");
+    await db.execute("DELETE FROM sync_dirty");
+    await db.execute("UPDATE gtd_contexts SET id = 'new' WHERE id = 'old'");
+    const marks = await oldRows(db);
+    expect(marks.map((mark) => `${mark.entity_id}:${mark.op}`)).toEqual([
+      "new:upsert",
+      "old:delete",
+    ]);
+    expect(JSON.parse(marks[1]?.old_row as string)).toMatchObject({ id: "old", name: "Maison" });
+    expect(marks[0]?.old_row).toBeNull();
+
+    await db.execute(
+      "INSERT INTO finance_people (id, display_name, color, archived, created_at, updated_at) VALUES ('p1', 'Alex', NULL, 0, 't', 't')",
+    );
+    await db.execute("DELETE FROM sync_dirty");
+    await db.execute("DELETE FROM finance_people WHERE id = 'p1'");
+    expect(await oldRows(db)).toEqual([
+      { entity_type: "finance_people", entity_id: "p1", op: "delete", old_row: null },
+    ]);
+  });
+
+  it("records nothing while a merge is applying", async () => {
+    const db = await createCaptureDb();
+    await insertTask(db, "t1");
+    await db.execute("DELETE FROM sync_dirty");
+    await db.execute("UPDATE sync_identity SET applying = 1");
+    await db.execute("DELETE FROM gtd_tasks WHERE id = 't1'");
+    expect(await oldRows(db)).toEqual([]);
+  });
+});

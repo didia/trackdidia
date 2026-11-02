@@ -260,7 +260,7 @@ describe("listSyncChanges: shape and consistency", () => {
       expect(second).toEqual(first);
       expect(validateChangeSet(JSON.parse(JSON.stringify(first)))).toEqual(first);
       expect(first).toMatchObject({
-        formatVersion: 1,
+        formatVersion: 2,
         domain,
         deviceId: a.deviceId,
         schemaVersion: LATEST_MIGRATION_ID,
@@ -347,6 +347,53 @@ describe("listSyncChanges: shape and consistency", () => {
     const tombstone = personal.entities.find((entity) => entity.entityId === "goal-1");
     expect(tombstone).toMatchObject({ table: "annual_goals", row: null });
     expect(tombstone?.deletedAt).not.toBeNull();
+  });
+
+  it("publishes the last values of a field-clock tombstone, and nothing for the other classes", async () => {
+    const sim = await createSyncHarness(["A"]);
+    const a = sim.device("A");
+    await a.repo.saveAnnualGoal(goal);
+    await a.repo.deleteAnnualGoal("goal-1");
+    await a.repo.saveFinanceAccount(account());
+    await a.db.execute("DELETE FROM finance_accounts WHERE id = 'account-1'");
+    await a.stamp();
+    const personal = await a.repo.listSyncChanges("personal");
+    const tombstone = personal.entities.find((entity) => entity.entityId === "goal-1");
+    expect(tombstone?.deletedRow).toMatchObject({
+      id: "goal-1",
+      title: goal.title,
+      target_value: goal.targetValue,
+    });
+    // The clocks are the ones the values came with: one per field.
+    expect(Object.keys(tombstone?.fieldClocks ?? {})).toContain("title");
+    expect(validateChangeSet(JSON.parse(JSON.stringify(personal)))).toEqual(personal);
+
+    const finance = await a.repo.listSyncChanges("finance");
+    const account1 = finance.entities.find((entity) => entity.entityId === "account-1");
+    expect(account1).toMatchObject({ table: "finance_accounts", row: null });
+    expect(account1 && "deletedRow" in account1).toBe(false);
+  });
+
+  it("publishes a tombstone whose values are unknown without a deletedRow (as before migration 48)", async () => {
+    const sim = await createSyncHarness(["A"]);
+    const a = sim.device("A");
+    await a.repo.saveAnnualGoal(goal);
+    await a.repo.deleteAnnualGoal("goal-1");
+    await a.db.execute(
+      "UPDATE sync_entity_meta SET deleted_row_json = NULL WHERE entity_id = 'goal-1'",
+    );
+    const personal = await a.repo.listSyncChanges("personal");
+    const tombstone = personal.entities.find((entity) => entity.entityId === "goal-1");
+    expect(tombstone).toMatchObject({ row: null });
+    expect(tombstone && "deletedRow" in tombstone).toBe(false);
+    // A damaged value is unknown too, never a failed publish.
+    await a.db.execute(
+      "UPDATE sync_entity_meta SET deleted_row_json = '{broken' WHERE entity_id = 'goal-1'",
+    );
+    const damaged = (await a.repo.listSyncChanges("personal")).entities.find(
+      (entity) => entity.entityId === "goal-1",
+    );
+    expect(damaged && "deletedRow" in damaged).toBe(false);
   });
 
   it("does not publish a row that was never stamped (capture off)", async () => {

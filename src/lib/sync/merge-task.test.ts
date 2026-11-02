@@ -758,3 +758,149 @@ describe("recurring template", () => {
     expect(outcome.finalRow).toMatchObject({ last_generated_for_date: "2026-10-16" });
   });
 });
+
+describe("a tombstone that keeps its values takes part in the lifecycle merge", () => {
+  const completedGhost: State = {
+    row: row({ status: "completed", completed_at: "2026-10-02T10:00:00.000Z" }),
+    clocks: stamped(at(100), { status: at(200, C), completed_at: at(200, C) }),
+  };
+  /** A deleted at 250, without having seen C's completion (200) or B's edit (300). */
+  const DELETED_AT = at(250, A);
+  const editedByB: State = {
+    row: row({ notes: "edited on B" }),
+    clocks: stamped(at(100), { notes: at(300, B), updated_at: at(300, B) }),
+  };
+  const tombstoneEntity = (ghost: State | null): SyncEntity => ({
+    table: "gtd_tasks",
+    entityId: "t1",
+    row: null,
+    ...(ghost === null ? {} : { deletedRow: ghost.row }),
+    fieldClocks: completedGhost.clocks,
+    rowHlc: DELETED_AT,
+    deletedAt: DELETED_AT,
+  });
+  const localTombstone = (ghost: State | null): LocalEntityState => ({
+    row: null,
+    meta: {
+      fieldClocks: completedGhost.clocks,
+      rowHlc: DELETED_AT,
+      deletedAt: DELETED_AT,
+      ...(ghost === null ? {} : { deletedRow: ghost.row }),
+    },
+  });
+
+  it("a live edit that outlives the delete keeps the completion the delete had swallowed", () => {
+    const outcome = mergeTaskEntity(input(localOf(editedByB), tombstoneEntity(completedGhost)));
+    expect(outcome.rowAction).toBe("update");
+    expect(outcome.finalRow).toMatchObject({
+      status: "completed",
+      completed_at: "2026-10-02T10:00:00.000Z",
+      notes: "edited on B",
+    });
+    expect(outcome.meta.deletedAt).toBeNull();
+    expect(outcome.meta.fieldClocks.status).toBe(at(200, C));
+  });
+
+  it("an edit that resurrects the task brings the completion back with it", () => {
+    const outcome = mergeTaskEntity(input(localTombstone(completedGhost), entityOf(editedByB)));
+    expect(outcome.rowAction).toBe("insert");
+    expect(outcome.finalRow).toMatchObject({ status: "completed", notes: "edited on B" });
+    expect(outcome.meta.fieldClocks.status).toBe(at(200, C));
+  });
+
+  it("both orders give the same task", () => {
+    const first = mergeTaskEntity(input(localOf(editedByB), tombstoneEntity(completedGhost)));
+    const second = mergeTaskEntity(input(localTombstone(completedGhost), entityOf(editedByB)));
+    expect(canonicalJson([first.finalRow, first.meta.fieldClocks])).toBe(
+      canonicalJson([second.finalRow, second.meta.fieldClocks]),
+    );
+  });
+
+  it("a tombstone without values changes nothing about the lifecycle (as before)", () => {
+    const outcome = mergeTaskEntity(input(localOf(editedByB), tombstoneEntity(null)));
+    expect(outcome.rowAction).toBe("none");
+    expect(outcome.finalRow).toMatchObject({ status: "active" });
+    const resurrected = mergeTaskEntity(input(localTombstone(null), entityOf(editedByB)));
+    expect(resurrected.finalRow).toMatchObject({ status: "active", notes: "edited on B" });
+  });
+
+  it("a delete that wins keeps the lifecycle of the row it removes", () => {
+    const outcome = mergeTaskEntity(
+      input(localOf(completedGhost), {
+        ...tombstoneEntity(null),
+        fieldClocks: { title: at(100) },
+        deletedAt: at(400, A),
+        rowHlc: at(400, A),
+      }),
+    );
+    expect(outcome.rowAction).toBe("delete");
+    expect(outcome.meta.deletedRow).toMatchObject({ status: "completed" });
+  });
+});
+
+describe("what a tombstone swallows follows the lifecycle tuple, not a per-field maximum", () => {
+  const D = at(250, A);
+  const completedGhost: State = {
+    row: row({
+      status: "completed",
+      completed_at: "2026-10-02T10:00:00.000Z",
+      bucket: "next_action",
+    }),
+    clocks: stamped(at(100), { status: at(200, C), completed_at: at(200, C) }),
+  };
+  /** A later move to another bucket, made without seeing the completion, but older than the delete. */
+  const movedByB: State = {
+    row: row({ bucket: "waiting_for" }),
+    clocks: stamped(at(100), { bucket: at(240, B), updated_at: at(240, B) }),
+  };
+  const tombstone: LocalEntityState = {
+    row: null,
+    meta: {
+      fieldClocks: completedGhost.clocks,
+      rowHlc: D,
+      deletedAt: D,
+      deletedRow: completedGhost.row,
+    },
+  };
+
+  it("a live row swallowed by the tombstone does not mix its bucket into the completed task", () => {
+    const outcome = mergeTaskEntity(input(tombstone, entityOf(movedByB)));
+    expect(outcome.rowAction).toBe("none");
+    expect(outcome.meta.deletedAt).toBe(D);
+    // The terminal tuple wins as a whole: the completer's bucket and the clocks that came with it,
+    // exactly what merging the two live rows would have chosen. A per-field maximum would have kept
+    // the later `waiting_for` next to a completion nobody ever saw with it.
+    expect(outcome.meta.deletedRow).toMatchObject({
+      status: "completed",
+      bucket: "next_action",
+    });
+    expect(outcome.meta.fieldClocks.bucket).toBe(at(100));
+    expect(outcome.meta.fieldClocks.status).toBe(at(200, C));
+    const live = merge(completedGhost, movedByB);
+    expect(live.finalRow).toMatchObject({ status: "completed", bucket: "next_action" });
+  });
+
+  it("swallowing the same row again changes nothing (re-applying a bundle is a no-op)", () => {
+    const first = mergeTaskEntity(input(tombstone, entityOf(movedByB)));
+    const again = mergeTaskEntity(input({ row: null, meta: first.meta }, entityOf(movedByB)));
+    expect(again.metaChanged).toBe(false);
+    expect(again.tombstoneApplied).toBe(false);
+  });
+
+  it("a live row merged first and then deleted ends on the same tombstone", () => {
+    const joined = join(completedGhost, movedByB);
+    const asTombstone = mergeTaskEntity(
+      input(localOf({ row: joined.row, clocks: joined.clocks }), {
+        table: "gtd_tasks",
+        entityId: "t1",
+        row: null,
+        fieldClocks: {},
+        rowHlc: D,
+        deletedAt: D,
+      }),
+    );
+    const swallowed = mergeTaskEntity(input(tombstone, entityOf(movedByB)));
+    expect(asTombstone.meta.deletedRow).toEqual(swallowed.meta.deletedRow);
+    expect(asTombstone.meta.fieldClocks).toEqual(swallowed.meta.fieldClocks);
+  });
+});

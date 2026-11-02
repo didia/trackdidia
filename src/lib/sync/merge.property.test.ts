@@ -243,6 +243,19 @@ describe("the merge layer converges and is idempotent on random operations", () 
   }
 });
 
+// A seed that found the dead state and the live state of a task merging its lifecycle differently
+// (replicas ended on different tombstone values and clocks); pinned so it always runs.
+describe("the merge layer, a seed that once broke tombstones with values", () => {
+  it("seed 220", async () => {
+    const holder: { ctx: OpContext | null } = { ctx: null };
+    await withSeedReport(
+      220,
+      () => holder.ctx,
+      () => runSeed(220, holder),
+    );
+  }, 120_000);
+});
+
 const permutations = <T>(items: T[]): T[][] =>
   items.length <= 1
     ? [items]
@@ -253,19 +266,17 @@ const permutations = <T>(items: T[]): T[][] =>
         ]),
       );
 
-describe("known limit: a delete that races edits from two other laptops", () => {
+describe("a delete that races edits from two other laptops", () => {
   /**
-   * Found by this property test and deliberately kept OUT of the random generator (see "the delete
-   * envelope" in `test-support/random-ops.ts`). A tombstone carries no field values (`merge-entity.ts`,
-   * "Known limit"), so when laptop A deletes a task while C completes it and B edits it, none of the
-   * three has seen the others and the outcome depends on the order the bundles reach a fourth laptop:
-   * C's completion (older than A's delete) is swallowed by the tombstone unless B's resurrecting edit
-   * has already been applied when C's bundle arrives.
-   * The merge is a join everywhere else. Proper fix (open item, not part of the sync engine): tombstones
-   * carry the last field values so dead fields take part in the LWW join. When that lands, the two
-   * orders below converge on "completed" and this test flips.
+   * Found by this property test while tombstones carried no field values, and fixed by carrying them
+   * (migration 48, `merge-entity.ts`): when laptop A deletes a task while C completes it and B edits
+   * it, none of the three has seen the others. C's completion is older than A's delete, so the
+   * tombstone swallows it on the replicas that apply C's bundle after A's, but the tombstone now
+   * keeps the completed task's values and clocks, and B's resurrecting edit joins them: every order
+   * of arrival ends on "completed, edited on B". (The same scenario used to end on "active" in the
+   * two orders where C reached the replica before B but after A.)
    */
-  it("makes the result depend on the order of arrival (open item)", async () => {
+  it("converges on every order of arrival", async () => {
     const sim = await createSyncHarness(["A", "B", "C"]);
     const [a, b, c] = sim.devices as [SyncDevice, SyncDevice, SyncDevice];
     await a.repo.createTask({ id: "shared", title: "Shared", bucket: "next_action" });
@@ -299,14 +310,13 @@ describe("known limit: a delete that races edits from two other laptops", () => 
       );
       outcomes.set(order.map((index) => "ABC"[index]).join(""), `${row?.status}/${row?.notes}`);
     }
-    // The edit always resurrects the row; the completion is lost exactly when C's bundle reaches
-    // the replica before B's (the tombstone swallows it, and B's row knows nothing of it).
+    // The edit always resurrects the row, and the completion the tombstone swallowed comes back.
     expect(Object.fromEntries(outcomes)).toEqual({
       ABC: "completed/edited on B",
-      ACB: "active/edited on B",
+      ACB: "completed/edited on B",
       BAC: "completed/edited on B",
       BCA: "completed/edited on B",
-      CAB: "active/edited on B",
+      CAB: "completed/edited on B",
       CBA: "completed/edited on B",
     });
   });

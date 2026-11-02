@@ -2,7 +2,7 @@ import type { Task } from "../../domain/types";
 import { compactPlannedOrders } from "../gtd/planned";
 import type { Database } from "../storage/sqlite-db";
 import type { FieldCodec, RawRow } from "./capture-decode";
-import { fetchMeta, fetchRows, type MetaRow, parseClocks } from "./capture-stamp";
+import { fetchMeta, fetchRows, localMetaOf, type MetaRow } from "./capture-stamp";
 import type { SyncChangeSet, SyncEntity } from "./change-set";
 import { entityIdOf, parseEntityId, type PrimaryKeyValue } from "./entity-id";
 import { jsonDeepEqual } from "./field-clocks";
@@ -108,13 +108,7 @@ const loadGoneProjects = async (db: Database, state: GtdApplyState): Promise<Set
 
 const localStateOf = (row: RawRow | undefined, meta: MetaRow | undefined): LocalEntityState => ({
   row: row ?? null,
-  meta: meta
-    ? {
-        fieldClocks: parseClocks(meta.field_clocks_json),
-        rowHlc: meta.row_hlc,
-        deletedAt: meta.deleted_at,
-      }
-    : null,
+  meta: meta ? localMetaOf(meta) : null,
 });
 
 const mergeInput = (

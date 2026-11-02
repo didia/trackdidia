@@ -58,8 +58,17 @@ describe("manifest gates", () => {
     expect(verdict.warnings).toEqual([]);
   });
 
+  it("reads the formats of this build and of the one before it", () => {
+    for (const formatVersion of [1, 2]) {
+      expect(gate({ manifest: manifest({ formatVersion }) }).kind).toBe("ok");
+    }
+    // A peer that has not been updated writes 1 until it is; a newer one is refused with the update message.
+    expect(gate({ manifest: manifest({ formatVersion: 3 }) }).kind).toBe("format_unsupported");
+    expect(gate({ manifest: manifest({ formatVersion: 0 }) }).kind).toBe("format_unsupported");
+  });
+
   it("does not interpret a manifest of an unknown format", () => {
-    expect(gate({ manifest: manifest({ formatVersion: 2 }) })).toMatchObject({
+    expect(gate({ manifest: manifest({ formatVersion: 3 }) })).toMatchObject({
       kind: "format_unsupported",
       issue: { code: "format_version_unsupported", severity: "warning", peerName: "Maison" },
     });

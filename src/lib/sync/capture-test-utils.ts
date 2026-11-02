@@ -23,6 +23,7 @@ export interface MetaRow {
   field_clocks_json: string;
   row_hlc: string;
   deleted_at: string | null;
+  deleted_row_json: string | null;
 }
 
 /** A migrated in-memory database with (optionally) a sync identity and (optionally) capture. */

@@ -29,8 +29,11 @@ import {
 /** Reserved name prefix of every capture trigger; nothing else may use it. */
 export const CAPTURE_TRIGGER_PREFIX = "trg_sync_cap_";
 
-/** Bump when the shape of the generated SQL or of the dirty marks changes. */
-export const CAPTURE_FORMAT_VERSION = 1;
+/**
+ * Bump when the shape of the generated SQL or of the dirty marks changes. 2: the delete triggers of
+ * field-clock tables leave the deleted row in `sync_dirty.old_row` (tombstones carry values).
+ */
+export const CAPTURE_FORMAT_VERSION = 2;
 
 /** The settings blob table: not a synced entity itself, but captured per synced key. */
 export const SETTINGS_TABLE = "app_settings";
@@ -206,15 +209,44 @@ const markSql = (table: string, key: string, op: "upsert" | "delete"): string =>
   `INSERT INTO sync_dirty (entity_type, entity_id, op) VALUES ('${table}', ${key}, '${op}') ${ON_MARK_CONFLICT}`;
 
 /**
+ * The most columns one `json_object(...)` call may name (two arguments per column; SQLite allows 127
+ * arguments to a function by default). Every field-clock table is far below it; a table that ever
+ * crosses it fails at trigger generation, which `capture-install.test.ts` runs for the whole registry.
+ */
+export const MAX_OLD_ROW_COLUMNS = 60;
+
+/** The row `OLD` as a JSON object keyed by column name (what a tombstone carries as its values). */
+const oldRowSql = (columns: readonly string[]): string => {
+  if (columns.length > MAX_OLD_ROW_COLUMNS) {
+    throw new Error(
+      `Sync capture: a table with ${columns.length} columns exceeds the ${MAX_OLD_ROW_COLUMNS} a delete trigger records`,
+    );
+  }
+  return `json_object(${columns.map((column) => `'${column}', OLD.${quoteIdent(column)}`).join(", ")})`;
+};
+
+/**
+ * A `delete` mark that also records the deleted row. A later mark for the same entity in the same
+ * transaction overwrites `op` only: a row deleted, re-inserted and deleted again keeps the row of the
+ * LAST delete, and an `upsert` mark never reads `old_row` (the stamper judges by the live database).
+ */
+const ON_DELETE_MARK_CONFLICT =
+  "ON CONFLICT (entity_type, entity_id) DO UPDATE SET op = excluded.op, old_row = excluded.old_row";
+
+/**
  * Triggers of one table. The marks are last-writer-wins on `(entity_type, entity_id)` thanks to
  * an upsert clause: a later delete turns an earlier upsert mark into `delete`, and a later
  * re-insert turns it back into `upsert`. An UPDATE that changes the key marks the old key deleted.
  * `SELECT ... WHERE` inside the trigger body carries no table, so an unchanged key adds nothing.
+ *
+ * `oldRowColumns` (field-clock tables: every live column) makes the delete marks carry the deleted
+ * row in `old_row`, for the tombstone's values. The stamper reads it only for a row that is gone.
  */
 export const buildTableCaptureTriggers = (
   table: string,
   primaryKey: readonly string[],
   ops: readonly ("insert" | "update" | "delete")[] = ["insert", "update", "delete"],
+  oldRowColumns: readonly string[] = [],
 ): CaptureTrigger[] => {
   if (!IDENTIFIER.test(table)) {
     throw new Error(`Unsafe SQL identifier "${table}"`);
@@ -234,6 +266,7 @@ export const buildTableCaptureTriggers = (
       ].join("\n"),
     });
   };
+  const withOldRow = oldRowColumns.length > 0;
   if (ops.includes("insert")) {
     add("ai", "INSERT", [markSql(table, keySql("NEW", primaryKey), "upsert")]);
   }
@@ -241,12 +274,18 @@ export const buildTableCaptureTriggers = (
     const oldKey = keySql("OLD", primaryKey);
     const newKey = keySql("NEW", primaryKey);
     add("au", "UPDATE", [
-      `INSERT INTO sync_dirty (entity_type, entity_id, op) SELECT '${table}', ${oldKey}, 'delete' WHERE ${oldKey} IS NOT ${newKey} ${ON_MARK_CONFLICT}`,
+      withOldRow
+        ? `INSERT INTO sync_dirty (entity_type, entity_id, op, old_row) SELECT '${table}', ${oldKey}, 'delete', ${oldRowSql(oldRowColumns)} WHERE ${oldKey} IS NOT ${newKey} ${ON_DELETE_MARK_CONFLICT}`
+        : `INSERT INTO sync_dirty (entity_type, entity_id, op) SELECT '${table}', ${oldKey}, 'delete' WHERE ${oldKey} IS NOT ${newKey} ${ON_MARK_CONFLICT}`,
       markSql(table, newKey, "upsert"),
     ]);
   }
   if (ops.includes("delete")) {
-    add("ad", "DELETE", [markSql(table, keySql("OLD", primaryKey), "delete")]);
+    add("ad", "DELETE", [
+      withOldRow
+        ? `INSERT INTO sync_dirty (entity_type, entity_id, op, old_row) VALUES ('${table}', ${keySql("OLD", primaryKey)}, 'delete', ${oldRowSql(oldRowColumns)}) ${ON_DELETE_MARK_CONFLICT}`
+        : markSql(table, keySql("OLD", primaryKey), "delete"),
+    ]);
   }
   return triggers;
 };
@@ -289,6 +328,10 @@ export const buildCaptureTriggers = (schema: Map<string, LiveTableSchema>): Capt
         registered,
         // The blob row is never deleted by the app; a delete has nothing to stamp.
         table === SETTINGS_TABLE ? ["insert", "update"] : ["insert", "update", "delete"],
+        // Only field-clock tables merge per field, so only their tombstones carry values.
+        table !== SETTINGS_TABLE && getTableRegistration(table).mergeClass === "field-clock"
+          ? (schema.get(table)?.columns ?? [])
+          : [],
       ),
     );
   }

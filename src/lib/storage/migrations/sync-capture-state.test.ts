@@ -118,6 +118,8 @@ describe("migration 43 add_sync_capture_state", () => {
       { name: "entity_type", type: "TEXT", notnull: 0, dflt_value: null, pk: 1 },
       { name: "entity_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 2 },
       { name: "op", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
+      // Migration 48: the row a delete trigger saw, for the tombstone's values.
+      { name: "old_row", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
     ]);
     expect(await shape("sync_entity_snapshot")).toEqual([
       { name: "entity_type", type: "TEXT", notnull: 0, dflt_value: null, pk: 1 },
@@ -187,7 +189,7 @@ describe("migration 43 add_sync_capture_state", () => {
     await runMigrations(db, onMigration);
     expect(onMigration).not.toHaveBeenCalled();
 
-    await db.execute("INSERT INTO sync_dirty VALUES ('gtd_tasks', 't1', 'upsert')");
+    await db.execute("INSERT INTO sync_dirty VALUES ('gtd_tasks', 't1', 'upsert', NULL)");
     await db.execute("INSERT INTO sync_entity_snapshot VALUES ('gtd_tasks', 't1', '{}', 'h')");
     await db.execute("INSERT INTO sync_capture_state VALUES (1, 'h', '2026-10-18T00:00:00.000Z')");
     const before = await snapshot(db, await userTables(db));
