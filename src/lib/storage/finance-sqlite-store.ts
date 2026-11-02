@@ -38,6 +38,7 @@ import type {
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
+  DeleteFinanceTransactionsBeforeOpeningDateResult,
 } from "../../domain/finance";
 import {
   assertFinanceCategoryAssignable,
@@ -60,6 +61,11 @@ import {
   type FinanceNetWorthHistoryPoint,
   type FinanceNetWorthSnapshot,
 } from "../../domain/finance/net-worth";
+import {
+  effectiveOpeningDate,
+  openingDateSkipWarning,
+  partitionRowsByOpeningDate,
+} from "../../domain/finance/opening-date";
 import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
 import {
   buildFinanceAlerts,
@@ -1488,8 +1494,39 @@ export class FinanceSqliteStore {
         ],
       );
 
-      const occurrenceIndices = assignOccurrenceIndices(input.rows);
-      const prepared = input.rows.map((row, index) => ({
+      // Rows posted before their account's opening balance date are already inside that opening
+      // balance: skip them (docs/finance.md "Opening balance date").
+      const openingDates = await db.select<
+        Array<{ id: string; name: string; balance_as_of: string | null }>
+      >("SELECT id, name, balance_as_of FROM finance_accounts");
+      // A statement-anchored account has no opening date: its opening balance is re-derived from
+      // every transaction through the statement date, so older rows are valid history.
+      const anchoredAccountIds = new Set(
+        (
+          await db.select<Array<{ account_id: string }>>(
+            "SELECT DISTINCT account_id FROM finance_account_balance_snapshots WHERE source = 'statement'",
+          )
+        ).map((row) => row.account_id),
+      );
+      const opening = partitionRowsByOpeningDate(
+        input.rows,
+        new Map(
+          openingDates.map((account) => [
+            account.id,
+            {
+              balanceAsOf: effectiveOpeningDate(
+                { balanceAsOf: account.balance_as_of },
+                anchoredAccountIds.has(account.id),
+              ),
+            },
+          ]),
+        ),
+      );
+      const openingNames = new Map(openingDates.map((account) => [account.id, account.name]));
+      const rows = opening.kept;
+
+      const occurrenceIndices = assignOccurrenceIndices(rows);
+      const prepared = rows.map((row, index) => ({
         row,
         occurrenceIndex: occurrenceIndices[index],
         dedupeHash: computeDedupeHash({
@@ -1761,9 +1798,15 @@ export class FinanceSqliteStore {
       // "Recurring bills".
       await this.detectRecurringSeriesWithDb(db, today);
 
-      const skipped = input.rejected?.skipped ?? 0;
+      const rejectedSkipped = input.rejected?.skipped ?? 0;
+      const skipped = rejectedSkipped + opening.skippedCount;
       const errors = input.rejected?.errors ?? 0;
       warnings.push(...(input.rejected?.warnings ?? []));
+      for (const skip of opening.skipped) {
+        warnings.push(
+          openingDateSkipWarning(skip, openingNames.get(skip.accountId) ?? skip.accountId),
+        );
+      }
 
       await db.execute(
         `UPDATE finance_import_batches SET
@@ -1791,7 +1834,7 @@ export class FinanceSqliteStore {
 
       return {
         batchId,
-        rowCount: input.rows.length + skipped + errors,
+        rowCount: input.rows.length + rejectedSkipped + errors,
         imported,
         duplicates,
         skipped,
@@ -2341,59 +2384,7 @@ export class FinanceSqliteStore {
           continue;
         }
 
-        await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [
-          row.id,
-        ]);
-        await db.execute("DELETE FROM finance_category_suggestions WHERE transaction_id = $1", [
-          row.id,
-        ]);
-
-        if (row.transfer_group_id) {
-          const partnerRows = await db.select<TransactionRow[]>(
-            "SELECT * FROM finance_transactions WHERE transfer_group_id = $1 AND id != $2",
-            [row.transfer_group_id, row.id],
-          );
-          for (const partner of partnerRows) {
-            if (partner.category_source === "user") {
-              // Keep the user's category, provenance, and exclusions; only drop the dead link.
-              await db.execute(
-                `UPDATE finance_transactions SET
-                  is_transfer = 0,
-                  transfer_group_id = NULL,
-                  updated_at = $2
-                WHERE id = $1`,
-                [partner.id, now],
-              );
-              continue;
-            }
-            await db.execute(
-              `UPDATE finance_transactions SET
-                is_transfer = 0,
-                transfer_group_id = NULL,
-                category_id = 'fincat:non-categorise',
-                category_source = 'default',
-                excluded_from_budget = 0,
-                updated_at = $2
-              WHERE id = $1`,
-              [partner.id, now],
-            );
-            // A partial unique index allows only one pending suggestion per transaction; clear
-            // any stale one before restoring the pending suggestion this repair implies.
-            await db.execute(
-              "DELETE FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
-              [partner.id],
-            );
-            await db.execute(
-              `INSERT INTO finance_category_suggestions (
-                id, transaction_id, merchant_key, suggested_category_id, confidence, origin,
-                rationale, model, prompt_version, status, decided_at, created_at
-              ) VALUES ($1,$2,$3,'fincat:non-categorise',0.5,'memory',NULL,NULL,NULL,'pending',NULL,$4)`,
-              [createEntityId("finance-suggestion"), partner.id, partner.merchant_key, now],
-            );
-          }
-        }
-
-        await db.execute("DELETE FROM finance_transactions WHERE id = $1", [row.id]);
+        await this.removeTransactionRowWithDb(db, row, now);
         deleted += 1;
       }
 
@@ -2403,6 +2394,153 @@ export class FinanceSqliteStore {
 
       await db.execute("COMMIT");
       return { deleted, refusedUserCategorized };
+    } catch (error) {
+      await this.rollbackQuietly(db);
+      throw error;
+    }
+  }
+
+  /**
+   * Deletes one transaction with its splits and suggestions and repairs the transfer partner it
+   * leaves behind. Shared by import undo and the opening-date cleanup; the caller holds the
+   * transaction.
+   *
+   * `partnerRepair` says how the surviving transfer leg is treated: `demote` (import undo) turns
+   * it back into an ordinary uncategorized row, since the import that produced the pair is being
+   * reverted; `detach` (opening-date cleanup) only drops the dead group link and keeps the leg a
+   * transfer with its category and budget exclusion, because the money really moved between the
+   * two accounts and the survivor must not turn into income or an expense.
+   */
+  private async removeTransactionRowWithDb(
+    db: Database,
+    row: TransactionRow,
+    now: string,
+    partnerRepair: "demote" | "detach" = "demote",
+  ): Promise<void> {
+    await db.execute("DELETE FROM finance_transaction_splits WHERE transaction_id = $1", [row.id]);
+    await db.execute("DELETE FROM finance_category_suggestions WHERE transaction_id = $1", [
+      row.id,
+    ]);
+
+    if (row.transfer_group_id) {
+      const partnerRows = await db.select<TransactionRow[]>(
+        "SELECT * FROM finance_transactions WHERE transfer_group_id = $1 AND id != $2",
+        [row.transfer_group_id, row.id],
+      );
+      for (const partner of partnerRows) {
+        if (partnerRepair === "detach") {
+          // Single-leg transfers (`is_transfer = 1`, no group) are an existing state.
+          await db.execute(
+            "UPDATE finance_transactions SET transfer_group_id = NULL, updated_at = $2 WHERE id = $1",
+            [partner.id, now],
+          );
+          continue;
+        }
+        if (partner.category_source === "user") {
+          // Keep the user's category, provenance, and exclusions; only drop the dead link.
+          await db.execute(
+            `UPDATE finance_transactions SET
+              is_transfer = 0,
+              transfer_group_id = NULL,
+              updated_at = $2
+            WHERE id = $1`,
+            [partner.id, now],
+          );
+          continue;
+        }
+        await db.execute(
+          `UPDATE finance_transactions SET
+            is_transfer = 0,
+            transfer_group_id = NULL,
+            category_id = 'fincat:non-categorise',
+            category_source = 'default',
+            excluded_from_budget = 0,
+            updated_at = $2
+          WHERE id = $1`,
+          [partner.id, now],
+        );
+        // A partial unique index allows only one pending suggestion per transaction; clear
+        // any stale one before restoring the pending suggestion this repair implies.
+        await db.execute(
+          "DELETE FROM finance_category_suggestions WHERE transaction_id = $1 AND status = 'pending'",
+          [partner.id],
+        );
+        await db.execute(
+          `INSERT INTO finance_category_suggestions (
+            id, transaction_id, merchant_key, suggested_category_id, confidence, origin,
+            rationale, model, prompt_version, status, decided_at, created_at
+          ) VALUES ($1,$2,$3,'fincat:non-categorise',0.5,'memory',NULL,NULL,NULL,'pending',NULL,$4)`,
+          [createEntityId("finance-suggestion"), partner.id, partner.merchant_key, now],
+        );
+      }
+    }
+
+    await db.execute("DELETE FROM finance_transactions WHERE id = $1", [row.id]);
+  }
+
+  /**
+   * See `AppRepository.deleteFinanceTransactionsBeforeOpeningDate`. One `writeExclusive` block at
+   * the repository level; this method issues its own `BEGIN IMMEDIATE`/`COMMIT`.
+   */
+  async deleteTransactionsBeforeOpeningDate(
+    accountId: string,
+  ): Promise<DeleteFinanceTransactionsBeforeOpeningDateResult> {
+    const db = await this.getDb();
+    const now = nowIso();
+
+    await db.execute("BEGIN IMMEDIATE");
+    try {
+      const accountRows = await db.select<AccountRow[]>(
+        "SELECT * FROM finance_accounts WHERE id = $1",
+        [accountId],
+      );
+      const account = accountRows[0];
+      if (!account) {
+        throw new Error(`finance account not found: ${accountId}`);
+      }
+      const [anchor] = await db.select<Array<{ account_id: string }>>(
+        "SELECT account_id FROM finance_account_balance_snapshots WHERE account_id = $1 AND source = 'statement' LIMIT 1",
+        [accountId],
+      );
+      const openingDate = effectiveOpeningDate(
+        { balanceAsOf: account.balance_as_of },
+        anchor !== undefined,
+      );
+      if (openingDate === null) {
+        await db.execute("COMMIT");
+        return { openingDate, deleted: 0, userCategorized: 0 };
+      }
+
+      const staleIds = (
+        await db.select<Array<{ id: string; posted_date: string }>>(
+          "SELECT id, posted_date FROM finance_transactions WHERE account_id = $1 AND posted_date < $2",
+          [accountId, openingDate],
+        )
+      ).map((row) => row.id);
+
+      let userCategorized = 0;
+      for (const id of staleIds) {
+        // Re-read: a transfer partner removed earlier in this loop may have rewritten this row.
+        const [current] = await db.select<TransactionRow[]>(
+          "SELECT * FROM finance_transactions WHERE id = $1",
+          [id],
+        );
+        if (!current) {
+          continue;
+        }
+        if (current.category_source === "user") {
+          userCategorized += 1;
+        }
+        await this.removeTransactionRowWithDb(db, current, now, "detach");
+      }
+
+      if (staleIds.length > 0) {
+        await this.detectRecurringSeriesWithDb(db, getTodayDate());
+        await this.reanchorStatementAccounts(db);
+      }
+
+      await db.execute("COMMIT");
+      return { openingDate, deleted: staleIds.length, userCategorized };
     } catch (error) {
       await this.rollbackQuietly(db);
       throw error;
