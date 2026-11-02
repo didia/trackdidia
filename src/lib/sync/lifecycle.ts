@@ -109,6 +109,9 @@ export interface SyncLifecycle {
   snapshot(): LifecycleSnapshot;
 }
 
+/** What a lane callback returns when the run it was queued for is stale. */
+const STALE = Symbol("stale");
+
 const errorInfo = (error: unknown): { code: string; message: string } => ({
   code:
     typeof error === "object" &&
@@ -130,6 +133,8 @@ const firstIssueMessage = (
 
 export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
   let started = false;
+  /** Bumped by every start() and stop(): work queued under an older one is stale. */
+  let generation = 0;
   let tickTimer: ReturnType<typeof setInterval> | undefined;
   let hourlyTimer: ReturnType<typeof setInterval> | undefined;
   let inFlight: Promise<void> | null = null;
@@ -196,6 +201,9 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
       return Promise.resolve();
     }
     const startedAt = deps.now();
+    const ownGeneration = generation;
+    /** False once this lifecycle was stopped (or stopped and started again) since this run began. */
+    const current = () => started && generation === ownGeneration;
     state.running = kind;
     if (kind === "pull") state.lastPullStartedAtMs = startedAt;
     emit();
@@ -206,10 +214,17 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
         const probeStart = deps.now();
         await deps.pendingChanges();
         const statusReadMs = deps.now() - probeStart;
+        // The lane may be held for a long time (an automatic backup), and sync can be turned off or
+        // rebuilt meanwhile: whatever was queued must find out, once it has the lane, that it is
+        // stale, and then build no engine and touch no folder. Checked again after the runner is
+        // built, since building it is asynchronous too.
         const result = await deps.runExclusive(async () => {
+          if (!current()) return STALE;
           const runner = await deps.runner();
+          if (!current()) return STALE;
           return kind === "pull" ? runner.pull() : runner.publish();
         });
+        if (result === STALE) return;
         if (kind === "pull") {
           const report = result as PullReport;
           record(classifyPull(report), firstIssueMessage(report));
@@ -238,7 +253,8 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
       } catch (error) {
         const info = errorInfo(error);
         // Another run of a different kind holds the engine: not a failure, the next trigger retries.
-        if (info.code !== "already_running") {
+        // A failure of a lifecycle that was stopped meanwhile is nobody's business any more.
+        if (info.code !== "already_running" && current()) {
           record(classifyThrown(info.code), info);
           logDebug("warn", "sync.lifecycle", "Synchronisation automatique en echec", {
             kind,
@@ -248,7 +264,8 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
         }
       } finally {
         state.running = null;
-        emit();
+        // A stopped lifecycle publishes no snapshot: its observer may already belong to a successor.
+        if (current()) emit();
       }
     })();
     const tracked = work.finally(() => {
@@ -318,6 +335,7 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
     start(options = {}) {
       if (started) return;
       started = true;
+      generation += 1;
       if (options.lastPullStartedAtMs !== undefined) {
         state.lastPullStartedAtMs = options.lastPullStartedAtMs;
       }
@@ -347,6 +365,7 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
     stop() {
       if (!started) return;
       started = false;
+      generation += 1;
       if (tickTimer !== undefined) clearInterval(tickTimer);
       if (hourlyTimer !== undefined) clearInterval(hourlyTimer);
       tickTimer = undefined;

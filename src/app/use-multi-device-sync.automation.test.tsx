@@ -53,7 +53,7 @@ interface Session {
   b: FakeLaptop;
   store: { current: AppSettings };
   changed: { count: number };
-  lane: { calls: number };
+  lane: { calls: number; gate: Promise<void> | null };
   close: { current: (() => Promise<void>) | null };
   quitWindow: () => Promise<QuitWindow>;
   /** The tray-quit handshake's event bus and commands, recorded in order. */
@@ -110,7 +110,7 @@ const session = async (): Promise<Session> => {
     b,
     store: { current: await a.settings() },
     changed: { count: 0 },
-    lane: { calls: 0 },
+    lane: { calls: 0, gate: null },
     close,
     exit,
     exitBridge,
@@ -145,8 +145,9 @@ const mount = (s: Session, initial: Props, options: { strict?: boolean } = {}) =
         deps: s.a.deps,
         automationKey: props.automationKey,
         startupSync: props.startupSync ?? null,
-        runExclusive: (work) => {
+        runExclusive: async (work) => {
           s.lane.calls += 1;
+          if (s.lane.gate) await s.lane.gate;
           return work();
         },
         onDataChanged: () => {
@@ -366,6 +367,32 @@ describe("with automation on", () => {
     await waitFor(() => expect(s.exit.log).toEqual(["handshake:false", "unlisten"]));
     s.exit.trayQuit?.();
     expect(s.exit.exited).toBe(1);
+    hook.unmount();
+  });
+
+  it("a publish queued behind an automatic backup does not run once sync was turned off", async () => {
+    const s = await session();
+    await s.a.repository.createTask({ id: "local", title: "Local", bucket: "inbox" });
+    const hook = mount(s, { automationKey: await key(s) });
+    await waitFor(() => expect(s.close.current).not.toBeNull());
+    let release: () => void = () => undefined;
+    s.lane.gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    s.host.calls.length = 0;
+
+    await blur();
+    await waitFor(() => expect(s.lane.calls).toBeGreaterThan(0));
+    // Disable sync in Settings while the backup still holds the lane.
+    hook.rerender({ automationKey: null });
+    release();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(publishCalls(s.host)).toBe(0);
+    const status = await s.a.repository.getSyncStatus();
+    expect(status.supported && status.pendingChanges).toBeGreaterThan(0);
     hook.unmount();
   });
 

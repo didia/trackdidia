@@ -125,16 +125,28 @@ const sendHandshake = (bridge: ExitBridge, enabled: boolean): Promise<void> => {
   return call;
 };
 
-/** The remover of one registration (idempotent); `counted` says whether it holds a count. */
+/** One registration's liveness; its event callback checks it, `release` clears it, synchronously. */
+interface Registration {
+  live: boolean;
+}
+
+/**
+ * The remover of one registration (idempotent); `counted` says whether it holds a count. The very
+ * first thing it does is make the registration's event callback inert: the listener itself stays
+ * attached until the host has been told to stop waiting (an asynchronous command), and in that window
+ * a Quitter must neither publish nor exit on behalf of a registration that no longer exists (its
+ * lifecycle is stopped, so its publish would return at once and its exit would cut off the successor's
+ * publish).
+ */
 const release = (
+  registration: Registration,
   bridge: ExitBridge | null,
   stopListening: (() => void) | null,
   counted: boolean,
 ): (() => void) => {
-  let released = false;
   return () => {
-    if (released) return;
-    released = true;
+    if (!registration.live) return;
+    registration.live = false;
     if (counted) activeExitRegistrations -= 1;
     if (counted && activeExitRegistrations === 0 && bridge !== null) {
       // The host stops waiting first; only then does the listener go (the other order would leave a
@@ -159,6 +171,8 @@ const release = (
  * whatever happened. The cap here is a second line of defence in case `quit` ignores its own cap; the
  * host's 4 s timer is the third. Resolves to a function that switches the handshake off and stops
  * listening, in that order (the other order would leave the host waiting for a listener that is gone).
+ * A released registration is inert at once (see {@link release}); only a live one publishes and exits,
+ * and if none is live the host's own timer (or its already-off handshake) ends the quit.
  * Never rejects: when the event bus or the handshake command is unavailable the registration is undone
  * and the tray keeps exiting at once.
  */
@@ -167,12 +181,13 @@ export const registerExitPublish = async (options: ExitPublishOptions): Promise<
   let stopListening: (() => void) | null = null;
   let bridge: ExitBridge | null = null;
   let counted = false;
+  const registration: Registration = { live: true };
   try {
     bridge = await (options.loadBridge ?? loadTauriExitBridge)();
     const live = bridge;
     let handling = false;
     stopListening = await live.onQuitRequested(() => {
-      if (handling) return;
+      if (!registration.live || handling) return;
       handling = true;
       void (async () => {
         let timer: ReturnType<typeof setTimeout> | undefined;
@@ -200,8 +215,8 @@ export const registerExitPublish = async (options: ExitPublishOptions): Promise<
   } catch (error) {
     logDebug("info", "sync.lifecycle", "Publication a la sortie indisponible", error);
     // Undo whatever was done, in the safe order (handshake off, then stop listening).
-    release(bridge, stopListening, counted)();
+    release(registration, bridge, stopListening, counted)();
     return () => undefined;
   }
-  return release(bridge, stopListening, counted);
+  return release(registration, bridge, stopListening, counted);
 };

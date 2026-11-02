@@ -681,6 +681,148 @@ describe("the pull bootstrap started", () => {
   });
 });
 
+/** A lane someone else holds until `release()`: everything queued behind it waits, in order. */
+const heldLane = () => {
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return {
+    release,
+    runExclusive: async <T>(work: () => Promise<T>): Promise<T> => {
+      await gate;
+      return work();
+    },
+  };
+};
+
+describe("work queued behind the exclusive lane", () => {
+  it("a publish queued behind a backup runs no engine once the lifecycle was stopped", async () => {
+    const lane = heldLane();
+    const built: string[] = [];
+    const h = harness({ runExclusive: lane.runExclusive });
+    h.runnerImpl.current = async () => {
+      built.push("runner");
+    };
+    h.lifecycle.start();
+    h.pending.value = 1;
+    const queued = h.lifecycle.hidden();
+    await vi.advanceTimersByTimeAsync(10);
+    expect(h.lifecycle.snapshot().running).toBe("publish");
+
+    h.lifecycle.stop();
+    const statesAtStop = h.states.length;
+    lane.release();
+    await queued;
+    await h.lifecycle.whenIdle();
+
+    expect(built).toEqual([]);
+    expect(h.calls).toEqual([]);
+    expect(h.states.length).toBe(statesAtStop);
+    expect(h.lifecycle.snapshot()).toMatchObject({ lastClass: null, consecutiveFailures: 0 });
+    expect(h.lifecycle.snapshot().running).toBeNull();
+  });
+
+  it("a queued pull, heartbeat and quit publish are dropped the same way", async () => {
+    for (const trigger of ["pull", "heartbeat", "quit"] as const) {
+      const lane = heldLane();
+      const h = harness({ runExclusive: lane.runExclusive });
+      let queued: Promise<void> = Promise.resolve();
+      if (trigger === "pull") {
+        h.lifecycle.start();
+        queued = h.lifecycle.resume();
+      } else if (trigger === "heartbeat") {
+        // Nothing pending: the startup step ends in the heartbeat, which waits for the lane.
+        h.lifecycle.start({ publishNow: true });
+      } else {
+        h.lifecycle.start();
+        h.pending.value = 1;
+        queued = h.lifecycle.quit(3_000);
+      }
+      await vi.advanceTimersByTimeAsync(10);
+      expect(h.lifecycle.snapshot().running, trigger).not.toBeNull();
+      h.lifecycle.stop();
+      lane.release();
+      await vi.advanceTimersByTimeAsync(3_000);
+      await queued;
+      await h.lifecycle.whenIdle();
+      expect(h.calls, trigger).toEqual([]);
+    }
+  });
+
+  it("a restart of the same lifecycle does not revive the work queued before the stop", async () => {
+    const lane = heldLane();
+    const h = harness({ runExclusive: lane.runExclusive });
+    h.lifecycle.start();
+    h.pending.value = 1;
+    void h.lifecycle.hidden();
+    await vi.advanceTimersByTimeAsync(10);
+    h.lifecycle.stop();
+    h.lifecycle.start();
+    lane.release();
+    await vi.advanceTimersByTimeAsync(10);
+    await h.lifecycle.whenIdle();
+    expect(syncCalls(h)).toEqual([]);
+  });
+
+  it("a successor on the same lane runs, the stopped lifecycle's queued work does not", async () => {
+    const lane = heldLane();
+    const old = harness({ runExclusive: lane.runExclusive });
+    const successor = harness({ runExclusive: lane.runExclusive });
+    old.lifecycle.start();
+    old.pending.value = 1;
+    void old.lifecycle.hidden();
+    await vi.advanceTimersByTimeAsync(10);
+    old.lifecycle.stop();
+
+    successor.lifecycle.start();
+    successor.pending.value = 1;
+    void successor.lifecycle.hidden();
+    await vi.advanceTimersByTimeAsync(10);
+
+    lane.release();
+    await vi.advanceTimersByTimeAsync(10);
+    await old.lifecycle.whenIdle();
+    await successor.lifecycle.whenIdle();
+    expect(syncCalls(old)).toEqual([]);
+    expect(syncCalls(successor)).toEqual(["publish"]);
+  });
+
+  it("a stop while the engine is being built also prevents the run", async () => {
+    let finishBuild: () => void = () => undefined;
+    const h = harness();
+    h.runnerImpl.current = () =>
+      new Promise<undefined>((resolve) => {
+        finishBuild = () => resolve(undefined);
+      });
+    h.lifecycle.start();
+    h.pending.value = 1;
+    void h.lifecycle.hidden();
+    await vi.advanceTimersByTimeAsync(10);
+    h.lifecycle.stop();
+    finishBuild();
+    await vi.advanceTimersByTimeAsync(10);
+    await h.lifecycle.whenIdle();
+    expect(syncCalls(h)).toEqual([]);
+  });
+
+  it("a run that fails after the stop is not recorded and tells no observer", async () => {
+    const h = harness();
+    h.runnerImpl.current = async () => {
+      throw Object.assign(new Error("boom"), { code: "no_folders" });
+    };
+    h.lifecycle.start();
+    h.pending.value = 1;
+    const hidden = h.lifecycle.hidden();
+    h.lifecycle.stop();
+    const statesAtStop = h.states.length;
+    await hidden;
+    await h.lifecycle.whenIdle();
+    expect(h.lifecycle.snapshot()).toMatchObject({ blocked: false, lastClass: null });
+    expect(h.states.length).toBe(statesAtStop);
+  });
+});
+
 describe("reporting", () => {
   it("emits a snapshot when a run starts and when it ends", async () => {
     const h = harness();

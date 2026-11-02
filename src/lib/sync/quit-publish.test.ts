@@ -336,3 +336,146 @@ describe("registerExitPublish (the tray's Quitter)", () => {
     expect(host.exited()).toBe(1);
   });
 });
+
+/**
+ * A rebuilt lifecycle: the old registration is released (its handshake-off command is still in flight)
+ * while its successor registers. Quitter in that window reaches every listener still attached; only the
+ * successor may publish and exit. The host here keeps ONE flag and a listener set, and the handshake
+ * commands complete only when the test says so.
+ */
+describe("registerExitPublish across a rebuilt lifecycle", () => {
+  const removers: (() => void)[] = [];
+  const worlds: { settle: () => Promise<void> }[] = [];
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(async () => {
+    for (const remove of removers.splice(0)) remove();
+    // The module serializes handshake commands: leave none unfinished for the next test.
+    for (const world of worlds.splice(0)) await world.settle();
+    vi.useRealTimers();
+  });
+
+  const deferredHost = () => {
+    const listeners = new Set<() => void>();
+    const pending: { enabled: boolean; done: () => void }[] = [];
+    const host = { handshake: true, exits: 0, log: [] as string[] };
+    const bridge: ExitBridge = {
+      onQuitRequested: async (handler) => {
+        listeners.add(handler);
+        return () => {
+          listeners.delete(handler);
+        };
+      },
+      setHandshake: (enabled) =>
+        new Promise<void>((resolve) => {
+          pending.push({
+            enabled,
+            done: () => {
+              host.handshake = enabled;
+              host.log.push(`handshake:${enabled}`);
+              resolve();
+            },
+          });
+        }),
+      exit: async () => {
+        host.exits += 1;
+        host.log.push("exit");
+      },
+    };
+    /** The tray's Quitter: the event reaches every attached listener when the host waits. */
+    const trayQuit = () => {
+      if (!host.handshake) {
+        host.exits += 1;
+        host.log.push("exit-now");
+        return;
+      }
+      for (const listener of [...listeners]) listener();
+    };
+    const settle = async () => {
+      await vi.advanceTimersByTimeAsync(0);
+      while (pending.length > 0) {
+        pending.shift()?.done();
+        await vi.advanceTimersByTimeAsync(0);
+      }
+    };
+    const world = { bridge, host, trayQuit, settle, listeners, pending };
+    worlds.push(world);
+    return world;
+  };
+
+  it("Quitter during the old teardown: the successor publishes first and exits once; the old one does nothing", async () => {
+    const world = deferredHost();
+    const oldQuit = vi.fn(async () => undefined);
+    const registeringOld = registerExitPublish({
+      quit: oldQuit,
+      loadBridge: async () => world.bridge,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    await world.settle();
+    const releaseOld = await registeringOld;
+    expect(world.host.handshake).toBe(true);
+
+    // The settings changed: the old registration is released (handshake-off is now in flight)...
+    releaseOld();
+    let finishNewPublish: () => void = () => undefined;
+    const newQuit = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finishNewPublish = resolve;
+        }),
+    );
+    // ... and the successor registers meanwhile.
+    const registeringNew = registerExitPublish({
+      quit: newQuit,
+      loadBridge: async () => world.bridge,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(world.listeners.size).toBe(2);
+    expect(world.host.handshake).toBe(true);
+
+    // Quitter arrives while the native flag is still true and both listeners are attached.
+    world.trayQuit();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(oldQuit).not.toHaveBeenCalled();
+    expect(newQuit).toHaveBeenCalledTimes(1);
+    expect(world.host.exits).toBe(0);
+
+    // The successor's publish is still unresolved: nothing may have exited. Then it finishes.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(world.host.exits).toBe(0);
+    finishNewPublish();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(world.host.exits).toBe(1);
+    expect(world.host.log.at(-1)).toBe("exit");
+
+    await world.settle();
+    removers.push(await registeringNew);
+    expect(world.host.exits).toBe(1);
+  });
+
+  it("when the released registration was the only one, its late listener does nothing; once the host flag is off Quitter exits at once", async () => {
+    const world = deferredHost();
+    const quit = vi.fn(async () => undefined);
+    const registering = registerExitPublish({ quit, loadBridge: async () => world.bridge });
+    await vi.advanceTimersByTimeAsync(0);
+    await world.settle();
+    const release = await registering;
+
+    release();
+    // The handshake-off command has not completed: the listener is still attached but inert.
+    expect(world.listeners.size).toBe(1);
+    world.trayQuit();
+    await vi.advanceTimersByTimeAsync(3_500);
+    expect(quit).not.toHaveBeenCalled();
+    expect(world.host.exits).toBe(0); // the host's own 4 s timer is what ends this quit
+
+    await world.settle();
+    expect(world.host.handshake).toBe(false);
+    expect(world.listeners.size).toBe(0);
+    world.trayQuit();
+    expect(world.host.exits).toBe(1);
+    expect(world.host.log.at(-1)).toBe("exit-now");
+    expect(quit).not.toHaveBeenCalled();
+  });
+});
