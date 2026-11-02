@@ -8,6 +8,7 @@ export const SyncErrorMessage = ({ error }: { error: SyncUiError }) => {
   const known = [
     "unsupported_preview",
     "unsupported_profile",
+    "work_profile_data_present",
     "no_backup_destination",
     "no_gtd_folder",
     "folders_overlap",

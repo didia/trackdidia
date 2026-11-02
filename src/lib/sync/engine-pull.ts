@@ -3,6 +3,7 @@ import { SyncClockError } from "./clock-store";
 import { type SyncChangeSet, validateChangeSet } from "./change-set";
 import { SyncApplyError } from "./errors";
 import { type AllowedDomain, evaluateManifest, type ManifestVerdict } from "./engine-gates";
+import { verifyWorkProfile } from "./engine-profile";
 import {
   type EngineContext,
   isTransportDown,
@@ -162,6 +163,14 @@ export const runPull = async (
   }
   if (!status.backfillComplete) {
     issues.push(backfillIncomplete());
+    return finish();
+  }
+  // A work device that holds personal or finance rows pauses here: no folder is listed or read, nothing
+  // is applied (engine-profile.ts). A personal engine skips this at no cost.
+  const profileStop = await verifyWorkProfile(ctx);
+  if (profileStop !== null) {
+    issues.push(profileStop);
+    halted = true;
     return finish();
   }
   const selfId = status.identity.deviceId;

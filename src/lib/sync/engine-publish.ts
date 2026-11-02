@@ -1,5 +1,6 @@
 import type { SyncChangeSet } from "./change-set";
 import { assertDomainAllowed } from "./change-set";
+import { verifyWorkProfile } from "./engine-profile";
 import { type EngineContext, messageOf, transportIssue, withTimeout } from "./engine-support";
 import {
   type PublishDomainResult,
@@ -155,6 +156,13 @@ export const runPublish = async (
       message:
         "Change tracking is still being initialized on this device; nothing is published until it has finished.",
     });
+    return finish(0, false);
+  }
+
+  // A work device that holds personal or finance rows publishes nothing (engine-profile.ts).
+  const profileStop = await verifyWorkProfile(ctx);
+  if (profileStop !== null) {
+    issues.push(profileStop);
     return finish(0, false);
   }
 

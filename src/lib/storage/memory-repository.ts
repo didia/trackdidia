@@ -150,6 +150,8 @@ import type {
   SyncCaptureEnableResult,
 } from "../sync/backfill-state";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { ProfileDataInspection } from "../sync/profile-data";
+import type { InspectProfileDataOptions } from "../sync/profile-data-sql";
 import type { SyncDomain } from "../sync/registry";
 import {
   SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE,
@@ -2251,6 +2253,12 @@ export class MemoryRepository implements AppRepository {
   }
 
   async markSyncPublished(_changeCounterAtRead: number): Promise<SyncPublishMark> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async inspectSyncProfileData(
+    _options?: InspectProfileDataOptions,
+  ): Promise<ProfileDataInspection> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 

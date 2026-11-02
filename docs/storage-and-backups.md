@@ -685,7 +685,8 @@ every clock a canonical HLC and no larger than `hlcHigh`, entities only from tab
 domain (unknown, device-local and by-entity-type sidecar tables are rejected), canonical and bounded
 entity ids, no duplicates, rows whose key columns match the entity id, and settings that are synced,
 of the declared domain and not secret. `assertDomainAllowed(domain, allowedDomains)` is the pure
-guard the later work-profile slice will call.
+domain guard; the work profile's repository-level checks are in
+[Work-profile guards in the repository](#work-profile-guards-in-the-repository).
 
 `recurrence` carries the two recurrence sidecars of the `gtd` domain (rows keyed by column name, like
 every row). They are not entities (no field clocks, no tombstones): they are joins. Validation is
@@ -1563,6 +1564,59 @@ arrival orders), `sync-engine.test.ts` (three laptops through the folder), the s
 `apply-chunked.equivalence.test.ts` (with the seeds that found the tuple problem pinned), and
 `canonical-identity.gtd.test.ts` (aliases).
 
+### Work-profile guards in the repository
+
+Data layer only (no screen, no route): the guards that keep personal and finance rows off a `work` database.
+`work` is still not selectable (`WORK_PROFILE_SELECTABLE` is `false`; tests switch it on through
+`SyncServiceDeps.workProfileSelectable`). The user-facing summary is in
+[Multi-device sync](multi-device-sync.md#the-work-profile-guards-data-layer-only).
+
+**`inspectSyncProfileData(options?)`** (`AppRepository`, `TauriSqliteRepository` implements it, `MemoryRepository`
+rejects like every sync entry point). What the database holds per domain (`gtd`, `personal`, `finance`), seed rows
+excluded, read-only, inside a writer slot. It counts (`profile-data.ts` decides, `profile-data-sql.ts` reads):
+- the rows of every table the registry classifies in the domain (`tablesInDomain`);
+- the SIDECAR rows that describe an entity of the domain, routed by their `entity_type`, not by the sidecar table's
+  own classification: `sync_entity_meta` (clocks and tombstones, whose `deleted_row_json` keeps the deleted values),
+  `sync_entity_snapshot` (a full copy of the row), `sync_id_aliases`, `sync_conflicts` (both versions of a value) and
+  `sync_dirty`. `ENTITY_TYPED_SIDECARS` lists them; a test fails when the migrated schema has another table with an
+  `entity_type` column. A `setting` entity is routed by its key's scope; an entity type this build does not know counts as
+  `personal`;
+- the `personal` and `finance` settings that differ from their defaults (device and `gtd` settings never count).
+Seed rows are not data: the three system finance categories (migration 37) and the default taxonomy
+(`seedFinanceDefaultCategories`), by id, in the table AND in their meta and snapshot rows (the capture backfill stamps
+them), and the settings the app writes itself on every database (`APP_MANAGED_SETTING_KEYS`:
+`dimancheNotesRelocatedAt`, `aiMaxTokensUpgradeDoneAt`, `financeCategoriesSeededAt`, and the two relationship-draw
+processed dates). There are no seeded GTD rows in this build: any task, project or context, the ones the relationship-draw
+generator creates on a first start included, is data (`isVerifiedEmptyDatabase`).
+`exact: false` (the startup check) stops at the first row of each source: 45 statements (the exact look of all three domains is 59,
+counting ones), each a `LIMIT 1` probe of a table or a primary-key prefix probe of a sidecar per domain. The statement count does not
+depend on the data (a test pins it for a database with thousands of rows and an empty one); one probe per sidecar table, the one that
+looks for entity types this build does not know, scans that table's primary-key index (18 ms in process with 200,000
+`sync_entity_meta` rows). Not measured: the time on a 130,000-transaction database and the per-statement IPC cost on a real
+desktop. A count in this mode means "at least". `domains` narrows the look (the startup check only asks about `personal` and
+`finance`).
+
+**`applySyncBundle` checks the persisted profile** (`profile-guard.ts`). Inside the apply transaction, before the backfill
+check and before anything is read or written, the repository reads `syncProfile` from the stored settings row and refuses the
+change set with `SyncApplyError("domain_not_allowed")` unless the profile may hold everything in it: its `domain` label, and
+independently of `validateChangeSet` every entity and tombstone (by table), union-row table, alias (by entity type) and
+setting (by key). There is no profile parameter, so a caller cannot pass a permissive one; a settings row without the key is
+`personal` (every database before the key existed), and a value that is neither profile refuses everything
+(`profile_unknown`). The reads (`listSyncChanges`, `readSyncSnapshot`) do not check the profile: what a work device publishes
+is decided by the engine and the transport routing.
+
+**Row filters cover sidecar metadata.** A table's `rowFilter` is applied to the rows in the `SELECT`, and a row's
+`sync_entity_meta` is published only together with its row, so a running or paused Pomodoro session and its segments leave no
+clock, id or tombstone in a bundle, on either profile (`sync-engine.work-profile.test.ts`, `pomodoro-sync.test.ts`).
+`sync_conflicts` is not published in this build, and an alias row of a table without aliased natural keys is not loaded, so it
+cannot travel.
+
+**Engine re-check** (`engine-profile.ts`). A `work` engine looks (`exact: false`) before every pull and publish, memoized
+for 10 minutes while the database is clean and repeated by every run while it is not. Personal rows pause the run
+(`work_profile_data_present`, an error whose `detail` is `personal=N,finance=M` after one exact count); a look that fails pauses it
+too (`profile_check_failed`, retried by the next run); an engine whose repository cannot inspect pauses. A paused pull lists no
+folder and applies nothing, a paused publish reads and writes nothing. `getStatus()` reports `profileViolation`.
+
 ### Sync engine, transport seam and device profile
 
 `src/lib/sync/sync-engine.ts` is the orchestration layer of multi-laptop sync: pull, then merge and
@@ -1571,8 +1625,9 @@ experimental, opt-in and manual** ([Multi-device sync](multi-device-sync.md)): t
 `src/lib/sync/sync-service.ts` (folder transports, per-device safety backup), and only the debug-gated
 "Synchroniser maintenant" runs it. There is no startup, focus, timer or quit trigger yet. Tests construct it against the
 in-memory folders of `src/lib/sync/test-support/memory-transport.ts` or the fake host of
-`test-support/fake-folder-host.ts`. The `work` device profile is enforced by the engine but is not
-selectable anywhere (`syncProfile: "work"` is refused).
+`test-support/fake-folder-host.ts`. The `work` device profile is enforced by the engine, the repository and a
+startup re-check ([Work-profile guards in the repository](#work-profile-guards-in-the-repository)) but is not
+selectable anywhere (`syncProfile: "work"` is refused unless a test passes the seam).
 
 **Modules.** `sync-engine.ts` (the `SyncEngine` class and `createSyncEngine`), `engine-pull.ts`,
 `engine-publish.ts`, `engine-gates.ts` (pure manifest gates), `engine-support.ts` (options, timeouts,

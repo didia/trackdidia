@@ -1,4 +1,5 @@
 import { LATEST_MIGRATION_ID } from "../storage/migrations";
+import { newProfileCheckState, verifyWorkProfile } from "./engine-profile";
 import { runPublish, newPublishMemory } from "./engine-publish";
 import { runPull } from "./engine-pull";
 import {
@@ -94,6 +95,7 @@ export class SyncEngine {
       beforeWrite: options.beforeWrite,
       chunkResume: new Map(),
       firstMergeBackupTaken: false,
+      profileCheck: newProfileCheckState(),
     };
   }
 
@@ -135,6 +137,13 @@ export class SyncEngine {
     const issues = [...(this.lastPull?.issues ?? []), ...(this.lastPublish?.issues ?? [])].filter(
       (issue) => issue.severity !== "info",
     );
+    // A work device that holds personal data says so on the page even before its first run.
+    let profileViolation: EngineStatus["profileViolation"] = null;
+    if (status.supported && this.ctx.profile === "work") {
+      const stop = await verifyWorkProfile(this.ctx);
+      profileViolation = this.ctx.profileCheck.violation?.info ?? null;
+      if (stop !== null && !issues.some((issue) => issue.code === stop.code)) issues.push(stop);
+    }
     if (!status.supported) {
       return {
         ready: false,
@@ -146,6 +155,7 @@ export class SyncEngine {
         lastPull: this.lastPull,
         lastPublish: this.lastPublish,
         issues,
+        profileViolation: null,
       };
     }
     return {
@@ -158,6 +168,7 @@ export class SyncEngine {
       lastPull: this.lastPull,
       lastPublish: this.lastPublish,
       issues,
+      profileViolation,
     };
   }
 

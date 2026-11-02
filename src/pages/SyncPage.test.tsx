@@ -478,6 +478,32 @@ describe("issues", () => {
     expect(alert).toHaveTextContent("dossier personnel");
   });
 
+  it("shows a work laptop that holds personal data as an alert with the counts and the way out", async () => {
+    await renderPage(
+      syncController({
+        status: status({
+          profile: "work",
+          profileViolation: { personal: 3, finance: 12, exact: true },
+          issues: [
+            issue({
+              severity: "error",
+              code: "work_profile_data_present",
+              detail: "personal=3,finance=12",
+              message: "This work laptop's database holds personal data",
+            }),
+          ],
+        }),
+      }),
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert).toHaveTextContent("Données personnelles sur un ordinateur de travail");
+    expect(alert).toHaveTextContent("Personnel : 3 ; Finances : 12");
+    expect(alert).toHaveTextContent("La synchronisation est suspendue");
+    expect(alert).toHaveTextContent("repartir d'une base vide");
+    expect(alert).toHaveTextContent("ne supprime ni ne déplace jamais ce fichier");
+    expect(document.body.textContent ?? "").not.toMatch(/page\.issues\./);
+  });
+
   it("shows an unreachable folder as a calm warning, not an alert", async () => {
     await renderPage(syncController({ status: status({ issues: [issue()] }) }));
     expect(screen.queryByRole("alert")).toBeNull();
@@ -577,6 +603,8 @@ const ALL_ISSUE_CODES: Record<SyncIssueCode, true> = {
   publish_failed: true,
   publish_skipped: true,
   pending_unpublished_domain: true,
+  work_profile_data_present: true,
+  profile_check_failed: true,
 };
 const ALL_PEER_STATES: Record<PeerState, true> = {
   synced: true,

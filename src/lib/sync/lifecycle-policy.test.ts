@@ -233,10 +233,35 @@ describe("classifying runs", () => {
     ).toBe("blocked");
   });
 
+  it("a work database holding personal data blocks (the chip says paused); a failed look is retried", () => {
+    expect(classifyIssues([issue("work_profile_data_present", "error")])).toBe("blocked");
+    expect(
+      classifyPull(
+        pull({
+          complete: false,
+          transports: [],
+          issues: [issue("work_profile_data_present", "error")],
+        }),
+      ),
+    ).toBe("blocked");
+    expect(classifyPublish(publish([issue("work_profile_data_present", "error")]))).toBe("blocked");
+    expect(classifyIssues([issue("profile_check_failed", "error")])).toBe("retry");
+    const chip = deriveSyncChip({
+      running: false,
+      lastClass: "blocked",
+      failures: 0,
+      backoffUntilMs: null,
+      lastOkAtMs: null,
+      backfillIncomplete: false,
+    });
+    expect(chip.state).toBe("paused");
+  });
+
   it("classifies a thrown setup error by its code", () => {
     expect(classifyThrown("no_backup_destination")).toBe("blocked");
     expect(classifyThrown("folder_rejected")).toBe("blocked");
     expect(classifyThrown("unsupported_profile")).toBe("blocked");
+    expect(classifyThrown("work_profile_data_present")).toBe("blocked");
     expect(classifyThrown("folder_unavailable")).toBe("retry");
     expect(classifyThrown("unexpected")).toBe("retry");
   });

@@ -12,20 +12,22 @@ sets, folder commands, bundle format and transport are documented where they liv
 [storage-and-backups.md](storage-and-backups.md) (links below). This page does not repeat them.
 
 > **Do not rely on this yet.** There is no restore-from-backup UI, the automatic triggers have only
-> been exercised against fakes (never in a real desktop window), the `work` profile and the join flow
-> for a second laptop are not shipped, and a third laptop is unsupported. The "Cloud sync or multi-device conflict resolution"
+> been exercised against fakes (never in a real desktop window), the `work` profile cannot be chosen (only its
+> [data-layer guards](#the-work-profile-guards-data-layer-only) exist) and the join flow for a second laptop is not
+> shipped, and a third laptop is unsupported. The "Cloud sync or multi-device conflict resolution"
 > product boundary in [`AGENTS.md`](../AGENTS.md) still applies to the product as a whole.
 
 ## What is and is not available
 
 | Shipped | Not shipped |
 |---|---|
-| Personal profile: everything syncs (GTD, journal, reviews, goals, AI memory and proposals, finance, Pomodoro history, shared settings) | Work profile, work shell, join flow for a second laptop, profile switching |
+| Personal profile: everything syncs (GTD, journal, reviews, goals, AI memory and proposals, finance, Pomodoro history, shared settings) | Selecting the work profile, work shell and routes, reduced Settings, join flow for a second laptop, profile switching in the UI |
 | Manual "Synchroniser maintenant" on `/sync` | Restore UI |
 | [Automatic triggers](#automatic-triggers): pull at startup (before the day's generators), on focus and hourly; publish after a 2-minute debounce, on blur and on quit; backoff; status chip; reload of open GTD / Today / Daily / Pomodoro screens | Conflict and overwritten-edit list |
 | A forced safety backup before the first merge (taken once, not on every pull; and on a schema change) | Third laptop (see [limits](#limits)) |
 | Tombstones carry the last field values of a deleted row, so a delete racing edits from other laptops loses nothing ([below](#deletes-and-tombstone-values)) | |
 | Peers table, pending count, last run report, errors, stale-peer approval | Any trigger without the debug gate and `multiDeviceSyncEnabled` |
+| Work-profile data guards, reachable only through test seams ([below](#the-work-profile-guards-data-layer-only)): the repository refuses a non-GTD change set on a `work` database, a startup re-check pauses a work device that holds personal data, profile-change rules, cloned-identity repair at every startup | |
 | Browser preview shows "unavailable" and persists nothing | Background syncing while the app is fully closed |
 
 ## The gate
@@ -54,7 +56,7 @@ bundle, never applied from one, and a registry/privacy test fails if one is clas
 | Key | Default | Meaning |
 |---|---|---|
 | `multiDeviceSyncEnabled` | `false` | Sync was enabled on this laptop (identity created, capture installed, folders prepared). |
-| `syncProfile` | `"personal"` | Only `"personal"` is supported. A stored `"work"` is kept as written but sync refuses it (`unsupported_profile`). Anything that is not a profile normalizes to `"personal"`. |
+| `syncProfile` | `"personal"` | Only `"personal"` is supported. A stored `"work"` is kept as written but sync refuses it (`unsupported_profile`; `WORK_PROFILE_SELECTABLE` is `false`). Anything that is not a profile normalizes to `"personal"`. The repository reads this stored value when it applies a bundle ([guards](#the-work-profile-guards-data-layer-only)). |
 | `syncGtdFolderDir` | `""` | The shared GTD folder. |
 | `syncDeviceName` | `"Cet ordinateur"` | How this laptop is named to its peers (at most 100 characters). Give each laptop a different name. |
 
@@ -308,6 +310,70 @@ changes keep being published and the updated laptop keeps reading them); update 
 merge after the update takes the usual safety backup because the schema differs. Details and the format decision:
 [Tombstones carry the last field values](storage-and-backups.md#tombstones-carry-the-last-field-values).
 
+## The work-profile guards (data layer only)
+
+The spec's work laptop gets the GTD list and Pomodoro history and nothing else. This build ships the **data-layer
+guards** for it and nothing a person can reach: `work` is **not selectable** (`WORK_PROFILE_SELECTABLE` is `false`; the
+settings, the card and every route are unchanged; the guards are exercised through the test seam
+`SyncServiceDeps.workProfileSelectable` and through the engine's `profile` option and the stored `syncProfile`). The three layers
+that exist in code:
+
+1. **What the machine can open.** `buildSyncEngine` for a work profile builds the shared GTD folder's transport only, even if a
+   backup folder is configured, and `prepareFolders` prepares the GTD folder alone (the backup folder is only passed for the
+   nesting check). `enableSync` refuses a work profile before any folder, identity or setting is touched when the database holds
+   personal data.
+2. **What gets published where.** Unchanged: the engine and the transport routing (tested again for a work engine).
+3. **What gets applied.** The engine refuses non-GTD manifest entries and bundles; and now the **repository** does too, on its
+   own: `applySyncBundle` reads the persisted `syncProfile` inside its transaction and refuses (`domain_not_allowed`) any change set
+   that carries a row, tombstone, union row, alias or setting of a domain a work database may not hold, even if the engine passed
+   it ([details](storage-and-backups.md#work-profile-guards-in-the-repository)).
+
+**What counts as personal data.** `AppRepository.inspectSyncProfileData` counts, per domain, the rows of the domain's tables,
+the **sidecar rows** that describe such an entity (`sync_entity_meta` clocks and tombstones, `sync_entity_snapshot` copies,
+`sync_id_aliases`, `sync_conflicts`, `sync_dirty` marks; routed by `entity_type`, so they are found even when the table row is
+gone) and the personal or finance settings that differ from their defaults. A fresh database passes: the three seeded finance
+categories (and the default taxonomy), their clocks and snapshots, and the markers the app writes itself are whitelisted.
+
+**Profile-change rules** (pure, `profile-rules.ts`, called by `changeSyncProfile` and `enableSync`; no screen calls them yet):
+
+| Change | Result |
+|---|---|
+| same profile | no-op, nothing read or saved |
+| `work` to `personal` | allowed; next steps are choosing the personal folder, then importing the other domains |
+| `personal` to `work`, no personal or finance rows | allowed (GTD and Pomodoro rows alone are fine) |
+| `personal` to `work`, any personal or finance row | **refused** (`SyncSetupError` code `work_profile_data_present`, with `counts` per domain); nothing is saved |
+| joining as `work` on a non-empty personal database | the same refusal |
+| joining as `personal` | allowed; a database that holds data needs a backup first, an empty one skips it (`decideJoin`) |
+
+There is no "keep them local" option and the app never moves, archives or deletes the database file: the manual path (quit,
+move the file and its backups off the work machine, restart for a fresh database) is for the person.
+
+**Startup re-check.** A work engine looks at its own database before every pull and publish (`engine-profile.ts`): once per
+engine (so at every startup, inside the 4 s startup pull and never in `initialize`), then again after 10 minutes while it is clean,
+and at every run while it is not. The look is one-row probes of the personal and finance tables and sidecars (45 statements whatever
+the data; the most expensive scans a sidecar's primary-key index, 18 ms in process with 200,000 rows; the IPC cost is unmeasured). If any personal or finance row exists, the run **pauses**: no folder is listed or read, nothing is
+applied, nothing is published, and the report carries the error `work_profile_data_present` (counts in `detail`). `/sync` shows it in
+the alert area with French text and the manual path; the lifecycle classifies it as blocked, so the sidebar chip reads "Synchro en
+pause" and the automatic triggers stop until a manual run succeeds or the settings change (no new chip state). A look that fails is
+`profile_check_failed` (retried by the next run). The look runs in the background pull, never in bootstrap's own sequence: a database
+or lane that never answers is a startup pull that lapses after its wait and continues in the background (tested through
+`bootstrapApplication`), with no fallback and no change to the 8-second rule.
+
+**Schema and stale-peer gates on the work path** (engine gates, tested for a work engine): a peer on a newer schema is skipped
+(`update_required`, nothing read, our own state still published), an older one is merged after a `schema_skew` safety backup, a peer
+last written more than 90 days ago, or not pulled from for 90 days, is refused (`stale_peer`) until approved. At the repository
+boundary a bundle from a newer schema than the database is refused too (`schema_newer_than_local`), even if the engine let it through.
+
+**Cloned device identity.** The device-id file is the authority. Building the engine (`buildSyncEngine`, which runs at every
+startup when the gate is open, and when sync is enabled) rewrites a stored identity that came from another laptop (a copied or
+restored database), keeping its clock state, logs a warning and reports `repaired`; the copy then publishes under its own id as a
+normal second peer (tested with two machines sharing one stored identity).
+
+**Still not shipped:** selecting `work`, the work shell and route set, reduced Settings, profile-gated bootstrap jobs (a work device
+would today still run the relationship draws and the finance seed), the guided join flow and its counts screen, the work backup
+destination rule (a work backup folder is not yet checked against the personal folder's role marker), the opposite-direction
+re-import after `work` to `personal`, and publishing conflicts.
+
 ## Safety
 
 - Plaintext bundles (no encryption in v1); secrets (OpenRouter key, RescueTime key, LLM bridge token) and all
@@ -323,7 +389,8 @@ merge after the update takes the usual safety backup because the schema differs.
 - The automatic triggers are described above and are untested in a real desktop window; with the gate closed nothing
   automatic exists. There is still no restore UI, and nothing runs while the app is fully closed (a laptop that is
   off does not sync; the other one publishes and the next start pulls).
-- Personal profile only. The work profile and the guided join flow are not shipped, and a **third laptop is not
+- Personal profile only. The work profile cannot be chosen (its [data-layer guards](#the-work-profile-guards-data-layer-only)
+  exist; its shell, routes and the guided join flow do not), and a **third laptop is not
   supported yet**: the merge no longer blocks it (a delete racing edits from other laptops is a join since tombstones
   carry their last field values, see [Deletes and tombstone values](#deletes-and-tombstone-values)), but it has only
   been exercised in the simulation, and the lifecycle and conflict-UI slices that make it a supported setup are
@@ -367,6 +434,7 @@ merge after the update takes the usual safety backup because the schema differs.
 | Folder transport | `src/lib/sync/transport-folder.ts` (typed commands: `folder-api.ts`) |
 | Enable / disable / engine construction / safety backup | `src/lib/sync/sync-service.ts`, `folder-paths.ts` |
 | Gate | `src/lib/sync/gate.ts` |
+| Work-profile guards | `profile-data.ts` (pure: seeds, routing of sidecar rows, summary), `profile-data-sql.ts` (the reads), `profile-rules.ts` (profile-change and join rules), `profile-guard.ts` (the repository's apply-time check), `engine-profile.ts` (the engine's re-check), `sync-service.ts` (`changeSyncProfile`, `assertProfileFitsDatabase`) |
 | State around the engine | `src/app/use-multi-device-sync.ts` (in `AppProvider`, exposed as `useAppContext().sync`) |
 | Automatic triggers | `src/lib/sync/lifecycle-policy.ts` (pure rules), `lifecycle.ts` (timers and runs), `startup-sync.ts` (the bootstrap pull), `quit-publish.ts` (close handler and tray-quit handshake; the host half is `src-tauri/src/desktop_shell.rs`: `desktop_set_exit_handshake`, `desktop_exit`), `src/app/use-sync-automation.ts` (window events), `domain-counters.ts` (per-domain change detection) |
 | Status chip | `src/components/sync/SyncStatusChip.tsx` |
@@ -380,5 +448,5 @@ Tests: `lifecycle-policy.test.ts`, `lifecycle.test.ts` (fake timers), `lifecycle
 "gate closed adds no listener, timer or pull" proofs), `sync-engine.domains.test.ts`, `SyncStatusChip.test.tsx`,
 `bundle.test.ts`, `transport-folder.test.ts` (including the real engine over the real bundle codec),
 `sync-service.test.ts`, `folder-paths.test.ts`, `gate.test.ts`, `use-multi-device-sync.test.tsx`,
-`SyncPage.test.tsx`, `MultiDeviceSyncSection.test.tsx`, `AppShell.test.tsx`, `create-backup.test.ts`, and the
+`profile-data.test.ts`, `src/lib/storage/sync-profile-data.test.ts`, `profile-rules.test.ts`, `profile-guard.test.ts`, `sync-engine.work-profile.test.ts`, `sync-service.work-profile.test.ts`, `SyncPage.test.tsx`, `MultiDeviceSyncSection.test.tsx`, `AppShell.test.tsx`, `create-backup.test.ts`, and the
 registry, privacy and settings tests listed in the changelog.

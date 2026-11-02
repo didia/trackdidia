@@ -57,6 +57,7 @@
   "errors": {
     "unsupported_preview": "Indisponible en mode aperçu navigateur : la synchronisation exige l'application de bureau.",
     "unsupported_profile": "Ce profil de synchronisation n'est pas encore pris en charge : seul le profil personnel l'est.",
+    "work_profile_data_present": "Cette base de données contient des données personnelles : elle ne peut pas être celle d'un ordinateur de travail. Un ordinateur de travail doit repartir d'une base vide. ({{detail}})",
     "no_backup_destination": "Aucun dossier de sauvegarde n'est défini. C'est le dossier personnel de la synchronisation et l'endroit de la sauvegarde de sécurité : choisis-le dans la section Sauvegardes.",
     "no_gtd_folder": "Choisis d'abord le dossier GTD partagé.",
     "folders_overlap": "Le dossier GTD partagé doit être différent du dossier de sauvegarde, ni à l'intérieur ni autour de lui.",
@@ -234,9 +235,15 @@
         "publish_failed": "La publication des données {{domain}} a échoué.",
         "publish_skipped": "Publication non effectuée.",
         "pending_unpublished_domain": "Dossier non connecté : {{folders}}. Tes changements restent en attente et seront publiés dès la reconnexion.",
-        "backfill_incomplete": "Le suivi des changements de cet ordinateur est encore en cours d'initialisation : rien n'est reçu ni publié tant qu'il n'est pas terminé."
+        "backfill_incomplete": "Le suivi des changements de cet ordinateur est encore en cours d'initialisation : rien n'est reçu ni publié tant qu'il n'est pas terminé.",
+        "work_profile_data_present": "Cet ordinateur de travail contient des données personnelles ({{counts}}). La synchronisation est suspendue : rien n'est reçu ni envoyé.",
+        "profile_check_failed": "La vérification que cet ordinateur de travail ne contient aucune donnée personnelle a échoué : la synchronisation est suspendue jusqu'à ce qu'elle réussisse."
       },
-      "supersededPublish": "La publication des données {{domain}} a été remplacée par une plus récente : rien n'est perdu."
+      "supersededPublish": "La publication des données {{domain}} a été remplacée par une plus récente : rien n'est perdu.",
+      "workProfile": {
+        "title": "Données personnelles sur un ordinateur de travail",
+        "body": "La base de données de cet ordinateur contient des données personnelles ({{counts}}) alors que son profil est « travail ». La synchronisation est suspendue : rien n'est reçu ni publié. Un ordinateur de travail doit repartir d'une base vide : quitte l'application, déplace le fichier de la base de données et ses sauvegardes hors de cet ordinateur (par exemple vers un ordinateur personnel, qui pourra les fusionner), puis relance l'application. L'application ne supprime ni ne déplace jamais ce fichier elle-même."
+      }
     },
     "backfill": {
       "title": "Initialisation du suivi des changements",

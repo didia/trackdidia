@@ -154,7 +154,12 @@ export const nextFirstPendingAt = (
  */
 export type RunClass = "ok" | "retry" | "blocked" | "backfill";
 
-const BLOCKED_CODES = new Set<string>(["sync_not_ready", "safety_backup_required"]);
+const BLOCKED_CODES = new Set<string>([
+  "sync_not_ready",
+  "safety_backup_required",
+  // A work database that holds personal data: only a fresh database fixes it (spec "Work profile").
+  "work_profile_data_present",
+]);
 const RETRY_WARNING_CODES = new Set<string>(["transport_unreachable", "transport_timeout"]);
 
 export const classifyIssues = (issues: readonly SyncIssue[]): RunClass => {
@@ -184,6 +189,7 @@ export const worstClass = (a: RunClass, b: RunClass): RunClass =>
 const BLOCKED_SETUP_CODES = new Set<string>([
   "unsupported_preview",
   "unsupported_profile",
+  "work_profile_data_present",
   "no_backup_destination",
   "no_gtd_folder",
   "folders_overlap",

@@ -1,5 +1,6 @@
 import type { AppRepository } from "../storage/repository";
 import type { SafetyBackupReason, SyncIssue } from "./engine-types";
+import type { ProfileCheckState } from "./engine-profile";
 import type { DeviceProfile } from "./profile";
 import type { ApplyLimits } from "./split-change-set";
 import type { SyncTransport } from "./transport";
@@ -16,7 +17,12 @@ export type SyncEngineRepository = Pick<
   | "markSyncPublished"
   | "queueSyncRepublish"
   | "recordSyncFirstMergeBackup"
->;
+> &
+  /**
+   * Only a `work` engine uses it (`engine-profile.ts`). Optional so that a repository without it still
+   * serves a personal engine; a work engine whose repository lacks it pauses ("could not verify").
+   */
+  Partial<Pick<AppRepository, "inspectSyncProfileData">>;
 
 export interface SafetyBackupResult {
   /** Where the backup went, when the hook knows. Recorded in the pull report. */
@@ -100,6 +106,8 @@ export interface EngineContext {
    * (`SyncStatus.firstMergeBackupPath`) covers a restart; this covers a failure to write it.
    */
   firstMergeBackupTaken: boolean;
+  /** The work-profile re-check (`engine-profile.ts`); untouched on a personal engine. */
+  profileCheck: ProfileCheckState;
 }
 
 export const messageOf = (error: unknown): string =>

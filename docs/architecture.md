@@ -203,7 +203,11 @@ screen.
       merges nothing during bootstrap, and the generators run first (they converge with the merge).
       The one thing that can still overrun is a writer slot already running when the wait lapses
       (an apply piece, bounded, not measured with the real IPC cost). An unreachable folder or a
-      failed pull is logged and never throws into bootstrap. The settings are read again when
+      failed pull is logged and never throws into bootstrap. A `work` engine (not selectable in
+      this release) also looks at its own database inside this same pull and pauses with a
+      `/sync` error when personal or finance rows exist
+      ([Multi-device sync](multi-device-sync.md#the-work-profile-guards-data-layer-only)); it adds
+      no step to bootstrap. The settings are read again when
       the pull finished in time. With the gate closed this step does not exist: no stage label,
       no engine, no timer, no folder call. See
       [Multi-device sync](multi-device-sync.md#automatic-triggers).
