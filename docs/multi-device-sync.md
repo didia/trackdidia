@@ -149,9 +149,11 @@ name or the profile rebuilds it.
 | **Startup** (inside bootstrap) | Pull from the other laptop BEFORE the two GTD normalizations, recurrence generation, Scheduled promotion and relationship draws, so a task already completed on the other laptop is not regenerated and today's draw made there is not repeated. Then publish what is pending (step 6 of the spec's flow). | Bootstrap waits at most **4 s** (less if bootstrap already spent time: never past the 8 s deadline minus 2.5 s) for the pull; past that it carries on and the same pull keeps running in the background (chip: "Synchronisation…"; open screens reload when it applies). It never throws into bootstrap, and its safety backup and later apply pieces do not take the writer until bootstrap is over ([below](#startup-ordering-the-8-second-rule-and-chunk-resumption)). |
 | **Window focus / becoming visible** | Pull. | At most once per **60 s** (any pull counts, startup included). |
 | **Hourly** | Pull. | Every 60 minutes while the app runs. |
+| **Manifest heartbeat** | Run the engine publish path although nothing is pending, so a manifest older than 30 days is rewritten ([why](storage-and-backups.md#per-domain-change-detection-and-the-manifest-heartbeat)). | Peers refuse a manifest older than 90 days, and a clean device never publishes for pending changes, so without this a laptop with no new edits would age out while online. Once per session right after the startup publish step (or at the first hourly tick when there is none; the manifest age, not the process uptime, is what matters, so a restart evaluates again), then at most once per **24 h** on the hourly tick; any successful publish counts as that day's evaluation. On a fresh manifest it is one folder listing and writes nothing. It respects the backoff, the "paused" state, a run in flight, a manual action, an unfinished backfill (the engine publishes nothing then) and the exclusive lane; a failed one is not counted and is retried by the next hourly tick. |
 | **Local changes** | Publish. | A 15 s poll of one row (`pendingChanges`, a single counter comparison) notes when changes were first seen; they are published when the first is **2 minutes** old. Further edits do not push the deadline back. |
 | **Window blur / hidden** | Publish what is pending, at once. | |
-| **Quit** | Publish what is pending, best effort. | Waits at most **3 s** in total (for a run in flight to end, then for the publish), then the window closes whatever happened; a pull that is still running at the cap means nothing is published. In tray mode the close handler publishes nothing and keeps the window alive for the native handler to hide (hiding blurs it, which already publishes). |
+| **Quit** (window close) | Publish what is pending, best effort. | Waits at most **3 s** in total (for a run in flight to end, then for the publish), then the window closes whatever happened; a pull that is still running at the cap means nothing is published. In tray mode the close handler publishes nothing and keeps the window alive for the native handler to hide (hiding blurs it, which already publishes). |
+| **Quit** (tray **Quitter**) | The same capped publish, then the process exits. | The tray action exits the process without closing any window, so the close handler never runs for it. While automation is on the webview tells the host (`desktop_set_exit_handshake`) that it answers a quit request; **Quitter** then emits `desktop-quit-requested` instead of exiting, the webview runs the same capped publish and calls `desktop_exit`, and the host exits anyway after **4 s** if no answer comes (a stuck or missing webview cannot keep the app running; a second **Quitter** while one waits exits at once). A failing publish or a failing `desktop_exit` still ends in an exit. With automation off nothing is registered and the host is never told to wait, so **Quitter** exits at once exactly as before. Other exits (for example the macOS application menu's Quit) are not intercepted. |
 | **Synchroniser maintenant** | Pull then publish, always. | Ignores and resets the backoff and the "paused" state; waits for an automatic run already in flight, and runs in the same exclusive lane as backups. |
 
 A trigger that finds a run in flight is dropped, not queued, and no automatic trigger runs while a manual action
@@ -236,10 +238,12 @@ statement (so `maxEntities` and the other apply limits stay as tuned against the
 automatic run logs `statusReadMs`, the time of one `getSyncStatus`, and `maxChunkMs`, the slowest apply slot, in
 the debug log under `sync.lifecycle`, so a session on a real laptop can read the latency off); the JavaScript heap
 inside the real webview (the 350 to 450 MB read of a very large `finance` domain is a Node figure; per-domain
-detection only makes it rarer); and the close handler in a real Tauri window (it is tested against a fake window).
+detection only makes it rarer); and the close handler and the tray-quit handshake in a real Tauri window (they are tested against a fake window and a fake event bus; the Rust half of the handshake, `desktop_shell.rs`, is written to mirror the existing tray code but could not be compiled offline: CI's `cargo check` and `clippy` are its first compile).
 One more limit of the close handler: in tray mode it decides from the JavaScript copy of `runInTray`, while the native close handler keeps its own state; if they ever diverge (the native `desktop_set_run_in_tray` call failed), the window is kept alive by the handler and not hidden by the host, and cannot be closed by the window button until the setting is fixed.
 Manual check on a desktop: edit a task and quit within seconds (the other laptop should receive it), close with
 the Drive folder unmounted (the window must still close within about 3 s), and watch the debug log lines above.
+With **Réduire dans la barre système** on, repeat both through the tray's **Quitter** (the app must exit within
+about 4 s, and the other laptop must receive the edit), and with sync off check that **Quitter** exits at once.
 
 ## What "Synchroniser maintenant" does
 
@@ -333,14 +337,14 @@ automatic run is in flight waits for it, then runs.
 | Enable / disable / engine construction / safety backup | `src/lib/sync/sync-service.ts`, `folder-paths.ts` |
 | Gate | `src/lib/sync/gate.ts` |
 | State around the engine | `src/app/use-multi-device-sync.ts` (in `AppProvider`, exposed as `useAppContext().sync`) |
-| Automatic triggers | `src/lib/sync/lifecycle-policy.ts` (pure rules), `lifecycle.ts` (timers and runs), `startup-sync.ts` (the bootstrap pull), `quit-publish.ts` (close handler), `src/app/use-sync-automation.ts` (window events), `domain-counters.ts` (per-domain change detection) |
+| Automatic triggers | `src/lib/sync/lifecycle-policy.ts` (pure rules), `lifecycle.ts` (timers and runs), `startup-sync.ts` (the bootstrap pull), `quit-publish.ts` (close handler and tray-quit handshake; the host half is `src-tauri/src/desktop_shell.rs`: `desktop_set_exit_handshake`, `desktop_exit`), `src/app/use-sync-automation.ts` (window events), `domain-counters.ts` (per-domain change detection) |
 | Status chip | `src/components/sync/SyncStatusChip.tsx` |
 | Settings card | `src/components/settings/MultiDeviceSyncSection.tsx` |
 | `/sync` page | `src/pages/SyncPage.tsx`, `src/components/sync/` |
 | French copy | `src/locales/fr/sync.json` |
 | Test fakes | `src/lib/sync/test-support/fake-folder-host.ts` (the native commands, in memory) |
 
-Tests: `lifecycle-policy.test.ts`, `lifecycle.test.ts` (fake timers), `startup-sync.test.ts`, `quit-publish.test.ts`,
+Tests: `lifecycle-policy.test.ts`, `lifecycle.test.ts` (fake timers), `lifecycle.heartbeat.test.ts` (the real lifecycle gate over the real engine and in-memory folders: a clean device with an ageing manifest refreshes it, a fresh one writes nothing), `startup-sync.test.ts`, `quit-publish.test.ts`,
 `use-multi-device-sync.automation.test.tsx` (the real hook over a real repository and the fake host, including the
 "gate closed adds no listener, timer or pull" proofs), `sync-engine.domains.test.ts`, `SyncStatusChip.test.tsx`,
 `bundle.test.ts`, `transport-folder.test.ts` (including the real engine over the real bundle codec),

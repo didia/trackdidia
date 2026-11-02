@@ -12,6 +12,7 @@ import {
   SYNC_HOURLY_PULL_MS,
   SYNC_PENDING_POLL_MS,
   SYNC_QUIT_PUBLISH_CAP_MS,
+  shouldHeartbeat,
   shouldPublish,
   shouldPull,
   type SyncTrigger,
@@ -25,12 +26,21 @@ import {
  *
  * What it does, all of it decided by `lifecycle-policy.ts`:
  * - `start()` arms two timers (a 15 s poll for unpublished changes that publishes once the first one
- *   is 2 minutes old, and the hourly pull) and nothing else. `stop()` clears them. A lifecycle that
+ *   is 2 minutes old, and the hourly pull, which also carries the manifest heartbeat check below) and
+ *   nothing else. `stop()` clears them. A lifecycle that
  *   was never started has no timer and does nothing, which is what keeps a device with sync off
  *   byte-for-byte unchanged.
  * - Runs are one at a time (a trigger that finds one in flight is dropped, not queued), skip while a
  *   manual action holds the controller, and go through `runExclusive` so a backup and a sync never
  *   overlap.
+ * - The manifest heartbeat: a device with nothing pending never publishes for pending changes, yet
+ *   peers refuse a manifest older than 90 days, so once per session (right after the startup
+ *   publish, or at the first hourly tick when there is none) and then at most once a day (on the
+ *   hourly tick) the engine publish path runs with nothing pending. A successful publish of any
+ *   kind counts as that day's evaluation. It writes only when the folder's
+ *   manifest is older than 30 days (`engine-publish.ts`); otherwise it is one folder listing. It
+ *   respects the backoff, the block, a run in flight, a manual action, an unfinished backfill and the
+ *   exclusive lane, exactly like any other automatic publish.
  * - A failing run backs the automatic triggers off (30 s doubling to 15 min). A run only the user can
  *   fix (no identity, the required backup cannot be made, a folder rejected by its marker) BLOCKS
  *   them until `reset()` or a manual run succeeds. "Synchroniser maintenant" bypasses and resets both.
@@ -124,6 +134,8 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
   let hourlyTimer: ReturnType<typeof setInterval> | undefined;
   let inFlight: Promise<void> | null = null;
   let firstPendingAtMs: number | null = null;
+  /** When the last successful publish run (heartbeat or not) began; `null` until one succeeds this session. */
+  let lastHeartbeatAtMs: number | null = null;
   const state: LifecycleSnapshot = {
     running: null,
     consecutiveFailures: 0,
@@ -211,8 +223,13 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
           });
         } else {
           const report = result as PublishReport;
-          record(classifyPublish(report), firstIssueMessage(report));
+          const publishClass = classifyPublish(report);
+          record(publishClass, firstIssueMessage(report));
           firstPendingAtMs = null;
+          // Any publish that succeeded went through the engine's heartbeat check (it looks at every
+          // folder's manifest age on its first run of the day), so it counts as the day's
+          // evaluation. A failed one does not: the next hourly tick retries once the backoff allows.
+          if (publishClass === "ok") lastHeartbeatAtMs = startedAt;
           logRun(kind, trigger, startedAt, {
             statusReadMs,
             counterAdvanced: report.counterAdvanced,
@@ -269,6 +286,26 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
     }
   };
 
+  /**
+   * Runs the engine publish path although nothing is pending, so an ageing manifest gets rewritten.
+   * Skipped (and not counted as the day's evaluation) whenever `execute` would drop it anyway, and
+   * while the capture backfill is unfinished (the engine publishes nothing then).
+   */
+  const heartbeatIfDue = async (): Promise<void> => {
+    if (!started || state.blocked || state.backfillIncomplete) return;
+    if (inFlight !== null || deps.manualBusy()) return;
+    if (
+      !shouldHeartbeat({
+        nowMs: deps.now(),
+        lastHeartbeatAtMs,
+        backoffUntilMs: state.backoffUntilMs,
+      })
+    ) {
+      return;
+    }
+    await execute("publish", "heartbeat");
+  };
+
   const guard = (work: () => Promise<void>): Promise<void> =>
     work().catch((error) => {
       logDebug("warn", "sync.lifecycle", "Declencheur de synchronisation en echec", error);
@@ -288,13 +325,21 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
         () => void guard(() => publishIfDue("debounce")),
         SYNC_PENDING_POLL_MS,
       );
-      hourlyTimer = setInterval(() => void guard(() => pullIfDue("hourly")), SYNC_HOURLY_PULL_MS);
+      hourlyTimer = setInterval(
+        () =>
+          void guard(async () => {
+            await pullIfDue("hourly");
+            await heartbeatIfDue();
+          }),
+        SYNC_HOURLY_PULL_MS,
+      );
       if (options.publishNow === true) {
         // After a pull adopted from bootstrap (it is in flight, and its republish bump is pending
         // work too), not instead of it: a publish asked while it runs would be dropped.
         void guard(async () => {
           await inFlight;
           await publishIfDue("startup");
+          await heartbeatIfDue();
         });
       }
       emit();
@@ -307,6 +352,7 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
       tickTimer = undefined;
       hourlyTimer = undefined;
       firstPendingAtMs = null;
+      lastHeartbeatAtMs = null;
     },
     resume: () => guard(() => (started ? pullIfDue("resume") : Promise.resolve())),
     hidden: () => guard(() => publishIfDue("blur")),

@@ -76,6 +76,8 @@ fn main() {
             oauth_loopback::oauth_loopback_wait,
             provider_http::provider_http_request,
             desktop_shell::desktop_set_run_in_tray,
+            desktop_shell::desktop_set_exit_handshake,
+            desktop_shell::desktop_exit,
             pomodoro_alarm::pomodoro_alarm_set,
             pomodoro_alarm::pomodoro_alarm_clear,
             llm_bridge::llm_bridge_configure,

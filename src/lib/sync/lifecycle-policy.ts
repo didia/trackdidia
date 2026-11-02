@@ -8,7 +8,9 @@ import type { PublishReport, PullReport, SyncIssue } from "./engine-types";
  *
  * Numbers (spec "Startup and runtime flow"): startup pull budget 4 s; pull on focus/visible at most
  * once per 60 s and hourly; publish 2 minutes after the first unpublished change, on blur/hide, and
- * on quit with a 3 s cap. Backoff for a failing folder: 30 s, doubling, capped at 15 minutes.
+ * on quit with a 3 s cap. Backoff for a failing folder: 30 s, doubling, capped at 15 minutes. A
+ * device with nothing pending still asks the engine, at startup and then at most once a day, whether
+ * its published manifest is ageing (the heartbeat; see {@link shouldHeartbeat}).
  */
 
 /** How long bootstrap waits for the startup pull before it carries on and lets the pull continue. */
@@ -28,11 +30,25 @@ export const SYNC_PUBLISH_DEBOUNCE_MS = 120_000;
 export const SYNC_PENDING_POLL_MS = 15_000;
 /** The longest a quit waits for its last publish. */
 export const SYNC_QUIT_PUBLISH_CAP_MS = 3_000;
+/**
+ * How often the lifecycle asks the engine to evaluate the manifest heartbeat (`PUBLISH_HEARTBEAT_MS`,
+ * 30 days, in `engine-publish.ts`) on a device with nothing pending. Matches the engine's own
+ * once-a-day look at each folder's manifest, so it adds at most one folder listing per day.
+ */
+export const SYNC_HEARTBEAT_CHECK_MS = 24 * 60 * 60_000;
 export const SYNC_BACKOFF_BASE_MS = 30_000;
 export const SYNC_BACKOFF_CAP_MS = 15 * 60_000;
 
 /** What started a run. `manual` is "Synchroniser maintenant": it ignores and resets the backoff. */
-export type SyncTrigger = "startup" | "resume" | "hourly" | "debounce" | "blur" | "quit" | "manual";
+export type SyncTrigger =
+  | "startup"
+  | "resume"
+  | "hourly"
+  | "debounce"
+  | "blur"
+  | "quit"
+  | "manual"
+  | "heartbeat";
 
 /** Delay before the next automatic attempt after `consecutiveFailures` failures (>= 1). */
 export const backoffDelayMs = (consecutiveFailures: number): number => {
@@ -78,10 +94,12 @@ export interface PublishDecisionInput {
 /**
  * Whether a publish started by `trigger` should run now. Nothing pending never publishes. The
  * debounce trigger waits for the first unpublished change to be 2 minutes old; startup, blur and
- * quit publish at once; manual always runs.
+ * quit publish at once; manual always runs. The `heartbeat` trigger is not decided here (it runs with
+ * nothing pending by design, see {@link shouldHeartbeat}), so this says no to it.
  */
 export const shouldPublish = (input: PublishDecisionInput): boolean => {
   if (input.trigger === "manual") return true;
+  if (input.trigger === "heartbeat") return false;
   if (input.pendingChanges <= 0) return false;
   if (isBackoffActive(input.backoffUntilMs, input.nowMs)) return false;
   if (input.trigger === "debounce") {
@@ -91,6 +109,29 @@ export const shouldPublish = (input: PublishDecisionInput): boolean => {
     );
   }
   return true;
+};
+
+export interface HeartbeatDecisionInput {
+  nowMs: number;
+  /** When the last successful publish run (heartbeat or not) began in this session, or `null`. */
+  lastHeartbeatAtMs: number | null;
+  backoffUntilMs: number | null;
+}
+
+/**
+ * Whether the engine should be asked to evaluate the manifest heartbeat now, regardless of pending
+ * changes. Peers refuse a laptop whose manifest is older than 90 days; `runPublish` rewrites a manifest
+ * older than 30 days, but only when a publish runs, and `shouldPublish` never lets a clean device
+ * publish. So a clean device asks once per session (the manifest age, not the process uptime, is what
+ * matters, hence also right after a restart) and then once per {@link SYNC_HEARTBEAT_CHECK_MS}. A
+ * fresh manifest costs one folder listing and writes nothing. The backoff holds it back.
+ */
+export const shouldHeartbeat = (input: HeartbeatDecisionInput): boolean => {
+  if (isBackoffActive(input.backoffUntilMs, input.nowMs)) return false;
+  return (
+    input.lastHeartbeatAtMs === null ||
+    input.nowMs - input.lastHeartbeatAtMs >= SYNC_HEARTBEAT_CHECK_MS
+  );
 };
 
 /**

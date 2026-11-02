@@ -15,7 +15,7 @@ import {
   type SyncChip,
   worstClass,
 } from "../lib/sync/lifecycle-policy";
-import type { QuitWindow } from "../lib/sync/quit-publish";
+import type { ExitBridge, QuitWindow } from "../lib/sync/quit-publish";
 import type { StartupSync } from "../lib/sync/startup-sync";
 import {
   type BuiltSyncEngine,
@@ -177,6 +177,8 @@ export interface UseMultiDeviceSyncOptions {
   onDataChanged?: () => void;
   /** Test seam: the window whose close request publishes. Defaults to the Tauri window. */
   quitWindow?: () => Promise<QuitWindow>;
+  /** Test seam: the event bus and commands of the tray-quit handshake. Defaults to Tauri's. */
+  exitBridge?: () => Promise<ExitBridge>;
 }
 
 const runDirectly = <T>(work: () => Promise<T>): Promise<T> => work();
@@ -307,6 +309,7 @@ export const useMultiDeviceSync = (
     getSettings: () => latest.current.getSettings(),
     onDataChanged: dataChanged,
     ...(options.quitWindow ? { quitWindow: options.quitWindow } : {}),
+    ...(options.exitBridge ? { exitBridge: options.exitBridge } : {}),
   });
 
   const readStatus = useCallback(async (engine: BuiltSyncEngine) => {

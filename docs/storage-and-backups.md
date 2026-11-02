@@ -1670,7 +1670,11 @@ that domain LAST changed. `change_counter` itself is unchanged and still answers
   listing already returns) lets the engine look at that age at most once a day per transport; past
   `PUBLISH_HEARTBEAT_MS` (30 days) the first domain of that transport is republished whatever its counter
   says, which refreshes the shared manifest. `sync-engine.faults.test.ts` ("a peer that has been away too
-  long") caught the problem before the heartbeat existed.
+  long") caught the problem before the heartbeat existed. The engine only evaluates it when a publish runs,
+  and the lifecycle never publishes a clean device for pending changes, so the lifecycle schedules a
+  pending-independent heartbeat run (at startup and then at most daily;
+  [Automatic triggers](multi-device-sync.md#automatic-triggers)); `lifecycle.heartbeat.test.ts` pins the
+  whole path.
 - **First-merge safety backup, once.** The engine used to decide "first merge" from the peers' recorded
   hashes, which only exist after a bundle COMPLETES, so a first merge spread over several pulls (a budgeted
   or interrupted large bundle) took a backup on every pull and the retention (30 files per device) could

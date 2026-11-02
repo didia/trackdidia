@@ -138,7 +138,12 @@ The default main-window capability grants:
 - `autostart:default`.
 
 The tray icon is created at runtime when **Réduire dans la barre système à la fermeture** is enabled;
-closing the main window hides it until **Afficher** or **Quitter** from the tray menu.
+closing the main window hides it until **Afficher** or **Quitter** from the tray menu. **Quitter** exits the
+process at once, unless multi-device sync automation is on: then the host asks the webview to publish first
+(`desktop-quit-requested` event, answered by the `desktop_exit` command) and exits after at most 4 s whatever
+happens ([Automatic triggers](multi-device-sync.md#automatic-triggers)). `desktop_set_exit_handshake` and
+`desktop_exit` are app commands registered in `main.rs` and need no capability entry (`core:default` already
+covers the event listener).
 
 New native APIs require both plugin initialization and capability review.
 

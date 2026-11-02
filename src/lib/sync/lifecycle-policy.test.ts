@@ -12,8 +12,10 @@ import {
   pullChangedData,
   SYNC_BACKOFF_BASE_MS,
   SYNC_BACKOFF_CAP_MS,
+  SYNC_HEARTBEAT_CHECK_MS,
   SYNC_PUBLISH_DEBOUNCE_MS,
   SYNC_RESUME_PULL_DEBOUNCE_MS,
+  shouldHeartbeat,
   shouldPublish,
   shouldPull,
   worstClass,
@@ -127,6 +129,11 @@ describe("shouldPublish", () => {
     expect(shouldPublish({ ...base, trigger: "manual", pendingChanges: 0 })).toBe(true);
   });
 
+  it("the heartbeat is decided by shouldHeartbeat, never here, pending changes or not", () => {
+    expect(shouldPublish({ ...base, trigger: "heartbeat", pendingChanges: 0 })).toBe(false);
+    expect(shouldPublish({ ...base, trigger: "heartbeat" })).toBe(false);
+  });
+
   it("debounces: 2 minutes after the FIRST unpublished change", () => {
     const first = base.nowMs - (SYNC_PUBLISH_DEBOUNCE_MS - 1);
     expect(shouldPublish({ ...base, trigger: "debounce", firstPendingAtMs: first })).toBe(false);
@@ -148,6 +155,38 @@ describe("shouldPublish", () => {
     expect(shouldPublish({ ...base, trigger: "manual", backoffUntilMs: base.nowMs + 5 })).toBe(
       true,
     );
+  });
+});
+
+describe("shouldHeartbeat", () => {
+  const input = {
+    nowMs: 10 * SYNC_HEARTBEAT_CHECK_MS,
+    lastHeartbeatAtMs: null,
+    backoffUntilMs: null,
+  };
+
+  it("is due at the first look of a session, whatever the process uptime, with nothing pending", () => {
+    expect(shouldHeartbeat(input)).toBe(true);
+  });
+
+  it("is then due at most once per day", () => {
+    const last = input.nowMs;
+    expect(shouldHeartbeat({ ...input, lastHeartbeatAtMs: last, nowMs: last + 1 })).toBe(false);
+    expect(
+      shouldHeartbeat({
+        ...input,
+        lastHeartbeatAtMs: last,
+        nowMs: last + SYNC_HEARTBEAT_CHECK_MS - 1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldHeartbeat({ ...input, lastHeartbeatAtMs: last, nowMs: last + SYNC_HEARTBEAT_CHECK_MS }),
+    ).toBe(true);
+  });
+
+  it("the backoff holds it back", () => {
+    expect(shouldHeartbeat({ ...input, backoffUntilMs: input.nowMs + 1 })).toBe(false);
+    expect(shouldHeartbeat({ ...input, backoffUntilMs: input.nowMs })).toBe(true);
   });
 });
 

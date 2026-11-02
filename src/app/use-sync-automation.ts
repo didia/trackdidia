@@ -7,14 +7,20 @@ import {
   type LifecycleSnapshot,
   type SyncLifecycle,
 } from "../lib/sync/lifecycle";
-import { type QuitWindow, registerQuitPublish } from "../lib/sync/quit-publish";
+import {
+  type ExitBridge,
+  type QuitWindow,
+  registerExitPublish,
+  registerQuitPublish,
+} from "../lib/sync/quit-publish";
 import type { StartupSync } from "../lib/sync/startup-sync";
 import type { BuiltSyncEngine } from "../lib/sync/sync-service";
 import type { AppSettings } from "../domain/types";
 
 /**
  * Wires the automatic sync triggers (`lib/sync/lifecycle.ts`) to the browser: window focus and
- * visibility, blur, and the close request. It exists only while `automationKey` is non-null, i.e.
+ * visibility, blur, the close request and the tray's Quitter action (an exit that closes no window,
+ * see `quit-publish.ts`). It exists only while `automationKey` is non-null, i.e.
  * the debug gate is open, sync is enabled and the storage is the desktop one; with it `null` this
  * hook registers no listener and arms no timer (tests pin that).
  *
@@ -40,6 +46,8 @@ export interface SyncAutomationOptions {
   onDataChanged: () => void;
   /** Test seam for the close handler's window; defaults to the Tauri window. */
   quitWindow?: () => Promise<QuitWindow>;
+  /** Test seam for the tray-quit handshake's event bus and commands; defaults to Tauri's. */
+  exitBridge?: () => Promise<ExitBridge>;
 }
 
 export interface SyncAutomation {
@@ -134,10 +142,20 @@ export const useSyncAutomation = (options: SyncAutomationOptions): SyncAutomatio
       if (removed) remove();
       else removeQuit = remove;
     });
+    // The tray's Quitter exits the process without closing the window: publish before it does.
+    let removeExit: () => void = () => undefined;
+    void registerExitPublish({
+      quit: (capMs) => lifecycle.quit(capMs),
+      ...(latest.current.exitBridge ? { loadBridge: latest.current.exitBridge } : {}),
+    }).then((remove) => {
+      if (removed) remove();
+      else removeExit = remove;
+    });
 
     return () => {
       removed = true;
       removeQuit();
+      removeExit();
       window.removeEventListener("focus", onFocus);
       window.removeEventListener("blur", onBlur);
       document.removeEventListener("visibilitychange", onVisibility);

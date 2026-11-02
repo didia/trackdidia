@@ -3,6 +3,7 @@ import type { PublishReport, PullReport, SyncIssue } from "./engine-types";
 import { createSyncLifecycle, type LifecycleSnapshot, type SyncLifecycleDeps } from "./lifecycle";
 import {
   SYNC_BACKOFF_BASE_MS,
+  SYNC_HEARTBEAT_CHECK_MS,
   SYNC_HOURLY_PULL_MS,
   SYNC_PENDING_POLL_MS,
   SYNC_PUBLISH_DEBOUNCE_MS,
@@ -319,9 +320,11 @@ describe("pulling", () => {
     const h = harness();
     h.lifecycle.start();
     await vi.advanceTimersByTimeAsync(SYNC_HOURLY_PULL_MS);
-    expect(syncCalls(h)).toEqual(["pull"]);
+    // The first hourly tick also carries the day's manifest heartbeat check (a publish with
+    // nothing pending); the next ones, an hour later, are pulls only.
+    expect(syncCalls(h)).toEqual(["pull", "publish"]);
     await vi.advanceTimersByTimeAsync(SYNC_HOURLY_PULL_MS);
-    expect(syncCalls(h)).toEqual(["pull", "pull"]);
+    expect(syncCalls(h)).toEqual(["pull", "publish", "pull"]);
   });
 
   it("tells the app to reload when a pull applied something, and only then", async () => {
@@ -370,6 +373,116 @@ describe("pulling", () => {
     await h.lifecycle.resume();
     await h.lifecycle.hidden();
     expect(h.calls).toEqual(["lane", "pull", "lane", "publish"]);
+  });
+});
+
+describe("the manifest heartbeat", () => {
+  const HOUR = SYNC_HOURLY_PULL_MS;
+
+  it("runs the publish path with nothing pending right after the startup publish step, once", async () => {
+    const h = harness();
+    h.lifecycle.start({ publishNow: true });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(syncCalls(h)).toEqual(["publish"]);
+    // Not again at the first hourly tick: it was just evaluated.
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(syncCalls(h)).toEqual(["publish", "pull"]);
+  });
+
+  it("a startup publish of pending changes already counts as the day's evaluation", async () => {
+    const h = harness();
+    h.pending.value = 2;
+    h.lifecycle.start({ publishNow: true });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(syncCalls(h)).toEqual(["publish"]);
+  });
+
+  it("without a startup step it runs at the first hourly tick, then at most once a day", async () => {
+    const h = harness();
+    h.lifecycle.start();
+    await vi.advanceTimersByTimeAsync(HOUR - 1);
+    expect(syncCalls(h)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(syncCalls(h)).toEqual(["pull", "publish"]);
+
+    // 23 more hours of idle hourly ticks: pulls only.
+    await vi.advanceTimersByTimeAsync(23 * HOUR);
+    expect(syncCalls(h).filter((call) => call === "publish")).toHaveLength(1);
+    // Past a day since the first evaluation: one more.
+    await vi.advanceTimersByTimeAsync(2 * HOUR);
+    expect(syncCalls(h).filter((call) => call === "publish")).toHaveLength(2);
+    await vi.advanceTimersByTimeAsync(SYNC_HEARTBEAT_CHECK_MS - 3 * HOUR);
+    expect(syncCalls(h).filter((call) => call === "publish")).toHaveLength(2);
+  });
+
+  it("is not counted when it failed: the next hourly tick, past the backoff, tries again", async () => {
+    const h = harness();
+    h.publishImpl.current = async () => publishReport([unreachable]);
+    h.lifecycle.start();
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(syncCalls(h)).toEqual(["pull", "publish"]);
+    expect(h.lifecycle.snapshot().consecutiveFailures).toBe(1);
+    h.publishImpl.current = async () => publishReport();
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(syncCalls(h)).toEqual(["pull", "publish", "pull", "publish"]);
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(syncCalls(h)).toEqual(["pull", "publish", "pull", "publish", "pull"]);
+  });
+
+  it("waits out the backoff, the block, a manual action and an unfinished backfill", async () => {
+    const h = harness();
+    // The pull fails: backoff active at the heartbeat step of the same tick.
+    h.pullImpl.current = async () => pullReport({ issues: [unreachable] });
+    h.lifecycle.start();
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(syncCalls(h)).toEqual(["pull"]);
+
+    const manual = harness();
+    manual.manualBusy.value = true;
+    manual.lifecycle.start();
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(manual.calls).toEqual([]);
+
+    const blocked = harness();
+    blocked.pullImpl.current = async () =>
+      pullReport({
+        issues: [{ severity: "error", code: "sync_not_ready", message: "no identity" }],
+      });
+    blocked.lifecycle.start();
+    await vi.advanceTimersByTimeAsync(2 * HOUR);
+    expect(syncCalls(blocked)).toEqual(["pull"]);
+
+    const backfill = harness();
+    backfill.pullImpl.current = async () =>
+      pullReport({
+        issues: [{ severity: "warning", code: "backfill_incomplete", message: "initializing" }],
+      });
+    backfill.lifecycle.start();
+    await vi.advanceTimersByTimeAsync(HOUR);
+    expect(syncCalls(backfill)).toEqual(["pull"]);
+  });
+
+  it("goes through the exclusive lane and is dropped while a run is in flight", async () => {
+    const h = harness();
+    h.lifecycle.start({ publishNow: true });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(h.calls).toEqual(["lane", "publish"]);
+
+    const busy = harness();
+    busy.pullImpl.current = () => new Promise<PullReport>(() => undefined);
+    busy.lifecycle.start();
+    await vi.advanceTimersByTimeAsync(2 * HOUR);
+    expect(syncCalls(busy)).toEqual(["pull"]);
+  });
+
+  it("a stopped lifecycle forgets it: a new one evaluates again (restart)", async () => {
+    const h = harness();
+    h.lifecycle.start({ publishNow: true });
+    await vi.advanceTimersByTimeAsync(1);
+    h.lifecycle.stop();
+    h.lifecycle.start({ publishNow: true });
+    await vi.advanceTimersByTimeAsync(1);
+    expect(syncCalls(h)).toEqual(["publish", "publish"]);
   });
 });
 

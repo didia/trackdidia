@@ -17,7 +17,7 @@ import {
   PERSONAL_FOLDER,
   publishFromFakeLaptop,
 } from "../lib/sync/test-support/fake-laptop";
-import type { QuitWindow } from "../lib/sync/quit-publish";
+import type { ExitBridge, QuitWindow } from "../lib/sync/quit-publish";
 import { SYNC_RESUME_PULL_DEBOUNCE_MS } from "../lib/sync/lifecycle-policy";
 import { type UseMultiDeviceSyncOptions, useMultiDeviceSync } from "./use-multi-device-sync";
 
@@ -56,6 +56,16 @@ interface Session {
   lane: { calls: number };
   close: { current: (() => Promise<void>) | null };
   quitWindow: () => Promise<QuitWindow>;
+  /** The tray-quit handshake's event bus and commands, recorded in order. */
+  exit: {
+    log: string[];
+    loaded: number;
+    handshake: boolean;
+    /** The tray's Quitter: the event, when the host was told to wait; the host exits at once otherwise. */
+    trayQuit: (() => void) | null;
+    exited: number;
+  };
+  exitBridge: () => Promise<ExitBridge>;
 }
 
 const session = async (): Promise<Session> => {
@@ -67,6 +77,33 @@ const session = async (): Promise<Session> => {
   await enableFakeLaptop(b);
   await enableFakeLaptop(a);
   const close: Session["close"] = { current: null };
+  const exit: Session["exit"] = { log: [], loaded: 0, handshake: false, trayQuit: null, exited: 0 };
+  let listener: (() => void) | null = null;
+  const exitBridge = async (): Promise<ExitBridge> => {
+    exit.loaded += 1;
+    return {
+      onQuitRequested: async (handler) => {
+        exit.log.push("listen");
+        listener = handler;
+        return () => {
+          exit.log.push("unlisten");
+          listener = null;
+        };
+      },
+      setHandshake: async (enabled) => {
+        exit.log.push(`handshake:${enabled}`);
+        exit.handshake = enabled;
+      },
+      exit: async () => {
+        exit.log.push("exit");
+        exit.exited += 1;
+      },
+    };
+  };
+  exit.trayQuit = () => {
+    if (exit.handshake && listener !== null) listener();
+    else exit.exited += 1;
+  };
   return {
     host,
     a,
@@ -75,6 +112,8 @@ const session = async (): Promise<Session> => {
     changed: { count: 0 },
     lane: { calls: 0 },
     close,
+    exit,
+    exitBridge,
     quitWindow: async () => ({
       onCloseRequested: async (handler) => {
         close.current = async () => {
@@ -114,6 +153,7 @@ const mount = (s: Session, initial: Props, options: { strict?: boolean } = {}) =
           s.changed.count += 1;
         },
         quitWindow: s.quitWindow,
+        exitBridge: s.exitBridge,
       }),
     { initialProps: initial, ...(options.strict ? { wrapper: StrictMode } : {}) },
   );
@@ -186,6 +226,18 @@ describe("with automation off, sync adds no listener, no timer and no pull", () 
     const hook = mount(s, { automationKey: null });
     await act(async () => undefined);
     expect(s.close.current).toBeNull();
+    hook.unmount();
+  });
+
+  it("the tray's Quitter is not intercepted: no bridge is loaded, no handshake, it exits at once", async () => {
+    const s = await session();
+    const hook = mount(s, { automationKey: null });
+    await act(async () => undefined);
+    expect(s.exit.loaded).toBe(0);
+    expect(s.exit.log).toEqual([]);
+    expect(vi.mocked(invoke).mock.calls.map(([command]) => command)).not.toContain("desktop_exit");
+    s.exit.trayQuit?.();
+    expect(s.exit.exited).toBe(1);
     hook.unmount();
   });
 });
@@ -275,6 +327,45 @@ describe("with automation on", () => {
     await act(async () => {
       await s.close.current?.();
     });
+    hook.unmount();
+  });
+
+  it("publishes pending changes when the tray's Quitter is chosen, THEN exits", async () => {
+    const s = await session();
+    await s.a.repository.createTask({ id: "local", title: "Local", bucket: "inbox" });
+    const hook = mount(s, { automationKey: await key(s) });
+    await waitFor(() => expect(s.exit.log).toEqual(["listen", "handshake:true"]));
+    s.host.calls.length = 0;
+
+    s.exit.trayQuit?.();
+    await waitFor(() => expect(s.exit.exited).toBe(1));
+    expect(publishCalls(s.host)).toBeGreaterThan(0);
+    const status = await s.a.repository.getSyncStatus();
+    expect(status.supported && status.pendingChanges).toBe(0);
+    expect(s.exit.log.at(-1)).toBe("exit");
+    hook.unmount();
+  });
+
+  it("the tray's Quitter still exits when the folder is gone and the publish fails", async () => {
+    const s = await session();
+    await s.a.repository.createTask({ id: "later", title: "Later", bucket: "inbox" });
+    const hook = mount(s, { automationKey: await key(s) });
+    await waitFor(() => expect(s.exit.handshake).toBe(true));
+    s.host.unmount(GTD_FOLDER);
+    s.exit.trayQuit?.();
+    await waitFor(() => expect(s.exit.exited).toBe(1));
+    hook.unmount();
+  });
+
+  it("switches the tray-quit handshake off, then stops listening, when automation stops", async () => {
+    const s = await session();
+    const hook = mount(s, { automationKey: await key(s) });
+    await waitFor(() => expect(s.exit.handshake).toBe(true));
+    s.exit.log.length = 0;
+    hook.rerender({ automationKey: null });
+    await waitFor(() => expect(s.exit.log).toEqual(["handshake:false", "unlisten"]));
+    s.exit.trayQuit?.();
+    expect(s.exit.exited).toBe(1);
     hook.unmount();
   });
 
