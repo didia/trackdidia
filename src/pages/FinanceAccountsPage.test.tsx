@@ -338,4 +338,91 @@ describe("FinanceAccountsPage", () => {
       }),
     );
   });
+
+  it("flags transactions before the opening balance date and deletes them after a confirmation", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const timestamp = new Date().toISOString();
+    await repository.saveFinanceAccount({
+      id: "finance-account:1",
+      name: "Compte chèques",
+      institution: null,
+      type: "checking",
+      currency: "CAD",
+      ownerPersonId: null,
+      ownership: "individual",
+      onBudget: true,
+      closed: false,
+      openingBalanceMinor: 100_000,
+      currentBalanceMinor: null,
+      balanceAsOf: "2026-03-01",
+      externalKey: null,
+      notes: null,
+      sortOrder: 0,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    for (const [id, postedDate] of [
+      ["txn-old", "2026-02-10"],
+      ["txn-edge", "2026-03-01"],
+    ] as const) {
+      await repository.saveFinanceTransaction({
+        id,
+        accountId: "finance-account:1",
+        postedDate,
+        amountMinor: -500,
+        currency: "CAD",
+        descriptionRaw: id,
+        descriptionOriginal: null,
+        merchantKey: id,
+        merchantDisplay: null,
+        categoryId: "fincat:non-categorise",
+        categorySource: "default",
+        categoryConfidence: null,
+        categorizedAt: null,
+        personId: null,
+        notes: null,
+        labelsJson: null,
+        pending: false,
+        isTransfer: false,
+        transferGroupId: null,
+        excludedFromBudget: false,
+        excludedFromReports: false,
+        hasSplits: false,
+        importBatchId: null,
+        dedupeHash: id,
+        sourceRowJson: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      });
+    }
+
+    const user = userEvent.setup();
+    await renderWithApp(<FinanceAccountsPage />, {
+      repository,
+      contextOverrides: { settings: { ...defaultAppSettings(), financeEnabled: true } },
+    });
+
+    const banner = await screen.findByTestId("finance-account-stale-finance-account:1");
+    expect(banner).toHaveTextContent(/1 transaction\(s\) antérieure\(s\) au 2026-03-01/);
+
+    // Nothing is deleted until the confirmation step is accepted.
+    await user.click(screen.getByText("Supprimer ces transactions"));
+    expect(await repository.countFinanceTransactions({})).toBe(2);
+    await user.click(screen.getByText("Annuler"));
+    expect(screen.queryByText("Oui, supprimer")).not.toBeInTheDocument();
+
+    await user.click(screen.getByText("Supprimer ces transactions"));
+    await user.click(screen.getByText("Oui, supprimer"));
+
+    await waitFor(() =>
+      expect(
+        screen.queryByTestId("finance-account-stale-finance-account:1"),
+      ).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText("1 transaction(s) supprimée(s).")).toBeInTheDocument();
+    expect((await repository.listFinanceTransactions({})).map((txn) => txn.id)).toEqual([
+      "txn-edge",
+    ]);
+  });
 });

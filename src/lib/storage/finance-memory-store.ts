@@ -38,6 +38,7 @@ import type {
   SetFinanceTransactionCategoryResult,
   SetFinanceTransferPair,
   UndoFinanceImportBatchResult,
+  DeleteFinanceTransactionsBeforeOpeningDateResult,
 } from "../../domain/finance";
 import {
   assertFinanceCategoryAssignable,
@@ -60,6 +61,11 @@ import {
   type FinanceNetWorthHistoryPoint,
   type FinanceNetWorthSnapshot,
 } from "../../domain/finance/net-worth";
+import {
+  openingDateSkipWarning,
+  partitionRowsByOpeningDate,
+  selectTransactionsBeforeOpeningDate,
+} from "../../domain/finance/opening-date";
 import { getMonthEndDate, getMonthKey } from "../../domain/monthly-review";
 import {
   buildFinanceAlerts,
@@ -806,8 +812,13 @@ export class FinanceMemoryStore {
     const now = nowIso();
     const batchId = createEntityId("finance-import-batch");
 
-    const occurrenceIndices = assignOccurrenceIndices(input.rows);
-    const prepared = input.rows.map((row, index) => ({
+    // Rows posted before their account's opening balance date are already inside that opening
+    // balance: skip them (docs/finance.md "Opening balance date").
+    const opening = partitionRowsByOpeningDate(input.rows, this.accounts);
+    const rows = opening.kept;
+
+    const occurrenceIndices = assignOccurrenceIndices(rows);
+    const prepared = rows.map((row, index) => ({
       row,
       dedupeHash: computeDedupeHash({
         accountId: row.accountId,
@@ -1006,16 +1017,22 @@ export class FinanceMemoryStore {
     // history — see specs/done/finance.md "Recurring bills".
     this.detectRecurringSeries(today);
 
-    const skipped = input.rejected?.skipped ?? 0;
+    const rejectedSkipped = input.rejected?.skipped ?? 0;
+    const skipped = rejectedSkipped + opening.skippedCount;
     const errors = input.rejected?.errors ?? 0;
     warnings.push(...(input.rejected?.warnings ?? []));
+    for (const skip of opening.skipped) {
+      warnings.push(
+        openingDateSkipWarning(skip, this.accounts.get(skip.accountId)?.name ?? skip.accountId),
+      );
+    }
     const batch: FinanceImportBatch = {
       id: batchId,
       profileId: input.profileId,
       fileName: input.fileName,
       fileHash: input.fileHash,
       accountId: input.accountId,
-      rowCount: input.rows.length + skipped + errors,
+      rowCount: input.rows.length + rejectedSkipped + errors,
       importedCount: imported,
       duplicateCount: duplicates,
       skippedCount: skipped,
@@ -1031,7 +1048,7 @@ export class FinanceMemoryStore {
 
     return {
       batchId,
-      rowCount: input.rows.length + skipped + errors,
+      rowCount: input.rows.length + rejectedSkipped + errors,
       imported,
       duplicates,
       skipped,
@@ -1300,56 +1317,100 @@ export class FinanceMemoryStore {
         continue;
       }
 
-      for (const [splitId, split] of [...this.splits.entries()]) {
-        if (split.transactionId === row.id) {
-          this.splits.delete(splitId);
-        }
-      }
-      for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
-        if (suggestion.transactionId === row.id) {
-          this.categorySuggestions.delete(suggestionId);
-        }
-      }
-
-      if (row.transferGroupId) {
-        for (const partner of [...this.transactions.values()]) {
-          if (partner.transferGroupId === row.transferGroupId && partner.id !== row.id) {
-            if (partner.categorySource === "user") {
-              // Keep the user's category, provenance, and exclusions; only drop the dead link.
-              this.transactions.set(partner.id, {
-                ...partner,
-                isTransfer: false,
-                transferGroupId: null,
-                updatedAt: now,
-              });
-              continue;
-            }
-            this.transactions.set(partner.id, {
-              ...partner,
-              isTransfer: false,
-              transferGroupId: null,
-              categoryId: "fincat:non-categorise",
-              categorySource: "default",
-              excludedFromBudget: false,
-              updatedAt: now,
-            });
-            for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
-              if (suggestion.transactionId === partner.id && suggestion.status === "pending") {
-                this.categorySuggestions.delete(suggestionId);
-              }
-            }
-            this.insertPendingSuggestion(partner.id, "fincat:non-categorise");
-          }
-        }
-      }
-
-      this.transactions.delete(row.id);
+      this.removeTransactionRow(row, now);
       deleted += 1;
     }
 
     this.detectRecurringSeries(getTodayDate());
 
     return { deleted, refusedUserCategorized };
+  }
+
+  /**
+   * Deletes one transaction with its splits and suggestions and repairs the transfer partner it
+   * leaves behind. Shared by import undo and the opening-date cleanup.
+   */
+  private removeTransactionRow(row: FinanceTransaction, now: string): void {
+    for (const [splitId, split] of [...this.splits.entries()]) {
+      if (split.transactionId === row.id) {
+        this.splits.delete(splitId);
+      }
+    }
+    for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
+      if (suggestion.transactionId === row.id) {
+        this.categorySuggestions.delete(suggestionId);
+      }
+    }
+
+    if (row.transferGroupId) {
+      for (const partner of [...this.transactions.values()]) {
+        if (partner.transferGroupId === row.transferGroupId && partner.id !== row.id) {
+          if (partner.categorySource === "user") {
+            // Keep the user's category, provenance, and exclusions; only drop the dead link.
+            this.transactions.set(partner.id, {
+              ...partner,
+              isTransfer: false,
+              transferGroupId: null,
+              updatedAt: now,
+            });
+            continue;
+          }
+          this.transactions.set(partner.id, {
+            ...partner,
+            isTransfer: false,
+            transferGroupId: null,
+            categoryId: "fincat:non-categorise",
+            categorySource: "default",
+            excludedFromBudget: false,
+            updatedAt: now,
+          });
+          for (const [suggestionId, suggestion] of [...this.categorySuggestions.entries()]) {
+            if (suggestion.transactionId === partner.id && suggestion.status === "pending") {
+              this.categorySuggestions.delete(suggestionId);
+            }
+          }
+          this.insertPendingSuggestion(partner.id, "fincat:non-categorise");
+        }
+      }
+    }
+
+    this.transactions.delete(row.id);
+  }
+
+  deleteTransactionsBeforeOpeningDate(
+    accountId: string,
+  ): DeleteFinanceTransactionsBeforeOpeningDateResult {
+    const account = this.accounts.get(accountId);
+    if (!account) {
+      throw new Error(`finance account not found: ${accountId}`);
+    }
+    const openingDate = account.balanceAsOf || null;
+    const stale = selectTransactionsBeforeOpeningDate(
+      account,
+      [...this.transactions.values()].filter((txn) => txn.accountId === accountId),
+    );
+    if (openingDate === null || stale.length === 0) {
+      return { openingDate, deleted: 0, userCategorized: 0 };
+    }
+
+    const now = nowIso();
+    let userCategorized = 0;
+    for (const row of stale) {
+      // A transfer partner earlier in this loop may already have rewritten the row; use the
+      // current copy so a partner kept as `user` is not mistaken for a default one.
+      const current = this.transactions.get(row.id);
+      if (!current) {
+        continue;
+      }
+      if (current.categorySource === "user") {
+        userCategorized += 1;
+      }
+      this.removeTransactionRow(current, now);
+    }
+
+    this.detectRecurringSeries(getTodayDate());
+    this.reanchorStatementAccounts();
+    return { openingDate, deleted: stale.length, userCategorized };
   }
 
   // --- category suggestions -------------------------------------------------------------

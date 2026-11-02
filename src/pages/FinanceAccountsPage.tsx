@@ -8,6 +8,7 @@ import {
   computeDerivedBalanceMinor,
   computeReconciliationDiscrepancy,
 } from "../domain/finance/account-balance";
+import { selectTransactionsBeforeOpeningDate } from "../domain/finance/opening-date";
 import type {
   FinanceAccount,
   FinanceAccountOwnership,
@@ -123,6 +124,11 @@ export const FinanceAccountsPage = () => {
   );
   const [accountError, setAccountError] = useState("");
   const [editingAccount, setEditingAccount] = useState<FinanceAccount | null>(null);
+  // Two-step delete of transactions that predate an account's opening balance date.
+  const [confirmingStaleAccountId, setConfirmingStaleAccountId] = useState<string | null>(null);
+  const [staleMessage, setStaleMessage] = useState<{ accountId: string; text: string } | null>(
+    null,
+  );
 
   const load = useCallback(async () => {
     const [nextPeople, nextAccounts, allTransactions] = await Promise.all([
@@ -289,6 +295,20 @@ export const FinanceAccountsPage = () => {
     setEditingAccount(null);
     setAccountDraft(emptyDraft(settings.financeBaseCurrency));
     setAccountError("");
+  };
+
+  const deleteStaleTransactions = async (account: FinanceAccount) => {
+    setConfirmingStaleAccountId(null);
+    try {
+      const result = await repository.deleteFinanceTransactionsBeforeOpeningDate(account.id);
+      setStaleMessage({
+        accountId: account.id,
+        text: t("accounts.stale.done", { count: result.deleted }),
+      });
+    } catch {
+      setStaleMessage({ accountId: account.id, text: t("accounts.stale.failed") });
+    }
+    await load();
   };
 
   const toggleOnBudget = async (account: FinanceAccount) => {
@@ -516,6 +536,7 @@ export const FinanceAccountsPage = () => {
                 setAccountDraft((current) => ({ ...current, balanceAsOf: event.target.value }))
               }
             />
+            <small>{t("accounts.fields.balanceAsOfHint")}</small>
           </label>
           {isAssetLike ? (
             <label>
@@ -557,6 +578,14 @@ export const FinanceAccountsPage = () => {
             const transactions = transactionsByAccount[account.id] ?? [];
             const derivedBalanceMinor = computeDerivedBalanceMinor(account, transactions);
             const discrepancy = computeReconciliationDiscrepancy(account, transactions);
+            const staleTransactions = selectTransactionsBeforeOpeningDate(account, transactions);
+            const staleTotalMinor = staleTransactions.reduce(
+              (total, txn) => total + txn.amountMinor,
+              0,
+            );
+            const staleUserCount = staleTransactions.filter(
+              (txn) => txn.categorySource === "user",
+            ).length;
             const creditPayment = computeFinanceCreditPaymentDue(
               account,
               derivedBalanceMinor,
@@ -601,6 +630,58 @@ export const FinanceAccountsPage = () => {
                     })}
                   </p>
                 ) : null}
+                {staleTransactions.length > 0 && account.balanceAsOf ? (
+                  <div className="banner" data-testid={`finance-account-stale-${account.id}`}>
+                    <p>
+                      {t("accounts.stale.banner", {
+                        count: staleTransactions.length,
+                        date: account.balanceAsOf,
+                        amount: formatMoney({
+                          amountMinor: staleTotalMinor,
+                          currency: account.currency,
+                        }),
+                      })}
+                    </p>
+                    {confirmingStaleAccountId === account.id ? (
+                      <>
+                        <p>
+                          {t("accounts.stale.confirm", {
+                            count: staleTransactions.length,
+                            date: account.balanceAsOf,
+                          })}
+                          {staleUserCount > 0
+                            ? ` ${t("accounts.stale.confirmUser", { count: staleUserCount })}`
+                            : ""}
+                        </p>
+                        <div className="actions-row">
+                          <button
+                            type="button"
+                            className="button"
+                            onClick={() => void deleteStaleTransactions(account)}
+                          >
+                            {t("accounts.stale.confirmYes")}
+                          </button>
+                          <button
+                            type="button"
+                            className="button"
+                            onClick={() => setConfirmingStaleAccountId(null)}
+                          >
+                            {t("accounts.stale.cancel")}
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <button
+                        type="button"
+                        className="button"
+                        onClick={() => setConfirmingStaleAccountId(account.id)}
+                      >
+                        {t("accounts.stale.delete")}
+                      </button>
+                    )}
+                  </div>
+                ) : null}
+                {staleMessage?.accountId === account.id ? <p>{staleMessage.text}</p> : null}
                 <label className="switch-row">
                   <input
                     type="checkbox"

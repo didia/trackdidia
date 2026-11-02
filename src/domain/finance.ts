@@ -452,6 +452,18 @@ export interface UndoFinanceImportBatchResult {
 }
 
 /**
+ * `deleted` is every transaction removed because it predates the account's opening balance date;
+ * `userCategorized` is how many of those carried a hand-set category (they are removed too, the
+ * caller asked for it explicitly). `openingDate` is the cutoff used, or null when the account has
+ * none (nothing is deleted then).
+ */
+export interface DeleteFinanceTransactionsBeforeOpeningDateResult {
+  openingDate: string | null;
+  deleted: number;
+  userCategorized: number;
+}
+
+/**
  * `reclassifyFinancePending` re-runs `classifyTransaction` (rules, memory,
  * seeds — no AI, no transfer re-detection) over every non-`user` transaction.
  * `reclassified` is rows whose `category_id`/`category_source` changed;
