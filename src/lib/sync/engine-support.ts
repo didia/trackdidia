@@ -15,6 +15,7 @@ export type SyncEngineRepository = Pick<
   | "recordSyncPeerApplied"
   | "markSyncPublished"
   | "queueSyncRepublish"
+  | "recordSyncFirstMergeBackup"
 >;
 
 export interface SafetyBackupResult {
@@ -83,6 +84,11 @@ export interface EngineContext {
    * applied from its first piece again, which is idempotent.
    */
   chunkResume: Map<string, number>;
+  /**
+   * The first-merge safety backup was taken in this process. The durable record
+   * (`SyncStatus.firstMergeBackupPath`) covers a restart; this covers a failure to write it.
+   */
+  firstMergeBackupTaken: boolean;
 }
 
 export const messageOf = (error: unknown): string =>

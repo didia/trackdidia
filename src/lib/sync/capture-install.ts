@@ -1,8 +1,10 @@
 import { hash128 } from "../finance/hash";
 import type { Database } from "../storage/sqlite-db";
+import { bumpChangeCounterSql } from "./domain-counters";
 import {
   getTableRegistration,
   type MergeClass,
+  publishDomainOfEntityType,
   SYNC_DOMAINS,
   TABLE_REGISTRY,
   type TableRegistration,
@@ -260,6 +262,8 @@ export const buildUnionCounterTrigger = (table: string): CaptureTrigger => {
     throw new Error(`Unsafe SQL identifier "${table}"`);
   }
   const name = `${CAPTURE_TRIGGER_PREFIX}${table}_cnt`;
+  // The table's own domain moves with the global counter, so per-domain change detection sees it.
+  const domain = publishDomainOfEntityType(table);
   return {
     name,
     table,
@@ -267,7 +271,7 @@ export const buildUnionCounterTrigger = (table: string): CaptureTrigger => {
       `CREATE TRIGGER ${quoteIdent(name)} AFTER INSERT ON ${quoteIdent(table)}`,
       WHEN_CAPTURING,
       "BEGIN",
-      "  UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1;",
+      `  ${bumpChangeCounterSql([domain], "1")};`,
       "END",
     ].join("\n"),
   };

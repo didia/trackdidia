@@ -2265,4 +2265,8 @@ export class MemoryRepository implements AppRepository {
   async queueSyncRepublish(): Promise<void> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
+
+  async recordSyncFirstMergeBackup(_path: string): Promise<void> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
 }

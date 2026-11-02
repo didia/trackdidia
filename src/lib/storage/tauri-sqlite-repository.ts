@@ -189,6 +189,11 @@ import { ensureSyncCapture, installSyncCapture } from "../sync/capture-install";
 import { stampDirtyEntities } from "../sync/capture-stamp";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
 import { getDeviceId } from "../sync/device-id";
+import {
+  bumpChangeCounterSql,
+  DOMAIN_COUNTER_SELECT,
+  domainCountersFromRow,
+} from "../sync/domain-counters";
 import { SyncApplyError } from "../sync/errors";
 import { readChangeSet } from "../sync/list-changes";
 import { SYNC_DOMAINS, type SyncDomain } from "../sync/registry";
@@ -3346,7 +3351,7 @@ export class TauriSqliteRepository implements AppRepository {
   async getSyncStatus(): Promise<SyncStatus> {
     const db = await this.getDb();
     const identity = await db.select<SyncIdentityRow[]>(
-      "SELECT device_id, device_name, change_counter, last_publish_counter FROM sync_identity WHERE id = 1",
+      "SELECT device_id, device_name, change_counter, last_publish_counter, first_merge_backup_path FROM sync_identity WHERE id = 1",
     );
     const peers = await db.select<SyncPeerRow[]>(
       `SELECT peer_id, peer_name, last_manifest_json, last_synced_at, last_applied_sha_by_domain
@@ -3590,14 +3595,15 @@ export class TauriSqliteRepository implements AppRepository {
   async readSyncPublishCounters(): Promise<SyncPublishCounters | null> {
     // A writer slot: any transaction in flight has committed or rolled back before this runs.
     return this.writeQueue.run(async () => {
-      const rows = await (await this.getDb()).select<
-        { change_counter: number; last_publish_counter: number }[]
-      >("SELECT change_counter, last_publish_counter FROM sync_identity WHERE id = 1");
+      const rows = await (await this.getDb()).select<Record<string, unknown>[]>(
+        `SELECT change_counter, last_publish_counter, ${DOMAIN_COUNTER_SELECT} FROM sync_identity WHERE id = 1`,
+      );
       const row = rows[0];
       return row
         ? {
             changeCounter: toCounter(row.change_counter),
             lastPublishCounter: toCounter(row.last_publish_counter),
+            domainChangedAt: domainCountersFromRow(row),
           }
         : null;
     });
@@ -3633,7 +3639,25 @@ export class TauriSqliteRepository implements AppRepository {
           "Cannot queue a republish: the sync identity has not been created (call ensureSyncIdentity first)",
         );
       }
-      await db.execute("UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1");
+      // The whole state is pending again: every domain is rebuilt on the next publish.
+      await db.execute(bumpChangeCounterSql(SYNC_DOMAINS, "1"));
+    });
+  }
+
+  async recordSyncFirstMergeBackup(path: string): Promise<void> {
+    if (typeof path !== "string" || path.trim() === "") {
+      throw new Error("Invalid first-merge backup path: expected a non-empty string");
+    }
+    await this.writeTransaction(async (tx) => {
+      const result = await transactionDb(tx).execute(
+        "UPDATE sync_identity SET first_merge_backup_path = $1 WHERE id = 1",
+        [path],
+      );
+      if (result.rowsAffected !== 1) {
+        throw new Error(
+          "Cannot record the first-merge backup: the sync identity has not been created (call ensureSyncIdentity first)",
+        );
+      }
     });
   }
 

@@ -32,7 +32,15 @@ import {
 } from "./field-clocks";
 import { encodeHlc } from "./hlc";
 import { FINANCE_SPLITS, FINANCE_TRANSACTIONS } from "./merge-finance";
-import { getTableRegistration, SETTING_ENTITY_TYPE, settingKeys, settingRule } from "./registry";
+import { bumpChangeCounterSql } from "./domain-counters";
+import {
+  getTableRegistration,
+  publishDomainOfEntityType,
+  SETTING_ENTITY_TYPE,
+  settingKeys,
+  settingRule,
+  type SyncDomain,
+} from "./registry";
 
 /**
  * Change capture, part 3: turning `sync_dirty` marks into clocks, inside the writer's transaction.
@@ -546,7 +554,11 @@ export const capturedSettingKeys = (): string[] =>
     return rule.scope !== "device" && rule.secret !== true;
   });
 
-const stampSettings = async (db: Database, issuer: HlcBatch): Promise<number> => {
+const stampSettings = async (
+  db: Database,
+  issuer: HlcBatch,
+  touched: Set<SyncDomain>,
+): Promise<number> => {
   const rows = await db.select<{ value: string }[]>("SELECT value FROM app_settings WHERE id = 1");
   if (!rows[0]) return 0;
   let parsed: unknown;
@@ -587,6 +599,7 @@ const stampSettings = async (db: Database, issuer: HlcBatch): Promise<number> =>
       snapshotJson: canonicalJson(next),
       contentHash: null,
     });
+    touched.add(publishDomainOfEntityType(SETTING_ENTITY_TYPE, key));
   }
   await writeOutcome(db, SETTING_ENTITY_TYPE, outcome);
   return outcome.metaWrites.length;
@@ -598,9 +611,13 @@ const stampSettings = async (db: Database, issuer: HlcBatch): Promise<number> =>
 
 const MARK_CHUNK = 500;
 
+/** The bundle domain of a captured table (never `device` or a sidecar: those have no capture triggers). */
+const domainOfCapturedTable = (table: string): SyncDomain => publishDomainOfEntityType(table);
+
 /**
  * Drains `sync_dirty`: stamps clocks for every real change and bumps
- * `sync_identity.change_counter` by the number of stamped entities. Returns that number.
+ * `sync_identity.change_counter` by the number of stamped entities, and the per-domain counters of
+ * the domains they belong to (`domain-counters.ts`). Returns that number.
  *
  * Must run inside the transaction that wrote the marks (the repository's `beforeCommit` hook), so a
  * rollback undoes marks, meta, snapshots, clocks and counter together. Errors propagate: a failed
@@ -625,6 +642,13 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
   const issuer = createHlcBatch(db, nowMs);
   const schemaCache = new Map<string, LiveTableSchema>();
   let stamped = 0;
+  /** The bundle domains whose entities were stamped: their change counters move with the global one. */
+  const touched = new Set<SyncDomain>();
+  const stampCounted = async (table: string, pending: Promise<number>): Promise<number> => {
+    const count = await pending;
+    if (count > 0) touched.add(domainOfCapturedTable(table));
+    return count;
+  };
 
   for (;;) {
     const marks = await db.select<DirtyMark[]>(
@@ -653,13 +677,16 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
       }
     }
     if (hasSplitMarks && isCapturedTable(FINANCE_SPLITS)) {
-      stamped += await stampTableMarks(
-        db,
+      stamped += await stampCounted(
         FINANCE_SPLITS,
-        byType.get(FINANCE_SPLITS) as DirtyMark[],
-        assertRegistryMatchesSchema(FINANCE_SPLITS, schemaCache.get(FINANCE_SPLITS)),
-        issuer,
-        parents,
+        stampTableMarks(
+          db,
+          FINANCE_SPLITS,
+          byType.get(FINANCE_SPLITS) as DirtyMark[],
+          assertRegistryMatchesSchema(FINANCE_SPLITS, schemaCache.get(FINANCE_SPLITS)),
+          issuer,
+          parents,
+        ),
       );
       byType.delete(FINANCE_SPLITS);
     }
@@ -674,16 +701,19 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
     }
     for (const [type, typeMarks] of byType) {
       if (type === SETTINGS_TABLE) {
-        stamped += await stampSettings(db, issuer);
+        stamped += await stampSettings(db, issuer, touched);
       } else if (isCapturedTable(type)) {
-        stamped += await stampTableMarks(
-          db,
+        stamped += await stampCounted(
           type,
-          typeMarks,
-          assertRegistryMatchesSchema(type, schemaCache.get(type)),
-          issuer,
-          undefined,
-          type === FINANCE_TRANSACTIONS ? parents : undefined,
+          stampTableMarks(
+            db,
+            type,
+            typeMarks,
+            assertRegistryMatchesSchema(type, schemaCache.get(type)),
+            issuer,
+            undefined,
+            type === FINANCE_TRANSACTIONS ? parents : undefined,
+          ),
         );
       }
       // Any other entity type is not captured here; the mark is dropped below.
@@ -695,9 +725,7 @@ export const stampDirtyEntities = async (db: Database, nowMs: number): Promise<n
 
   if (stamped > 0) {
     await issuer.flush();
-    await db.execute("UPDATE sync_identity SET change_counter = change_counter + $1 WHERE id = 1", [
-      stamped,
-    ]);
+    await db.execute(bumpChangeCounterSql(touched, "$1"), [stamped]);
   }
   return stamped;
 };

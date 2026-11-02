@@ -1,6 +1,6 @@
 import type { SyncBackfillProgress } from "./backfill-state";
 import type { SyncChangeSet } from "./change-set";
-import { SYNC_DOMAINS } from "./registry";
+import { SYNC_DOMAINS, type SyncDomain } from "./registry";
 
 /**
  * Types and pure helpers behind `AppRepository.getSyncStatus` / `ensureSyncIdentity`. No I/O: the
@@ -51,6 +51,11 @@ export interface SyncPeerAppliedInput {
 export interface SyncPublishCounters {
   changeCounter: number;
   lastPublishCounter: number;
+  /**
+   * The value `changeCounter` had when each domain last changed (see `domain-counters.ts`). A domain
+   * whose value is not above the last published counter has nothing new to publish.
+   */
+  domainChangedAt: Readonly<Record<SyncDomain, number>>;
 }
 
 /** A change set together with the committed `change_counter` it covers (`readSyncSnapshot`). */
@@ -96,6 +101,13 @@ export type SyncStatus =
       /** The running (or last) pass; `null` when capture was never enabled or predates the table. */
       backfillProgress: SyncBackfillProgress | null;
       peers: SyncPeerSummary[];
+      /**
+       * Where the first-merge safety backup was written, once it has been taken; `null` before. The
+       * first merge into a database that holds data needs one backup, not one per pull until a
+       * bundle completes (a partly applied large bundle leaves the merge "not started" by the
+       * peer-hash rule). Cleared by nothing: it is only consulted while no bundle has completed.
+       */
+      firstMergeBackupPath: string | null;
     };
 
 export const SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE =
@@ -178,6 +190,7 @@ export interface SyncIdentityRow {
   device_name: string;
   change_counter: number;
   last_publish_counter: number;
+  first_merge_backup_path?: string | null;
 }
 
 export const buildSupportedSyncStatus = (
@@ -203,6 +216,11 @@ export const buildSupportedSyncStatus = (
     backfillComplete: captureEnabled && backfill.complete,
     backfillProgress: captureEnabled ? backfill.progress : null,
     peers: peerRows.map(syncPeerFromRow),
+    firstMergeBackupPath:
+      typeof identityRow?.first_merge_backup_path === "string" &&
+      identityRow.first_merge_backup_path !== ""
+        ? identityRow.first_merge_backup_path
+        : null,
   };
 };
 

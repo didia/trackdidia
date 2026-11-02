@@ -671,7 +671,8 @@ export interface AppRepository {
    */
   markSyncPublished(changeCounterAtRead: number): Promise<SyncPublishMark>;
   /**
-   * The COMMITTED `change_counter` and `last_publish_counter`, read in a writer slot: no other write
+   * The COMMITTED `change_counter`, `last_publish_counter` and the counter each domain last changed
+   * at (`domainChangedAt`, migration 47), read in a writer slot: no other write
    * transaction is in flight, so a counter that another operation has advanced but not yet committed
    * (and may still roll back) is never observed. `null` before `ensureSyncIdentity`. This, not
    * `getSyncStatus` (a cheap read outside the queue, fine for showing "pending" in the UI), is what
@@ -693,6 +694,14 @@ export interface AppRepository {
    * sync is unavailable in browser preview.
    */
   queueSyncRepublish(): Promise<void>;
+  /**
+   * Remembers, durably, that the first-merge safety backup was taken and where it went
+   * (`sync_identity.first_merge_backup_path`, surfaced as `SyncStatus.firstMergeBackupPath`), so a
+   * first merge that takes several pulls does not take one backup per pull (the retention would
+   * eventually prune the one made BEFORE anything was merged). The engine writes it right after the
+   * backup. Requires the sync identity. Memory rejects: sync is unavailable in browser preview.
+   */
+  recordSyncFirstMergeBackup(path: string): Promise<void>;
 }
 
 export type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";

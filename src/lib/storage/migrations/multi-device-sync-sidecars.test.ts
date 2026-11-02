@@ -162,6 +162,11 @@ describe("migration 42 add_multi_device_sync_sidecars", () => {
       { name: "change_counter", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
       { name: "last_publish_counter", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
       { name: "applying", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
+      // Migration 47: per-domain change counters and the first-merge backup record.
+      { name: "gtd_changed_counter", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
+      { name: "personal_changed_counter", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
+      { name: "finance_changed_counter", type: "INTEGER", notnull: 1, dflt_value: "0", pk: 0 },
+      { name: "first_merge_backup_path", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
     ]);
     expect(await shape("sync_peers")).toEqual([
       { name: "peer_id", type: "TEXT", notnull: 0, dflt_value: null, pk: 1 },

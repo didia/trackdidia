@@ -4,15 +4,16 @@ See also: [changelog](logs/multi-device-sync.md).
 
 TrackDidia can keep two **personal** laptops up to date with each other through two folders
 that Google Drive for Desktop (or any synced folder) mirrors. This page describes what is
-shipped: an **experimental, opt-in, debug-gated, manual-only** build of it. The design,
+shipped: an **experimental, opt-in, debug-gated** build of it, with [automatic triggers](#automatic-triggers)
+on top of the manual button. The design,
 the remaining phases and the open questions live in
 [`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md); the engine, change
 sets, folder commands, bundle format and transport are documented where they live, in
 [storage-and-backups.md](storage-and-backups.md) (links below). This page does not repeat them.
 
-> **Do not rely on this yet.** There is no restore-from-backup UI, nothing runs
-> automatically, the `work` profile and the join flow for a second laptop are not shipped,
-> and a third laptop is unsupported. The "Cloud sync or multi-device conflict resolution"
+> **Do not rely on this yet.** There is no restore-from-backup UI, the automatic triggers have only
+> been exercised against fakes (never in a real desktop window), the `work` profile and the join flow
+> for a second laptop are not shipped, and a third laptop is unsupported. The "Cloud sync or multi-device conflict resolution"
 > product boundary in [`AGENTS.md`](../AGENTS.md) still applies to the product as a whole.
 
 ## What is and is not available
@@ -20,10 +21,11 @@ sets, folder commands, bundle format and transport are documented where they liv
 | Shipped | Not shipped |
 |---|---|
 | Personal profile: everything syncs (GTD, journal, reviews, goals, AI memory and proposals, finance, Pomodoro history, shared settings) | Work profile, work shell, join flow for a second laptop, profile switching |
-| Manual "Synchroniser maintenant" on `/sync` | Pull at startup or on focus, hourly pull, debounced or on-quit publish, view reload, status chip |
-| A forced safety backup before the first merge (and on a schema change) | Restore UI |
-| Peers table, pending count, last run report, errors, stale-peer approval | Conflict and overwritten-edit list |
-| Browser preview shows "unavailable" and persists nothing | Third laptop, tombstones that carry field values (see [limits](#limits)) |
+| Manual "Synchroniser maintenant" on `/sync` | Restore UI |
+| [Automatic triggers](#automatic-triggers): pull at startup (before the day's generators), on focus and hourly; publish after a 2-minute debounce, on blur and on quit; backoff; status chip; reload of open GTD / Today / Daily / Pomodoro screens | Conflict and overwritten-edit list |
+| A forced safety backup before the first merge (taken once, not on every pull; and on a schema change) | Third laptop, tombstones that carry field values (see [limits](#limits)) |
+| Peers table, pending count, last run report, errors, stale-peer approval | Any trigger without the debug gate and `multiDeviceSyncEnabled` |
+| Browser preview shows "unavailable" and persists nothing | Background syncing while the app is fully closed |
 
 ## The gate
 
@@ -114,7 +116,7 @@ French, keyboard-operable like the other pages. It reads its state when opened a
 - **Stale peers.** A peer offline for 90 days is refused by default. Its row explains why and offers
   "Fusionner quand même", which needs a second confirming click and then approves exactly that peer for the
   next run.
-- **Dernière synchronisation**, kept while the app runs (not stored): applied bundles, applied and already
+- **Dernière synchronisation**, the last "Synchroniser maintenant" (automatic runs are not listed here: the sidebar chip and the debug log carry them), kept while the app runs (not stored): applied bundles, applied and already
   up-to-date items, tombstones, conflicts logged (there is no list of them yet), the **safety backup** result
   with its path, skipped peers with the reason ("mets à jour TrackDidia pour synchroniser avec cet ordinateur",
   "hors ligne trop longtemps"), clock-skew notes, and per domain whether it was published, unchanged, had no
@@ -132,6 +134,90 @@ French, keyboard-operable like the other pages. It reads its state when opened a
 
 Merged data is visible in pages opened afterwards; pages already open show it when you return to them, and
 settings merged from a peer are republished to the app's copy after a run that applied anything.
+
+## Automatic triggers
+
+Everything below exists **only while the debug gate is open AND `multiDeviceSyncEnabled` is on**, on the desktop
+storage (`isSyncAutomationEnabled` / `syncAutomationKeyFor`, `src/lib/sync/gate.ts`). With either off, nothing is
+built: no engine at startup, no window listener, no timer, no pull, no close handler, no status chip, and the
+backup scheduler gets no lane; the app behaves exactly as it did before sync existed (tests pin each of these).
+Turning the setting off or debug mode off in a running session tears all of it down; changing a folder, the device
+name or the profile rebuilds it.
+
+| Trigger | What happens | Limits |
+|---|---|---|
+| **Startup** (inside bootstrap) | Pull from the other laptop BEFORE the two GTD normalizations, recurrence generation, Scheduled promotion and relationship draws, so a task already completed on the other laptop is not regenerated and today's draw made there is not repeated. Then publish what is pending (step 6 of the spec's flow). | Bootstrap waits at most **4 s** for the pull; past that it carries on and the same pull keeps running in the background (chip: "Synchronisation…"; open screens reload when it applies). It never throws into bootstrap and never activates the in-memory fallback. |
+| **Window focus / becoming visible** | Pull. | At most once per **60 s** (any pull counts, startup included). |
+| **Hourly** | Pull. | Every 60 minutes while the app runs. |
+| **Local changes** | Publish. | A 15 s poll of one row (`pendingChanges`, a single counter comparison) notes when changes were first seen; they are published when the first is **2 minutes** old. Further edits do not push the deadline back. |
+| **Window blur / hidden** | Publish what is pending, at once. | |
+| **Quit** | Publish what is pending, best effort. | Waits at most **3 s**, then the window closes whatever happened. In tray mode the close handler publishes nothing and keeps the window alive for the native handler to hide (hiding blurs it, which already publishes). |
+| **Synchroniser maintenant** | Pull then publish, always. | Ignores and resets the backoff and the "paused" state; waits for an automatic run already in flight. |
+
+A trigger that finds a run in flight is dropped, not queued, and no automatic trigger runs while a manual action
+(Sync now, enable, resume, folder recheck) holds the controller. Pulls apply the data in the same chunked slots as
+Sync now ([details](storage-and-backups.md#chunked-capture-backfill-and-chunked-apply)).
+
+### Startup ordering, the 8-second rule and chunk resumption
+
+`useBootstrap` builds the engine once (`src/lib/sync/startup-sync.ts`), starts the pull, and hands both to
+`useMultiDeviceSync`, which adopts them: there is **one engine per session** (one in-flight guard, one publish
+memory). The 4 s is a **wait** budget, not a work budget. **The pull is not given an engine `budgetMs`**: when the
+wait lapses the pull continues unbudgeted in the background. This is how the slice-14 obligation (the chunk
+resume index is in memory, so a budgeted first merge of a very large bundle restarted at chunk 0 after every
+restart) is discharged: no automatic path ever cuts a merge, so the only thing that can interrupt a very large
+first merge is quitting the app, after which the next start repeats the bundle from its first chunk, in the
+background, to the end (chunks already applied merge as no-ops, about 60 % of the first cost). A persisted
+per-chunk cursor was NOT built, because the unbudgeted path makes it unnecessary for the app. The engine's
+`budgetMs` option remains for tests and callers that want it.
+
+If the folder is slow and a generator ran before the pull finished, the merge still converges (generators are
+deterministic; spec "Generators on several full peers"): the ordering avoids visible churn, it is not a
+correctness requirement. A background pull that applied something reloads the open screens (below).
+
+### Backoff, "paused" and failures
+
+A failing folder never blocks the UI and never causes the fallback. A run that finds a folder unreachable or slow,
+or any error, backs the automatic triggers off: **30 s, doubling, capped at 15 minutes**; during a backoff
+every automatic trigger (pull, publish, quit) does nothing. Something only you can fix (no identity, change tracking
+not enabled, the required safety backup cannot be made, a folder rejected by its marker, a folder
+setting missing) pauses the automatic triggers until a manual run succeeds or the settings change. An unfinished
+change-tracking initialization is neither: the engine pulls and publishes nothing and the chip says so.
+`src/lib/sync/lifecycle-policy.ts` holds all of these rules as pure functions.
+
+### Status chip and view reload
+
+A chip in the sidebar (visible with the gate open and sync on; a link to `/sync`) shows one of: **À jour**
+(with how long ago), **Synchronisation…**, **Erreur de synchro** (with the time of the next try), **Initialisation du
+suivi** (backfill incomplete), **Synchro en pause**.
+
+The calendar day does not change within a day, so after a pull that applied rows `AppProvider` reloads the open
+screens through the GTD external-change channel (GTD, Today and Daily) and a reload key on the Pomodoro
+controller, and republishes the settings copy; a pull finished before any screen existed announces nothing. This is
+the day-boundary republish idea reached by other means, not the same code path. Reviews, Journal and Finance
+still load when opened.
+
+### Backups, the safety backup, and per-domain publishing
+
+- **Backup and sync never overlap.** Automatic pulls and publishes (the startup pull and its background tail
+  included) and the automatic-backup scheduler's backups run in one exclusive lane; see
+  [Backup behavior](storage-and-backups.md#backup-behavior).
+- **The first-merge safety backup is taken once**, not on every pull until a bundle completes: its path is
+  recorded (`sync_identity.first_merge_backup_path`). A failed backup is retried and merges nothing meanwhile.
+- **Automatic publishing is per domain.** A task edit rebuilds the `gtd` bundle only; a periodic manifest
+  heartbeat (30 days) keeps the untouched folder from looking absent
+  ([details](storage-and-backups.md#per-domain-change-detection-and-the-manifest-heartbeat)).
+
+### What was not measured
+
+There is no desktop in the development environment. Not measured, and not claimed: the real Tauri IPC latency per
+statement (so `maxEntities` and the other apply limits stay as tuned against the in-process adapter; each
+automatic run logs `statusReadMs`, the time of one `getSyncStatus`, and `maxChunkMs`, the slowest apply slot, in
+the debug log under `sync.lifecycle`, so a session on a real laptop can read the latency off); the JavaScript heap
+inside the real webview (the 350 to 450 MB read of a very large `finance` domain is a Node figure; per-domain
+detection only makes it rarer); and the close handler in a real Tauri window (it is tested against a fake window).
+Manual check on a desktop: edit a task and quit within seconds (the other laptop should receive it), close with
+the Drive folder unmounted (the window must still close within about 3 s), and watch the debug log lines above.
 
 ## What "Synchroniser maintenant" does
 
@@ -164,7 +250,8 @@ merged as several transactions, in table and reference order, groups that merge 
 peer's hash is recorded only after the last one, so an interrupted merge is simply repeated. The run report shows
 `fusion en N étapes` for such a bundle (and `fusion interrompue après N étapes sur M` when a time budget cut it) ([details and measurements](storage-and-backups.md#chunked-capture-backfill-and-chunked-apply)).
 
-One action runs at a time; a second request while one runs is ignored.
+One manual action runs at a time; a second request while one runs is ignored. "Synchroniser maintenant" while an
+automatic run is in flight waits for it, then runs.
 
 ## Safety
 
@@ -178,7 +265,9 @@ One action runs at a time; a second request while one runs is ignored.
 
 ## Limits
 
-- Manual only: nothing runs at startup, on focus, on a timer, on edit or at quit.
+- The automatic triggers are described above and are untested in a real desktop window; with the gate closed nothing
+  automatic exists. There is still no restore UI, and nothing runs while the app is fully closed (a laptop that is
+  off does not sync; the other one publishes and the next start pulls).
 - Personal profile only; two personal laptops. A **third laptop and the work profile are unsupported** until
   tombstones carry their last field values (a delete racing edits from two laptops that have not seen each other is
   order dependent; see the merge notes in [storage-and-backups.md](storage-and-backups.md#multi-device-sync-change-sets-and-apply)).
@@ -189,10 +278,12 @@ One action runs at a time; a second request while one runs is ignored.
   for the backfill and the usual merge, about 1 s with a simulated IPC cost, and a worst case of about 1,600
   statements for an oversized group; see above), but nothing resumes an interrupted backfill by itself: after a quit the user
   presses "Reprendre l'initialisation". A large bundle that fails or is cut by a restart is applied again from its
-  first chunk, at about 60 % of the cost of the first time (the merge has no persisted per-chunk marker yet); once
+  first chunk, at about 60 % of the cost of the first time (the merge has no persisted per-chunk marker; automatic
+  pulls are never budgeted, see [above](#startup-ordering-the-8-second-rule-and-chunk-resumption)); once
   it has been applied completely it is never re-read. The memory needed to READ a 130,000-transaction finance
   domain for a publish is the largest cost left (350 to 450 MB of JavaScript heap measured in Node, not in the
-  webview), a reason the lifecycle slice must not publish automatically before it has per-domain change detection.
+  webview): automatic publishing now rebuilds only the domains that changed, which makes it rarer, not smaller, and
+  the real webview figure is unmeasured.
 - **Disable leaves change tracking installed.** The capture triggers stay on the database and keep recording every edit
   (a small cost per write), so enabling again is a catch-up. There is no "remove tracking" action.
 - **Minimum system.** Compression needs `CompressionStream`/`DecompressionStream` (WebKit 16.4+, i.e. macOS 13 or a
@@ -208,8 +299,8 @@ One action runs at a time; a second request while one runs is ignored.
   before anything is written. Measured encoded sizes stay far below the first cap (see [Sync bundle format and folder transport](storage-and-backups.md#sync-bundle-format-and-folder-transport)).
 - Publish serialization is in-process: running two instances of the app with one device identity is not supported.
 - Conflicts are logged in `sync_conflicts` but not listed anywhere; calendar sync on two laptops is not warned about.
-- Settings merged from a peer reach the running app after a run that applied something; other open pages refresh when
-  re-opened.
+- Settings merged from a peer reach the running app after a run that applied something. GTD, Today, Daily and Pomodoro
+  screens reload after a merge; Reviews, Journal, Finance and the other pages show merged data when opened.
 
 ## Code map
 
@@ -220,12 +311,17 @@ One action runs at a time; a second request while one runs is ignored.
 | Enable / disable / engine construction / safety backup | `src/lib/sync/sync-service.ts`, `folder-paths.ts` |
 | Gate | `src/lib/sync/gate.ts` |
 | State around the engine | `src/app/use-multi-device-sync.ts` (in `AppProvider`, exposed as `useAppContext().sync`) |
+| Automatic triggers | `src/lib/sync/lifecycle-policy.ts` (pure rules), `lifecycle.ts` (timers and runs), `startup-sync.ts` (the bootstrap pull), `quit-publish.ts` (close handler), `src/app/use-sync-automation.ts` (window events), `domain-counters.ts` (per-domain change detection) |
+| Status chip | `src/components/sync/SyncStatusChip.tsx` |
 | Settings card | `src/components/settings/MultiDeviceSyncSection.tsx` |
 | `/sync` page | `src/pages/SyncPage.tsx`, `src/components/sync/` |
 | French copy | `src/locales/fr/sync.json` |
 | Test fakes | `src/lib/sync/test-support/fake-folder-host.ts` (the native commands, in memory) |
 
-Tests: `bundle.test.ts`, `transport-folder.test.ts` (including the real engine over the real bundle codec),
+Tests: `lifecycle-policy.test.ts`, `lifecycle.test.ts` (fake timers), `startup-sync.test.ts`, `quit-publish.test.ts`,
+`use-multi-device-sync.automation.test.tsx` (the real hook over a real repository and the fake host, including the
+"gate closed adds no listener, timer or pull" proofs), `sync-engine.domains.test.ts`, `SyncStatusChip.test.tsx`,
+`bundle.test.ts`, `transport-folder.test.ts` (including the real engine over the real bundle codec),
 `sync-service.test.ts`, `folder-paths.test.ts`, `gate.test.ts`, `use-multi-device-sync.test.tsx`,
 `SyncPage.test.tsx`, `MultiDeviceSyncSection.test.tsx`, `AppShell.test.tsx`, `create-backup.test.ts`, and the
 registry, privacy and settings tests listed in the changelog.

@@ -373,6 +373,20 @@ export const createSafetyBackup =
     return { path: backup.backupPath };
   };
 
+/** The settings an engine is built from; a change rebuilds it. */
+export const syncEngineKeyOf = (
+  settings: Pick<
+    AppSettings,
+    "backupDestinationDir" | "syncGtdFolderDir" | "syncDeviceName" | "syncProfile"
+  >,
+): string =>
+  JSON.stringify([
+    settings.backupDestinationDir,
+    settings.syncGtdFolderDir,
+    settings.syncDeviceName,
+    settings.syncProfile,
+  ]);
+
 /** Builds the engine for the current settings. Throws {@link SyncSetupError}. */
 export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyncEngine> => {
   const { repository, settings } = input;

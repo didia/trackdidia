@@ -7186,6 +7186,7 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         expect(typeof repository.queueSyncRepublish).toBe("function");
         expect(typeof repository.readSyncPublishCounters).toBe("function");
         expect(typeof repository.readSyncSnapshot).toBe("function");
+        expect(typeof repository.recordSyncFirstMergeBackup).toBe("function");
       });
 
       const PEER = "dev:7d1e2c3b-4a5f-4e6d-8c7b-9a0b1c2d3e4f";
@@ -7216,6 +7217,9 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
             /unavailable in browser preview/,
           );
           await expect(repository.readSyncSnapshot("gtd")).rejects.toThrow(
+            /unavailable in browser preview/,
+          );
+          await expect(repository.recordSyncFirstMergeBackup("/backups/first.db")).rejects.toThrow(
             /unavailable in browser preview/,
           );
           return;
@@ -7304,10 +7308,17 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
 
         // The committed counters, and a change set read together with the counter it covers.
         const counters = await repository.readSyncPublishCounters();
-        expect(counters).toEqual({
+        expect(counters).toMatchObject({
           changeCounter: after.supported ? after.changeCounter : -1,
           lastPublishCounter: after.supported ? after.changeCounter : -1,
         });
+        // Per-domain counters never pass the global one; both tasks above changed `gtd` last.
+        expect(counters?.domainChangedAt.gtd).toBe(counters?.changeCounter);
+        for (const domain of ["gtd", "personal", "finance"] as const) {
+          expect(counters?.domainChangedAt[domain]).toBeLessThanOrEqual(
+            counters?.changeCounter ?? 0,
+          );
+        }
         await repository.createTask({ id: "task-3", title: "Trois", bucket: "inbox" });
         const snapshot = await repository.readSyncSnapshot("gtd");
         const moved = await repository.readSyncPublishCounters();
@@ -7323,6 +7334,18 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
         await expect(repository.queueSyncRepublish()).resolves.toBeUndefined();
         const requeued = await repository.getSyncStatus();
         expect(requeued.supported && requeued.pendingChanges).toBeGreaterThan(0);
+        const requeuedCounters = await repository.readSyncPublishCounters();
+        for (const domain of ["gtd", "personal", "finance"] as const) {
+          expect(requeuedCounters?.domainChangedAt[domain]).toBe(requeuedCounters?.changeCounter);
+        }
+
+        // The first-merge backup is remembered once it was taken.
+        await expect(repository.recordSyncFirstMergeBackup("  ")).rejects.toThrow(
+          /Invalid first-merge backup path/,
+        );
+        await repository.recordSyncFirstMergeBackup("/backups/first.db");
+        const remembered = await repository.getSyncStatus();
+        expect(remembered.supported && remembered.firstMergeBackupPath).toBe("/backups/first.db");
         await expect(repository.listTasks({})).resolves.toHaveLength(3);
         await expect(repository.markSyncPublished(1.5)).rejects.toThrow(/Invalid change counter/);
       });
@@ -7421,10 +7444,14 @@ export const describeRepositoryContract = (name: string, factory: () => Promise<
           captureEnabled: false,
           backfillComplete: false,
           backfillProgress: null,
+          firstMergeBackupPath: null,
           peers: [],
         });
         // Before the identity exists there are no counters to read, and no snapshot to take.
         await expect(repository.readSyncPublishCounters()).resolves.toBeNull();
+        await expect(repository.recordSyncFirstMergeBackup("/backups/first.db")).rejects.toThrow(
+          /identity has not been created/,
+        );
         await expect(repository.readSyncSnapshot("gtd")).rejects.toThrow(
           /identity has not been created/,
         );

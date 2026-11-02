@@ -165,10 +165,11 @@ screen.
 
 | Module | Responsibility |
 |---|---|
-| `bootstrap.ts` | `bootstrapApplication(repository, { onStage })` (pure startup data sequence) and `runOnceWithSettingsMarker` (idempotent one-time steps) |
-| `use-bootstrap.ts` | `useBootstrap()`: `createRepository`, runs `bootstrapApplication`, owns the eight-second timeout and the in-memory fallback |
+| `bootstrap.ts` | `bootstrapApplication(repository, { onStage, pullBeforeGenerators? })` (pure startup data sequence) and `runOnceWithSettingsMarker` (idempotent one-time steps) |
+| `use-bootstrap.ts` | `useBootstrap({ runExclusive? })`: `createRepository`, runs `bootstrapApplication`, owns the eight-second timeout and the in-memory fallback, and starts the experimental multi-device sync pull when its gate is open |
 | `use-pulse-scheduler.ts` | `usePulseScheduler(...)`: startup + five-minute coach pulse evaluation and app-open interval tracking |
 | `use-auto-backup-scheduler.ts` | `useAutoBackupScheduler(...)`: startup + hourly automatic-backup check |
+| `use-multi-device-sync.ts`, `use-sync-automation.ts` | The experimental multi-device sync controller and its automatic triggers (focus, hourly, debounced, blur, quit); see [Multi-device sync](multi-device-sync.md#automatic-triggers) |
 | `use-local-day-reconciliation.ts` | Local-day boundary reconciliation and `calendarDay` |
 
 `useBootstrap()` starts with a loading splash and runs:
@@ -186,6 +187,18 @@ screen.
       - legacy `aiMaxTokens` upgrade (`aiMaxTokensUpgradeDoneAt`),
       - move the `Reading` context to References (`gtdReferencesMigrationDoneAt`),
       - move dated work to Scheduled (`gtdScheduledNormalizationDoneAt`).
+
+      **Multi-device sync (experimental, off by default).** Only when the debug gate is open
+      AND `multiDeviceSyncEnabled` is on, `useBootstrap` passes `pullBeforeGenerators`:
+      right after the `aiMaxTokens` upgrade and before the two GTD normalizations and every
+      generator, the sync engine pulls from the other laptop so recurrence generation,
+      Scheduled promotion and relationship draws see its work. Bootstrap waits at most 4 s
+      for it; past that it carries on and the same pull continues in the background (the
+      chip says "Synchronisation…" and open screens reload when it applies). A failing or
+      unreachable folder is logged and never throws into bootstrap, so it cannot activate the
+      in-memory fallback. The settings are read again when the pull finished in time. With the
+      gate closed this step does not exist: no engine, no timer, no folder call. See
+      [Multi-device sync](multi-device-sync.md#automatic-triggers).
    3. Log GTD overview counts from the repository.
    4. Call `repository.reconcileDay(today)`: generate due recurring tasks for the
       current local date, promote active Scheduled tasks whose local `scheduledFor`
@@ -225,7 +238,9 @@ or Pomodoro tick — and both queue their startup check on a shared serial queue
 - `useAutoBackupScheduler` checks at startup and hourly whether an automatic backup
   is due. A single in-flight guard prevents concurrent backup checks. Because the
   settings are read at check time, enabling automatic backup or changing its
-  interval takes effect at the next hourly check rather than immediately.
+  interval takes effect at the next hourly check rather than immediately. When the
+  experimental sync triggers are active it runs the backup in the app's exclusive
+  lane, the queue automatic syncs run in, so a backup and a sync never overlap.
 
 The context value is memoized (`useMemo`) and `updateSettings`/`setDebugEnabled` are
 `useCallback`s, so consumers re-render only when a real input changes.
@@ -248,6 +263,11 @@ at most one OS notification per newly due alert key via the existing
 on first mount too — the app-wide "at startup after bootstrap" trigger — and
 is independently try/caught the same way the balance snapshot is. See
 [`docs/finance.md`](finance.md#forecasting-and-proactive-alerts-phase-7).
+
+The calendar day does not change within a day, so data merged from another laptop
+(experimental sync) reaches already-mounted screens another way: `AppProvider` calls
+`notifyGtdExternalChange()` (GTD, Today and Daily screens) and bumps a reload key
+that `usePomodoroController` also depends on.
 
 ### Reads are side-effect free; reconciliation is explicit
 

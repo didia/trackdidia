@@ -55,7 +55,7 @@ describe("MultiDeviceSyncSection visibility", () => {
     expect(screen.getByText(/aucune interface de restauration/)).toBeInTheDocument();
     expect(screen.getByText(/Profil personnel : tout est synchronisé/)).toBeInTheDocument();
     expect(screen.getByText(/ne sont jamais synchronisés/)).toBeInTheDocument();
-    expect(screen.getByText(/la synchronisation est manuelle/)).toBeInTheDocument();
+    expect(screen.getByText(/la synchronisation s'exécute toute seule/)).toBeInTheDocument();
     // The initialization is chunked: the app stays usable, sync waits, and quitting resumes it.
     expect(screen.getByText(/tu peux continuer à utiliser l'application/)).toBeInTheDocument();
     expect(

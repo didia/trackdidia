@@ -279,7 +279,12 @@ export const runPull = async (
   // untouched when the hook runs.
   if (ready.length > 0) {
     const reasons: SafetyBackupReason[] = [];
-    if (!mergedBefore) reasons.push("first_merge");
+    // One first-merge backup per database until a bundle completes: a large first merge that takes
+    // several pulls must not take one per pull, since a later one already holds merged data and the
+    // retention would eventually prune the one made before anything was merged.
+    if (!mergedBefore && status.firstMergeBackupPath === null && !ctx.firstMergeBackupTaken) {
+      reasons.push("first_merge");
+    }
     if (ready.some((item) => needsSchemaBackup(item))) reasons.push("schema_skew");
     safetyBackup.reasons = reasons;
     if (reasons.length === 0) {
@@ -345,12 +350,27 @@ export const runPull = async (
       fail("no backup destination is available");
       return;
     }
+    let result: Awaited<ReturnType<NonNullable<EngineContext["beforeFirstMerge"]>>>;
     try {
-      const result = await ctx.beforeFirstMerge(reasons);
-      safetyBackup.status = "taken";
-      if (result?.path !== undefined) safetyBackup.path = result.path;
+      result = await ctx.beforeFirstMerge(reasons);
     } catch (error) {
       fail(messageOf(error), error);
+      return;
+    }
+    safetyBackup.status = "taken";
+    if (result?.path !== undefined) safetyBackup.path = result.path;
+    if (!reasons.includes("first_merge")) return;
+    ctx.firstMergeBackupTaken = true;
+    try {
+      await ctx.repo.recordSyncFirstMergeBackup(result?.path ?? "(chemin inconnu)");
+    } catch (error) {
+      // The backup exists and this process remembers it; a restart may take one more.
+      issues.push({
+        severity: "warning",
+        code: "bookkeeping_failed",
+        message: `The first-merge backup was made but could not be remembered (${messageOf(error)}); a restart may take another`,
+        detail: messageOf(error),
+      });
     }
   }
 

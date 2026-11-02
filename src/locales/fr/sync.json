@@ -4,7 +4,7 @@
     "subtitle": "Garde deux ordinateurs personnels à jour l'un de l'autre à travers des dossiers Google Drive. Fonction expérimentale, visible uniquement en mode debug.",
     "experimental": "Expérimental : la première synchronisation fait d'abord une sauvegarde de cette base, et il n'existe aucune interface de restauration. Ne l'active qu'après avoir vérifié ta sauvegarde.",
     "scope": "Profil personnel : tout est synchronisé (tâches GTD, journal, objectifs, finances, réglages partagés). Le dossier GTD est partagé ; le dossier personnel est le dossier de sauvegarde choisi plus haut. Les secrets (clé OpenRouter, clé RescueTime, jeton LLM) et les réglages propres à cet ordinateur ne sont jamais synchronisés.",
-    "manualOnly": "Pour l'instant la synchronisation est manuelle : elle ne s'exécute que lorsque tu appuies sur « Synchroniser maintenant » sur la page Synchronisation.",
+    "automatic": "Une fois activée, la synchronisation s'exécute toute seule : au démarrage (avant la génération des récurrences du jour), quand la fenêtre reprend le focus (au plus une fois par minute), toutes les heures, et elle publie tes changements environ deux minutes après le premier, quand la fenêtre perd le focus et à la fermeture. « Synchroniser maintenant » sur la page Synchronisation force une synchronisation à tout moment.",
     "browserPreview": "Indisponible en mode aperçu navigateur : la synchronisation exige l'application de bureau et son stockage persistant.",
     "deviceName": "Nom de cet ordinateur",
     "deviceNameHelp": "Montré aux autres ordinateurs. Donne un nom différent à chaque ordinateur.",
@@ -72,10 +72,21 @@
     "rolePersonal": "Dossier personnel",
     "backfill_incomplete": "L'initialisation du suivi des changements a été interrompue avant la fin. Rien n'est perdu : utilise « Reprendre l'initialisation » pour la terminer."
   },
+  "chip": {
+    "label": "Synchronisation",
+    "linkLabel": "Synchronisation : {{state}}. Ouvrir la page Synchronisation",
+    "idle": "À jour",
+    "idleSince": "À jour {{since}}",
+    "syncing": "Synchronisation…",
+    "error": "Erreur de synchro",
+    "errorRetry": "Erreur de synchro, nouvel essai à {{time}}",
+    "backfill": "Initialisation du suivi",
+    "paused": "Synchro en pause"
+  },
   "page": {
     "eyebrow": "Expérimental",
     "title": "Synchronisation",
-    "copy": "Synchronisation manuelle entre tes ordinateurs personnels, à travers deux dossiers Drive.",
+    "copy": "Synchronisation entre tes ordinateurs personnels, à travers deux dossiers Drive.",
     "gate": {
       "debug": "Cette page expérimentale n'est disponible qu'en mode debug.",
       "disabled": "La synchronisation n'est pas activée sur cet ordinateur. Active-la dans les Paramètres.",
@@ -87,7 +98,7 @@
     "refresh": "Actualiser l'état",
     "loading": "Chargement de l'état de la synchronisation…",
     "notReady": "La synchronisation n'est pas prête sur cet ordinateur (identité ou suivi des changements manquant). Réactive-la dans les Paramètres.",
-    "manualNote": "Synchronisation manuelle uniquement : rien ne s'exécute au démarrage, en arrière-plan ni à la fermeture. Les pages déjà ouvertes affichent les données fusionnées quand tu y reviens.",
+    "automaticNote": "La synchronisation s'exécute aussi toute seule : au démarrage, au retour dans la fenêtre, toutes les heures, et elle publie tes changements quelques minutes après le premier, à la perte de focus et à la fermeture. Après un échec (dossier injoignable), les essais automatiques s'espacent ; « Synchroniser maintenant » passe toujours et les relance. Les écrans déjà ouverts (tâches, journée, Pomodoro) se rechargent après une fusion ; les autres affichent les données fusionnées quand tu y reviens.",
     "summary": {
       "title": "État",
       "pending_one": "{{count}} changement en attente de publication",

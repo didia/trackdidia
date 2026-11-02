@@ -195,6 +195,7 @@ describe("TauriSqliteRepository sync identity and status", () => {
       captureEnabled: false,
       backfillComplete: false,
       backfillProgress: null,
+      firstMergeBackupPath: null,
       peers: [
         {
           peerId: "dev:a",

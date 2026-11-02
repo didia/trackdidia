@@ -92,6 +92,7 @@ export class SyncEngine {
       applyLimits: options.applyLimits ?? {},
       yieldBetweenChunks: options.yieldBetweenChunks,
       chunkResume: new Map(),
+      firstMergeBackupTaken: false,
     };
   }
 

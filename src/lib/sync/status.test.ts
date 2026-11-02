@@ -114,6 +114,7 @@ describe("buildSupportedSyncStatus", () => {
       backfillComplete: false,
       backfillProgress: null,
       peers: [],
+      firstMergeBackupPath: null,
     });
     expect(buildSupportedSyncStatus(null, [], true)).toMatchObject({ captureEnabled: true });
   });

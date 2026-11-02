@@ -25,10 +25,12 @@ import {
 } from "../lib/debug";
 import { rescueTimeCredentialFingerprint } from "../lib/rescuetime/credential-fingerprint";
 import { createSerialQueue } from "../lib/serial-queue";
+import { syncAutomationKeyFor } from "../lib/sync/gate";
 import { isTauriRuntime } from "../lib/storage/factory";
 import type { AppRepository } from "../lib/storage/repository";
 import { useAutoBackupScheduler } from "./use-auto-backup-scheduler";
 import { useBootstrap } from "./use-bootstrap";
+import { notifyGtdExternalChange } from "./gtd-external-change";
 import { useCalendarSync } from "./use-calendar-sync";
 import { useDesktopShell } from "./use-desktop-shell";
 import { useLlmBridge, type LlmBridgeStatus } from "./use-llm-bridge";
@@ -54,7 +56,7 @@ export interface AppContextValue {
   llmBridgeStatus: LlmBridgeStatus;
   /** Re-attempts starting the endpoint after a failure, without changing any setting. */
   retryLlmBridge: () => void;
-  /** EXPERIMENTAL multi-device sync (manual only; see `docs/multi-device-sync.md`). */
+  /** EXPERIMENTAL multi-device sync (manual and automatic; see `docs/multi-device-sync.md`). */
   sync: MultiDeviceSyncController;
 }
 
@@ -71,8 +73,12 @@ export const useAppContext = (): AppContextValue => {
 export const AppProvider = ({ children }: PropsWithChildren) => {
   const { t: tCommon } = useTranslation("common");
   const { t: tSettings } = useTranslation("settings");
-  const { repository, settings, setSettings, loading, startupError, startupStage } = useBootstrap();
+  // Backups and automatic multi-device syncs (the startup pull included) take turns in this lane.
+  const [syncLane] = useState(createSerialQueue);
+  const { repository, settings, setSettings, loading, startupError, startupStage, startupSync } =
+    useBootstrap({ runExclusive: syncLane.run });
   const [debugEnabled, setDebugEnabledState] = useState(getDebugEnabled);
+  const [syncRevision, setSyncRevision] = useState(0);
   const coachService = useMemo(() => new CoachPulseService(new OpenRouterProvider()), []);
   const [startupWorkQueue] = useState(createSerialQueue);
   const settingsRef = useRef(settings);
@@ -82,7 +88,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     settings.financeEnabled,
     settings.financeNotifyRunout,
   );
-  const pomodoro = usePomodoroController(repository, calendarDay);
+  const pomodoro = usePomodoroController(repository, calendarDay, syncRevision);
   const pomodoroRef = useRef(pomodoro);
   pomodoroRef.current = pomodoro;
   const browserPreview = !isTauriRuntime();
@@ -145,7 +151,29 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     [repository, publishSettings],
   );
 
-  const sync = useMultiDeviceSync(repository, { browserPreview, getSettings, updateSettings });
+  // Data merged from another laptop reaches the screens that are already open: GTD, Today and Daily
+  // through the external-change channel, the Pomodoro views through their reload key. (The calendar
+  // day does not change within a day, so the day-boundary republish alone would not reach them.)
+  const onSyncDataChanged = useCallback(() => {
+    notifyGtdExternalChange();
+    setSyncRevision((current) => current + 1);
+  }, []);
+  // Anything automatic exists only with the debug gate open AND sync enabled, on the desktop storage.
+  const syncAutomationKey = syncAutomationKeyFor({
+    browserPreview,
+    startupError,
+    debugEnabled,
+    settings,
+  });
+  const sync = useMultiDeviceSync(repository, {
+    browserPreview,
+    getSettings,
+    updateSettings,
+    automationKey: syncAutomationKey,
+    startupSync,
+    runExclusive: syncLane.run,
+    onDataChanged: onSyncDataChanged,
+  });
 
   useEffect(() => {
     installDebugInstrumentation();
@@ -160,7 +188,12 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     updateSettings,
     enqueueStartupWork,
   });
-  useAutoBackupScheduler(repository, getSettings, publishSettings, { enqueueStartupWork });
+  useAutoBackupScheduler(repository, getSettings, publishSettings, {
+    enqueueStartupWork,
+    // Only a session with automatic sync has anything to take turns with; otherwise the backup runs
+    // exactly as it did before sync existed.
+    ...(syncAutomationKey === null ? {} : { runExclusive: syncLane.run }),
+  });
 
   const setDebugEnabled = useCallback((enabled: boolean) => {
     persistDebugEnabled(enabled);

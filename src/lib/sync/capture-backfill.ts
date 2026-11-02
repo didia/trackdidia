@@ -15,6 +15,7 @@ import {
   type OccurrenceBaselineCursor,
 } from "./capture-recurrence";
 import { createHlcBatch, SyncClockError } from "./clock-store";
+import { bumpChangeCounterSql } from "./domain-counters";
 import { entityIdOf, parseEntityId, type PrimaryKeyValue } from "./entity-id";
 
 /**
@@ -332,9 +333,8 @@ export const runBackfillSlice = async (
       );
       if (slice.written > 0) {
         await issuer.flush();
-        await db.execute(
-          "UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1",
-        );
+        // The occurrence sidecars travel in the gtd bundle.
+        await db.execute(bumpChangeCounterSql(["gtd"], "1"));
         stamped += 1;
       }
       if (slice.next === null) {

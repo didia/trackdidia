@@ -6,12 +6,31 @@ const factory = vi.hoisted(() => ({
   createRepository: vi.fn<() => Promise<unknown>>(),
 }));
 
+const startup = vi.hoisted(() => ({
+  startStartupSyncPull: vi.fn<(input: Record<string, unknown>) => Promise<unknown>>(),
+}));
+
+vi.mock("../lib/sync/startup-sync", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/sync/startup-sync")>()),
+  startStartupSyncPull: (input: Record<string, unknown>) => startup.startStartupSyncPull(input),
+}));
+
 vi.mock("../lib/storage/factory", () => ({
   isTauriRuntime: () => false,
   createRepository: () => factory.createRepository(),
 }));
 
 describe("useBootstrap", () => {
+  beforeEach(async () => {
+    const real = await vi.importActual<typeof import("../lib/sync/startup-sync")>(
+      "../lib/sync/startup-sync",
+    );
+    startup.startStartupSyncPull.mockReset();
+    startup.startStartupSyncPull.mockImplementation((input) =>
+      real.startStartupSyncPull(input as never),
+    );
+  });
+
   afterEach(() => {
     factory.createRepository.mockReset();
     vi.useRealTimers();
@@ -73,5 +92,93 @@ describe("useBootstrap", () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.repository).toBeInstanceOf(MemoryRepository);
     expect(result.current.startupError).toContain("Création du repository");
+  });
+
+  describe("multi-device sync at startup", () => {
+    const repositoryWithSync = async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      await repository.updateSettings((current) => ({ ...current, multiDeviceSyncEnabled: true }));
+      factory.createRepository.mockResolvedValue(repository);
+      return repository;
+    };
+
+    it("starts no sync and exposes none when the setting is off", async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      factory.createRepository.mockResolvedValue(repository);
+      const sync = vi.spyOn(repository, "getSyncStatus");
+
+      const { result } = renderHook(() => useBootstrap({ runExclusive: (work) => work() }));
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.startupSync).toBeNull();
+      expect(sync).not.toHaveBeenCalled();
+      expect(result.current.startupError).toBeNull();
+    });
+
+    it("is not an error to have sync on in the browser preview: nothing to sync, no fallback", async () => {
+      const repository = await repositoryWithSync();
+
+      const { result } = renderHook(() => useBootstrap({ runExclusive: (work) => work() }));
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.repository).toBe(repository);
+      expect(result.current.startupError).toBeNull();
+      expect(result.current.startupSync).toBeNull();
+    });
+
+    it("hands the pull to bootstrap with the app's lane and the debug flag, before generators", async () => {
+      const repository = await repositoryWithSync();
+      const reconcileDay = repository.reconcileDay.bind(repository);
+      const order: string[] = [];
+      vi.spyOn(repository, "reconcileDay").mockImplementation(async (...args) => {
+        order.push("reconcileDay");
+        return reconcileDay(...args);
+      });
+      const lane = <T,>(work: () => Promise<T>): Promise<T> => work();
+      const fake = { key: "k", startedAtMs: 1, finished: { ok: true, report: {} } };
+      startup.startStartupSyncPull.mockImplementation(async (input) => {
+        order.push("sync");
+        expect(input.runExclusive).toBe(lane);
+        expect(input.debugEnabled).toBe(true);
+        return fake;
+      });
+
+      const { result } = renderHook(() => useBootstrap({ runExclusive: lane }));
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(order).toEqual(["sync", "reconcileDay"]);
+      expect(result.current.startupSync).toBe(fake);
+    });
+
+    it("carries on at once when the pull is still running in the background", async () => {
+      await repositoryWithSync();
+      const fake = {
+        key: "k",
+        startedAtMs: 1,
+        finished: null,
+        settled: new Promise(() => undefined),
+      };
+      startup.startStartupSyncPull.mockResolvedValue(fake);
+
+      const { result } = renderHook(() => useBootstrap({ runExclusive: (work) => work() }));
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.startupError).toBeNull();
+      expect(result.current.startupSync).toBe(fake);
+    });
+
+    it("a sync that throws never activates the in-memory fallback", async () => {
+      const repository = await repositoryWithSync();
+      startup.startStartupSyncPull.mockRejectedValue(new Error("folder exploded"));
+
+      const { result } = renderHook(() => useBootstrap({ runExclusive: (work) => work() }));
+
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.repository).toBe(repository);
+      expect(result.current.startupError).toBeNull();
+      expect(result.current.startupSync).toBeNull();
+    });
   });
 });

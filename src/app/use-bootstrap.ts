@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { defaultAppSettings } from "../domain/settings";
 import type { AppSettings } from "../domain/types";
 import { t } from "../i18n";
-import { logDebug } from "../lib/debug";
+import { getDebugEnabled, logDebug } from "../lib/debug";
 import { createRepository } from "../lib/storage/factory";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import type { AppRepository } from "../lib/storage/repository";
+import { type StartupSync, startStartupSyncPull } from "../lib/sync/startup-sync";
 import { bootstrapApplication } from "./bootstrap";
 
 export const BOOTSTRAP_TIMEOUT_MS = 8_000;
@@ -19,6 +20,17 @@ export interface BootstrapState {
   /** Set when the in-memory fallback is active; shown as a visible warning. */
   startupError: string | null;
   startupStage: string;
+  /**
+   * The sync engine and the pull started during bootstrap (see `lib/sync/startup-sync.ts`); `null`
+   * when sync is off, the debug gate is closed, or the fallback is active. `useMultiDeviceSync`
+   * adopts it.
+   */
+  startupSync: StartupSync | null;
+}
+
+export interface UseBootstrapOptions {
+  /** Runs work alone among backups and syncs; the startup pull and its background tail go through it. */
+  runExclusive?: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 /**
@@ -26,13 +38,16 @@ export interface BootstrapState {
  * timeout activates a fresh `MemoryRepository` and exposes a warning message instead of
  * blocking the UI.
  */
-export const useBootstrap = (): BootstrapState => {
+export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState => {
   const [repository, setRepository] = useState<AppRepository | null>(null);
   const [settings, setSettings] = useState(defaultAppSettings);
   const [loading, setLoading] = useState(true);
   const [startupError, setStartupError] = useState<string | null>(null);
   const [startupStage, setStartupStage] = useState(() => t("startup.bootstrap"));
   const startupStageRef = useRef(startupStage);
+  const [startupSync, setStartupSync] = useState<StartupSync | null>(null);
+  const runExclusiveRef = useRef(options.runExclusive);
+  runExclusiveRef.current = options.runExclusive;
 
   useEffect(() => {
     let cancelled = false;
@@ -71,10 +86,24 @@ export const useBootstrap = (): BootstrapState => {
       try {
         markStage(t("startup.createRepository"));
         const nextRepository = await createRepository();
-        const nextSettings = await bootstrapApplication(nextRepository, { onStage: markStage });
+        let started: StartupSync | null = null;
+        const nextSettings = await bootstrapApplication(nextRepository, {
+          onStage: markStage,
+          pullBeforeGenerators: async (current) => {
+            // Sync off or the debug gate closed: `startStartupSyncPull` returns before doing anything.
+            started = await startStartupSyncPull({
+              repository: nextRepository,
+              settings: current,
+              debugEnabled: getDebugEnabled(),
+              runExclusive: runExclusiveRef.current ?? ((work) => work()),
+            });
+            return started?.finished?.ok === true;
+          },
+        });
 
         settled = true;
         if (!cancelled) {
+          setStartupSync(started);
           setRepository(nextRepository);
           setSettings(nextSettings);
           setStartupError(null);
@@ -103,5 +132,5 @@ export const useBootstrap = (): BootstrapState => {
     };
   }, []);
 
-  return { repository, settings, setSettings, loading, startupError, startupStage };
+  return { repository, settings, setSettings, loading, startupError, startupStage, startupSync };
 };
