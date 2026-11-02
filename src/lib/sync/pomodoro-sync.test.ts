@@ -220,7 +220,11 @@ describe("what a pull does", () => {
     await sim.syncAll("gtd");
     await sim.expectConverged("gtd", { snapshots: true });
     expect(await a.db.select("SELECT 1 FROM pomodoro_sessions")).toHaveLength(2);
-    expect(await b.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await b.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
     const again = await sim.exchange(a, b, "gtd");
     expect(again).toMatchObject({ applied: 0, tombstonesApplied: 0, conflictsLogged: 0 });
   });
@@ -442,7 +446,11 @@ describe("two versions of one terminal session or segment", () => {
         "SELECT 1 FROM sync_entity_snapshot WHERE entity_type = 'pomodoro_sessions'",
       ),
     ).toEqual([]);
-    expect(await a.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await a.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   });
 
   it("joins a segment's ended_at: non-null beats null and the later of two ends wins, in either order", async () => {
@@ -496,6 +504,10 @@ describe("two versions of one terminal session or segment", () => {
       title: "newest-earlier-end",
       ended_at: "2999-01-01T00:00:00.000Z",
     });
-    expect(await a.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await a.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   });
 });

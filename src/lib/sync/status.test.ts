@@ -111,6 +111,8 @@ describe("buildSupportedSyncStatus", () => {
       lastPublishCounter: 0,
       pendingChanges: 0,
       captureEnabled: false,
+      backfillComplete: false,
+      backfillProgress: null,
       peers: [],
     });
     expect(buildSupportedSyncStatus(null, [], true)).toMatchObject({ captureEnabled: true });

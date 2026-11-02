@@ -256,7 +256,11 @@ describe("two pending proposals for one natural key", () => {
     expect((await readMetaOf(a.db, "ai_proposals", "p-a"))?.row_hlc).toBe(
       (await readMetaOf(b.db, "ai_proposals", "p-a"))?.row_hlc,
     );
-    expect(await a.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await a.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   });
 
   it("breaks an exact clock tie by the greater id, whichever arrives first", async () => {

@@ -27,7 +27,7 @@
     "disable": "Désactiver la synchronisation",
     "disabling": "Désactivation…",
     "disableHelp": "Désactiver ne supprime rien : l'identité, le suivi des changements (qui reste installé et continue d'enregistrer tes modifications) et les fichiers déjà publiés restent en place.",
-    "enableWarning": "L'activation initialise le suivi de toute la base en une seule opération. Sur une grosse base elle peut durer plusieurs secondes : n'utilise pas et ne modifie pas l'application pendant ce temps (une modification faite alors peut échouer). Fermer l'application est sans danger : l'opération est annulée.",
+    "enableWarning": "L'initialisation du suivi des changements se fait par petites étapes : tu peux continuer à utiliser l'application, mais sur une grosse base elle peut durer plusieurs secondes. Tant qu'elle n'est pas terminée, la synchronisation reste en pause. Si tu fermes l'application, elle reprend là où elle s'est arrêtée.",
     "recheck": "Revérifier les dossiers",
     "rechecking": "Vérification…",
     "openPage": "Ouvrir la page Synchronisation",
@@ -41,11 +41,18 @@
     "step": {
       "folders": "Préparation et vérification des dossiers…",
       "identity": "Identification de cet ordinateur…",
-      "capture": "Initialisation du suivi des changements de toute la base (peut durer plusieurs secondes sur une grosse base ; n'utilise pas et ne modifie pas l'application tant que ce n'est pas fini : une modification faite pendant ce temps peut échouer)…",
+      "capture": "Initialisation du suivi des changements, par petites étapes (tu peux continuer à utiliser l'application)…",
       "saving": "Enregistrement…"
     },
     "enabled": "Synchronisation activée. Suivi des changements : {{count}} éléments initialisés en {{seconds}} s.",
-    "identityRepaired": "Cette base de données provenait d'un autre ordinateur (copie ou restauration) : son identité de synchronisation a été réécrite pour cet ordinateur."
+    "identityRepaired": "Cette base de données provenait d'un autre ordinateur (copie ou restauration) : son identité de synchronisation a été réécrite pour cet ordinateur.",
+    "backfill": {
+      "progress": "Initialisation du suivi : {{percent}} % ({{scanned}} sur {{total}} éléments parcourus).",
+      "progressLabel": "Progression de l'initialisation du suivi des changements",
+      "interrupted": "L'initialisation du suivi des changements n'est pas terminée ({{percent}} %). La synchronisation reste en pause tant qu'elle n'est pas finie ; rien n'est perdu.",
+      "resume": "Reprendre l'initialisation",
+      "resuming": "Reprise de l'initialisation…"
+    }
   },
   "errors": {
     "unsupported_preview": "Indisponible en mode aperçu navigateur : la synchronisation exige l'application de bureau.",
@@ -62,7 +69,8 @@
     "already_running": "Une synchronisation est déjà en cours.",
     "unexpected": "Erreur inattendue : {{detail}}",
     "roleGtd": "Dossier GTD partagé",
-    "rolePersonal": "Dossier personnel"
+    "rolePersonal": "Dossier personnel",
+    "backfill_incomplete": "L'initialisation du suivi des changements a été interrompue avant la fin. Rien n'est perdu : utilise « Reprendre l'initialisation » pour la terminer."
   },
   "page": {
     "eyebrow": "Expérimental",
@@ -152,7 +160,9 @@
         "no_transport": "{{domain}} : aucun dossier configuré",
         "failed": "{{domain}} : échec"
       },
-      "skew": "L'horloge de {{name}} est en avance de plus de cinq minutes sur la tienne."
+      "skew": "L'horloge de {{name}} est en avance de plus de cinq minutes sur la tienne.",
+      "chunks": "{{domain}} : fusion en {{count}} étapes (la plus longue : {{ms}} ms).",
+      "partial": "{{domain}} : fusion interrompue après {{done}} étapes sur {{total}} ; les étapes déjà faites sont conservées et la prochaine synchronisation continue."
     },
     "domain": {
       "gtd": "GTD",
@@ -206,14 +216,22 @@
         "bundle_not_ready": "Les données de {{name}} ne sont pas encore prêtes (envoi en cours ?) : nouvel essai plus tard.",
         "bundle_invalid": "Les données de {{name}} ({{domain}}) sont invalides : rejetées en bloc.",
         "bundle_rejected": "Les données de {{name}} ({{domain}}) n'ont pas pu être fusionnées : rien n'a été conservé.",
+        "bundle_partially_merged": "Les données de {{name}} ({{domain}}) n'ont été fusionnées qu'en partie : {{kept}} partie(s) sur {{total}} sont conservées (tes données restent cohérentes), puis une partie a échoué. Le paquet sera réessayé en entier à la prochaine synchronisation ; ce qui est déjà fusionné ne sera pas modifié.",
         "bundle_failed": "Échec inattendu en traitant les données de {{name}} ({{domain}}).",
         "bookkeeping_failed": "La fusion a réussi mais n'a pas pu être mémorisée : la prochaine synchronisation la refera sans effet.",
         "safety_backup_required": "Une sauvegarde de cet ordinateur est requise avant de fusionner et n'a pas pu être faite : rien n'a été fusionné.",
         "publish_failed": "La publication des données {{domain}} a échoué.",
         "publish_skipped": "Publication non effectuée.",
-        "pending_unpublished_domain": "Dossier non connecté : {{folders}}. Tes changements restent en attente et seront publiés dès la reconnexion."
+        "pending_unpublished_domain": "Dossier non connecté : {{folders}}. Tes changements restent en attente et seront publiés dès la reconnexion.",
+        "backfill_incomplete": "Le suivi des changements de cet ordinateur est encore en cours d'initialisation : rien n'est reçu ni publié tant qu'il n'est pas terminé."
       },
       "supersededPublish": "La publication des données {{domain}} a été remplacée par une plus récente : rien n'est perdu."
+    },
+    "backfill": {
+      "title": "Initialisation du suivi des changements",
+      "body": "Le suivi des changements de cet ordinateur n'est pas encore terminé ({{percent}} %). La synchronisation reste en pause tant qu'il ne l'est pas ; rien n'est perdu.",
+      "resume": "Reprendre l'initialisation",
+      "resuming": "Reprise de l'initialisation…"
     }
   }
 }

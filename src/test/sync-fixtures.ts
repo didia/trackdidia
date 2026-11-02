@@ -19,6 +19,7 @@ export const syncController = (
   syncNow: vi.fn(async () => undefined),
   refresh: vi.fn(async () => undefined),
   recheckFolders: vi.fn(async () => undefined),
+  resumeBackfill: vi.fn(async () => undefined),
   ...overrides,
 });
 
@@ -37,6 +38,7 @@ export const peer = (overrides: Partial<PeerStatus> = {}): PeerStatus => ({
 
 export const status = (overrides: Partial<EngineStatus> = {}): EngineStatus => ({
   ready: true,
+  backfill: { complete: true, progress: null },
   running: null,
   profile: "personal",
   pendingChanges: 0,
@@ -59,7 +61,15 @@ export const pullReport = (overrides: Partial<PullReport> = {}): PullReport => (
   peers: [],
   issues: [],
   safetyBackup: { reasons: [], status: "not_needed" },
-  totals: { bundlesApplied: 0, applied: 0, skipped: 0, tombstonesApplied: 0, conflictsLogged: 0 },
+  totals: {
+    bundlesApplied: 0,
+    applied: 0,
+    skipped: 0,
+    tombstonesApplied: 0,
+    conflictsLogged: 0,
+    chunksApplied: 0,
+    maxChunkMs: 0,
+  },
   ...overrides,
 });
 

@@ -290,7 +290,11 @@ describe("merge-applied writes are invisible to capture", () => {
     });
     expect([...(decoded.context_ids_json as string[])].sort()).toEqual(["a", "b"]);
     // A verifying scan finds the state exactly as stamped: nothing to restamp.
-    expect(await a.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await a.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   });
 });
 

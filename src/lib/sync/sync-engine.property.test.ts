@@ -272,7 +272,11 @@ const runSeed = async (seed: number, holder: { ctx: OpContext | null }) => {
     ),
   ).toBe(generations);
   for (const device of world.devices) {
-    expect(await device.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await device.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
     const status = await device.repo.getSyncStatus();
     expect(status.supported && status.pendingChanges, `${device.name} pending`).toBe(0);
   }

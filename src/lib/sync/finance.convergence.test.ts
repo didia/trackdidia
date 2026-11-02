@@ -448,7 +448,11 @@ describe("finance tables converge in any application order", () => {
           tombstonesApplied: 0,
         });
       }
-      expect(await first.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+      expect(await first.repo.enableSyncCapture()).toMatchObject({
+        installed: false,
+        backfilled: 0,
+        backfillComplete: true,
+      });
 
       // The laptops converge to the same state once they exchange everything.
       for (const domain of DOMAINS) {

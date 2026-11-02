@@ -5,6 +5,8 @@ import { expect } from "vitest";
 import { createNodeSqliteDatabase } from "../../../test/mocks/node-sqlite-database";
 import type { Database } from "../../storage/sqlite-db";
 import { TauriSqliteRepository } from "../../storage/tauri-sqlite-repository";
+import { runSyncCaptureBackfill } from "../backfill-driver";
+import type { SyncBackfillLimits } from "../backfill-state";
 import type { SyncApplyResult, SyncChangeSet } from "../change-set";
 import { canonicalJson } from "../field-clocks";
 import {
@@ -122,6 +124,20 @@ export const harnessDeviceId = (index: number): string =>
 
 export const jsonRoundTrip = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
+/**
+ * `enableSyncCapture` and then every remaining backfill chunk: the whole verifying scan, however
+ * small the chunks. `stamp()` of a device is this.
+ */
+export const enableCaptureFully = async (
+  repo: TauriSqliteRepository,
+  limits?: Partial<SyncBackfillLimits>,
+): Promise<void> => {
+  const first = await repo.enableSyncCapture(limits === undefined ? {} : { limits });
+  if (!first.backfillComplete) {
+    await runSyncCaptureBackfill(repo, limits === undefined ? {} : { limits });
+  }
+};
+
 export const createSyncDevice = async (
   name: string,
   index: number,
@@ -134,7 +150,7 @@ export const createSyncDevice = async (
   const deviceId = harnessDeviceId(index);
   await repo.ensureSyncIdentity({ deviceId, deviceName: name });
   if (options.enableCapture !== false) {
-    await repo.enableSyncCapture();
+    await enableCaptureFully(repo);
   }
   return {
     name,
@@ -143,7 +159,7 @@ export const createSyncDevice = async (
     repo,
     clock,
     stamp: async () => {
-      await repo.enableSyncCapture();
+      await enableCaptureFully(repo);
     },
   };
 };

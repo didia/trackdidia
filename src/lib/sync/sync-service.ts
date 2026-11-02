@@ -6,6 +6,8 @@ import { type FolderOverlap, folderOverlap } from "./folder-paths";
 import type { SyncFolderEnvironment, SyncFolderRole } from "./folder-api";
 import { SyncFolderError } from "./folder-api";
 import { getDeviceId } from "./device-id";
+import { type BackfillTick, runSyncCaptureBackfill } from "./backfill-driver";
+import type { SyncBackfillLimits } from "./backfill-state";
 import { createSyncEngine, type SyncEngine } from "./sync-engine";
 import type { EnsureSafetyBackup } from "./engine-support";
 import { normalizeDeviceName, type SyncIdentityResult } from "./status";
@@ -49,6 +51,11 @@ export type SyncSetupErrorCode =
   | "device_name_invalid"
   | "no_device_id"
   | "capture_failed"
+  /**
+   * The backfill was stopped (or could not finish) before every row was initialized. Nothing was
+   * lost: the pass is resumable, and sync stays off until it has finished.
+   */
+  | "backfill_incomplete"
   | "no_folders";
 
 export class SyncSetupError extends Error {
@@ -167,9 +174,18 @@ export const prepareFolders = async (
 export type EnableStep = "folders" | "identity" | "capture" | "saving";
 
 export interface EnableSyncResult {
-  identity: SyncIdentityResult;
   /** `repaired`: the database came from another laptop (a clone or a restore) and was re-identified. */
-  capture: { installed: boolean; backfilled: number; durationMs: number };
+  identity: SyncIdentityResult;
+  capture: {
+    installed: boolean;
+    /** Entities stamped by the whole backfill (a resumed pass counts what it did in this run). */
+    backfilled: number;
+    durationMs: number;
+    /** Chunks (writer slots) the backfill took in this run. */
+    chunks: number;
+    /** Most SQL statements one chunk issued, to project the IPC cost of a slot. */
+    maxChunkStatements: number;
+  };
   folders: PreparedFolders;
 }
 
@@ -179,6 +195,14 @@ export interface EnableSyncInput {
   updateSettings: (updater: (current: AppSettings) => AppSettings) => Promise<AppSettings>;
   deps?: SyncServiceDeps;
   onStep?: (step: EnableStep) => void;
+  /** Called after every backfill chunk (the enable's progress display). */
+  onBackfillProgress?: (tick: BackfillTick) => void;
+  /** Checked before every backfill chunk; stopping leaves a resumable pass and sync off. */
+  shouldStop?: () => boolean;
+  /** Chunk size, for tests; the defaults are `DEFAULT_BACKFILL_LIMITS`. */
+  backfillLimits?: Partial<SyncBackfillLimits>;
+  /** Awaited between chunks; the default yields a macrotask. */
+  yieldBetweenChunks?: () => Promise<void>;
 }
 
 /** Throws unless sync can run on this device with these settings (profile and storage). */
@@ -205,9 +229,11 @@ export const assertSyncSupported = async (
 
 /**
  * Turns sync on for this device: folders, identity, change capture, then the setting. Safe to run
- * again after a failure at any step. The backfill is one write transaction over every synced row; it
- * is timed and the duration is returned (see `docs/multi-device-sync.md` for what that means on a
- * large database).
+ * again after a failure at any step, and after an interruption: the capture backfill runs as short
+ * writer slots (`enableSyncCapture` installs and runs the first chunk, `runSyncCaptureBackfill`
+ * the rest, yielding between chunks) and resumes where it stopped. The setting is saved only once
+ * every row is initialized; a stopped or failed backfill leaves sync off and the pass resumable
+ * (see `docs/multi-device-sync.md`).
  */
 export const enableSync = async (input: EnableSyncInput): Promise<EnableSyncResult> => {
   const { repository, settings, updateSettings } = input;
@@ -245,15 +271,46 @@ export const enableSync = async (input: EnableSyncInput): Promise<EnableSyncResu
 
   input.onStep?.("capture");
   const startedAt = deps.now();
-  let capture: { installed: boolean; backfilled: number };
+  const limitOption = input.backfillLimits === undefined ? {} : { limits: input.backfillLimits };
+  let capture: {
+    installed: boolean;
+    backfilled: number;
+    chunks: number;
+    maxChunkStatements: number;
+  };
   try {
-    capture = await repository.enableSyncCapture();
+    const first = await repository.enableSyncCapture(limitOption);
+    capture = {
+      installed: first.installed,
+      backfilled: first.backfilled,
+      chunks: 1,
+      maxChunkStatements: first.maxChunkStatements,
+    };
+    if (!first.backfillComplete) {
+      const rest = await runSyncCaptureBackfill(repository, {
+        ...limitOption,
+        ...(input.onBackfillProgress ? { onProgress: input.onBackfillProgress } : {}),
+        ...(input.shouldStop ? { shouldStop: input.shouldStop } : {}),
+        ...(input.yieldBetweenChunks ? { yieldBetweenChunks: input.yieldBetweenChunks } : {}),
+      });
+      capture.backfilled += rest.stamped;
+      capture.chunks += rest.chunks;
+      capture.maxChunkStatements = Math.max(capture.maxChunkStatements, rest.maxChunkStatements);
+      if (!rest.complete) {
+        throw new SyncSetupError(
+          "backfill_incomplete",
+          "The initialization of change tracking was stopped before it finished; resume it to turn sync on",
+        );
+      }
+    }
   } catch (error) {
+    if (error instanceof SyncSetupError) throw error;
     throw new SyncSetupError("capture_failed", messageOf(error), { cause: error });
   }
   const durationMs = deps.now() - startedAt;
   logDebug("info", "sync.setup", "Capture des changements activee", {
     backfilled: capture.backfilled,
+    chunks: capture.chunks,
     durationMs,
   });
 

@@ -772,6 +772,16 @@ export const TABLE_REGISTRY: readonly TableRegistration[] = [
       "Single row, present only while change capture is enabled: the hash of the installed capture-trigger set.",
   },
   {
+    table: "sync_backfill_state",
+    domain: "device",
+    mergeClass: "device-local",
+    primaryKey: ["id"],
+    naturalKeys: noKeys,
+    references: noRefs,
+    notes:
+      "Single row: progress of the chunked change-capture backfill (pass number, status running or complete, the step and primary-key cursor it resumes from, row counts). Absent on a database that enabled capture before it existed, which counts as complete. Meaningless on any other machine.",
+  },
+  {
     table: "schema_migrations",
     domain: "device",
     mergeClass: "device-local",

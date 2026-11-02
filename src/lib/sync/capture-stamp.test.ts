@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { describe, expect, it } from "vitest";
-import { backfillSyncCapture, capturedSettingKeys, stampDirtyEntities } from "./capture-stamp";
+import { backfillSyncCapture } from "./capture-backfill";
+import { capturedSettingKeys, stampDirtyEntities } from "./capture-stamp";
 import { disableSyncCapture, installSyncCapture } from "./capture-install";
 import {
   CAPTURE_NOW,

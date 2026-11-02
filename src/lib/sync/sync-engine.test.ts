@@ -360,7 +360,11 @@ describe("pulling and publishing only when something changed", () => {
     expect(world.folders.manifestFor("gtd", a.deviceId)?.domains.gtd?.generation).toBe(
       before.generation,
     );
-    expect(await a.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await a.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
     expect((await readIdentity(a.db))?.change_counter).toBe(
       (before.a.identity as { change_counter: number }).change_counter,
     );

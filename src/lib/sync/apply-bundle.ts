@@ -14,8 +14,10 @@ import {
   messageOf,
   type PendingConflict,
   rowsById,
+  isPlannedOrderOnly,
   toSqlApplyError,
   type Totals,
+  writePlannedOrders,
   writeRow,
 } from "./apply-support";
 import {
@@ -357,6 +359,8 @@ const applyEntityTable = async (
 
     const outcome = emptyOutcome();
     const remoteById = new Map(batch.map((entity) => [entity.entityId, entity] as const));
+    // Rows whose only change is a renumbered queue position are written together, after the loop.
+    const planned: { id: string; order: unknown }[] = [];
     for (const entry of staged) {
       // A rename onto a name another context holds keeps the local name (apply-names.ts).
       if (table === CONTEXTS) {
@@ -375,6 +379,8 @@ const applyEntityTable = async (
         if (merged.rowAction === "delete" && guard.isCascadeParent(table)) {
           // Children first: the delete runs in `guard.flush`, after every table was applied.
           guard.deferDelete(table, entityId, key, merged.meta.deletedAt as string);
+        } else if (isPlannedOrderOnly(table, info, merged)) {
+          planned.push({ id: entityId, order: merged.columns.planned_order });
         } else {
           await writeRow(db, table, info, key, merged);
         }
@@ -404,6 +410,12 @@ const applyEntityTable = async (
       for (const conflict of entry.conflicts) {
         conflicts.push(extraConflictOf(conflict));
       }
+    }
+
+    try {
+      await writePlannedOrders(db, table, planned);
+    } catch (error) {
+      throw await toSqlApplyError(db, table, planned[0]?.id ?? "", error);
     }
 
     // The snapshot is the row as the stamper will decode it next time, so read it back after the

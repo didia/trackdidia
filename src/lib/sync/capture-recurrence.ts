@@ -256,6 +256,7 @@ export const captureRecurringInstance = async (
 };
 
 interface InstanceRow {
+  id: string;
   recurring_template_id: string;
   recurrence_due_date: string;
   status: string;
@@ -263,64 +264,164 @@ interface InstanceRow {
 }
 
 /**
+ * Where a bounded baseline slice resumes. `offset` 0: `id` is the last instance fully handled, resume
+ * AFTER it. `offset` N >= 1: `id` is in progress, its own record and the first N - 1 dates of its
+ * backlog are written, resume at backlog date N - 1. The second form is what keeps one instance with
+ * a long backlog from being a single unbounded slice.
+ */
+export interface OccurrenceBaselineCursor {
+  id: string;
+  offset: number;
+}
+
+export interface OccurrenceBaselineBudget {
+  /** Units of work this slice may do: one per instance looked at, one per backlog date recorded. */
+  units: number;
+  /** True once the statement budget is spent (checked between units, never inside one). */
+  statementsSpent: () => boolean;
+}
+
+export interface OccurrenceBaselineSlice {
+  /** Occurrence rows written. */
+  written: number;
+  /** Units of work done. */
+  units: number;
+  /** Where to resume; `null` once every instance is handled. */
+  next: OccurrenceBaselineCursor | null;
+}
+
+const INSTANCE_PAGE = 100;
+
+/**
+ * One bounded slice of the baseline (see `ensureInstanceOccurrences` for the rules): instances in id
+ * order from `after`, at most `budget.units` units of work and no new unit once the statement budget
+ * is spent. The first unit always runs, so a slice always makes progress.
+ */
+export const ensureInstanceOccurrencesSlice = async (
+  db: Database,
+  nextHlc: () => Promise<string>,
+  after: OccurrenceBaselineCursor | null,
+  budget: OccurrenceBaselineBudget,
+): Promise<OccurrenceBaselineSlice> => {
+  let written = 0;
+  let units = 0;
+  let cursor: OccurrenceBaselineCursor | null = after;
+  const mayContinue = (): boolean =>
+    units === 0 || (units < budget.units && !budget.statementsSpent());
+
+  for (;;) {
+    if (!mayContinue()) return { written, units, next: cursor };
+    const inclusive = cursor !== null && cursor.offset >= 1;
+    const limit = Math.max(1, Math.min(budget.units - units, INSTANCE_PAGE));
+    const page = await db.select<InstanceRow[]>(
+      `SELECT id, recurring_template_id, recurrence_due_date, status, pending_past_recurrences
+       FROM gtd_tasks
+       WHERE is_recurring_instance = 1 AND recurring_template_id IS NOT NULL
+         AND recurrence_due_date IS NOT NULL ${
+           cursor === null ? "" : `AND id ${inclusive ? ">=" : ">"} $1`
+         }
+       ORDER BY id LIMIT ${limit}`,
+      cursor === null ? [] : [cursor.id],
+    );
+    for (const instance of page) {
+      if (!mayContinue()) return { written, units, next: cursor };
+      const resume = cursor !== null && cursor.id === instance.id ? cursor.offset : 0;
+      let index = Math.max(0, resume - 1);
+      let dates: string[] = [];
+      const templateId = instance.recurring_template_id;
+      const backlog = intOr0(instance.pending_past_recurrences);
+      let hlc: string | null = null;
+      let deviceId: string | undefined;
+      const put = async (dueDate: string, kind: OccurrenceOutcome): Promise<void> => {
+        if (hlc === null || deviceId === undefined) return;
+        if (
+          await recordOccurrence(db, {
+            templateId,
+            dueDate,
+            outcome: kind,
+            outcomeHlc: hlc,
+            deviceId,
+          })
+        ) {
+          written += 1;
+        }
+      };
+      if (resume === 0) {
+        units += 1;
+        cursor = { id: instance.id, offset: 0 };
+        if (!isCalendarDateKey(instance.recurrence_due_date)) continue;
+        const outcome = (await isGeneratorPullBack(db, templateId, instance.status))
+          ? "active"
+          : outcomeOfStatus(instance.status);
+        const existing = await readOccurrence(db, templateId, instance.recurrence_due_date);
+        if (existing !== null && rankOf(outcome) <= rankOf(existing.outcome)) continue;
+        const hasAny = (
+          await db.select<{ present: number }[]>(
+            "SELECT 1 AS present FROM sync_recurrence_occurrences WHERE template_id = $1 LIMIT 1",
+            [templateId],
+          )
+        ).length;
+        hlc = await nextHlc();
+        deviceId = parseHlc(hlc)?.deviceId;
+        if (deviceId === undefined) continue;
+        await put(instance.recurrence_due_date, outcome);
+        if (hasAny === 0 && backlog > 0) {
+          const template = await readTemplate(db, templateId);
+          if (template !== null) {
+            dates = dueDatesBefore(template, instance.recurrence_due_date, backlog);
+          }
+        }
+        // The record above and "the backlog is still to do" are one saved state.
+        if (dates.length > 0) cursor = { id: instance.id, offset: 1 };
+      } else {
+        // Resuming a backlog: recomputed from the row (it may have moved on since; every write is a
+        // join, so a date the normal path already recorded is simply found again).
+        if (!isCalendarDateKey(instance.recurrence_due_date)) {
+          cursor = { id: instance.id, offset: 0 };
+          continue;
+        }
+        hlc = await nextHlc();
+        deviceId = parseHlc(hlc)?.deviceId;
+        const template = deviceId === undefined ? null : await readTemplate(db, templateId);
+        if (template !== null) {
+          dates = dueDatesBefore(template, instance.recurrence_due_date, backlog);
+        }
+      }
+      while (index < dates.length) {
+        if (!mayContinue()) return { written, units, next: cursor };
+        await put(dates[index] as string, "missed");
+        index += 1;
+        units += 1;
+        cursor = { id: instance.id, offset: index < dates.length ? index + 1 : 0 };
+      }
+      cursor = { id: instance.id, offset: 0 };
+    }
+    if (page.length < limit) return { written, units, next: null };
+  }
+};
+
+/**
  * Backfill: makes sure every existing recurring instance has the occurrence record of its current
  * due date (a database whose instances were stamped before the sidecars existed, or whose capture
  * was off while the instance advanced). A template that has no record at all also gets its existing
  * backlog recorded, exactly as a creation would. `nextHlc` is called only when a row is written.
- * Returns the number of rows written.
+ * Returns the number of rows written. The unbounded form of `ensureInstanceOccurrencesSlice`.
  */
 export const ensureInstanceOccurrences = async (
   db: Database,
   nextHlc: () => Promise<string>,
 ): Promise<number> => {
-  const instances = await db.select<InstanceRow[]>(
-    `SELECT recurring_template_id, recurrence_due_date, status, pending_past_recurrences
-     FROM gtd_tasks
-     WHERE is_recurring_instance = 1 AND recurring_template_id IS NOT NULL
-       AND recurrence_due_date IS NOT NULL
-     ORDER BY recurring_template_id`,
-  );
   let written = 0;
-  for (const instance of instances) {
-    if (!isCalendarDateKey(instance.recurrence_due_date)) continue;
-    const templateId = instance.recurring_template_id;
-    const outcome = (await isGeneratorPullBack(db, templateId, instance.status))
-      ? "active"
-      : outcomeOfStatus(instance.status);
-    const existing = await readOccurrence(db, templateId, instance.recurrence_due_date);
-    if (existing !== null && rankOf(outcome) <= rankOf(existing.outcome)) continue;
-    const hasAny = (
-      await db.select<{ present: number }[]>(
-        "SELECT 1 AS present FROM sync_recurrence_occurrences WHERE template_id = $1 LIMIT 1",
-        [templateId],
-      )
-    ).length;
-    const hlc = await nextHlc();
-    const deviceId = parseHlc(hlc)?.deviceId;
-    if (deviceId === undefined) continue;
-    const put = async (dueDate: string, kind: OccurrenceOutcome): Promise<void> => {
-      if (
-        await recordOccurrence(db, {
-          templateId,
-          dueDate,
-          outcome: kind,
-          outcomeHlc: hlc,
-          deviceId,
-        })
-      ) {
-        written += 1;
-      }
-    };
-    await put(instance.recurrence_due_date, outcome);
-    const backlog = intOr0(instance.pending_past_recurrences);
-    if (hasAny === 0 && backlog > 0) {
-      const template = await readTemplate(db, templateId);
-      if (template !== null) {
-        for (const date of dueDatesBefore(template, instance.recurrence_due_date, backlog)) {
-          await put(date, "missed");
-        }
-      }
-    }
+  let cursor: OccurrenceBaselineCursor | null = null;
+  for (;;) {
+    const slice: OccurrenceBaselineSlice = await ensureInstanceOccurrencesSlice(
+      db,
+      nextHlc,
+      cursor,
+      { units: Number.MAX_SAFE_INTEGER, statementsSpent: () => false },
+    );
+    written += slice.written;
+    if (slice.next === null) return written;
+    cursor = slice.next;
   }
-  return written;
 };

@@ -189,7 +189,7 @@ describe("enableSyncCapture", () => {
 
     const state = await syncState(database);
     const second = await repository.enableSyncCapture();
-    expect(second).toEqual({ installed: false, backfilled: 0 });
+    expect(second).toMatchObject({ installed: false, backfilled: 0, backfillComplete: true });
     expect(await syncState(database)).toEqual(state);
   });
 

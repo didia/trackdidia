@@ -207,7 +207,11 @@ describe("plain finance rows converge through the real methods", () => {
     for (const result of await sim.syncAll("finance")) {
       expect(result).toMatchObject({ applied: 0, tombstonesApplied: 0 });
     }
-    expect(await b.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    expect(await b.repo.enableSyncCapture()).toMatchObject({
+      installed: false,
+      backfilled: 0,
+      backfillComplete: true,
+    });
   });
 
   it("whole-row last-writer-wins: the replica whose value was replaced logs it, the other does not", async () => {
@@ -896,7 +900,12 @@ describe("a large import through capture, publish and apply", () => {
       applied: 0,
       tombstonesApplied: 0,
     });
-    expect(await b.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+    // The verifying scan over 1000+ rows (one big chunk here) restamps nothing.
+    expect(
+      await b.repo.enableSyncCapture({
+        limits: { rowsPerChunk: 100_000, statementsPerChunk: 1_000_000 },
+      }),
+    ).toMatchObject({ installed: false, backfilled: 0, backfillComplete: true });
     await sim.expectConverged("finance", { snapshots: true, exact: true });
   }, 60_000);
 });

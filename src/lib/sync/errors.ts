@@ -49,6 +49,11 @@ export type SyncApplyErrorCode =
   | "unsupported_merge_class"
   /** Change capture is not installed, so local edits could not be told apart from remote ones. */
   | "capture_disabled"
+  /**
+   * Change capture is installed but its backfill has not finished: some entities still have no
+   * clocks or snapshots, so applying a peer's state (or publishing ours) would be unsafe.
+   */
+  | "backfill_incomplete"
   /** The sender has migrated further than this device. */
   | "schema_newer_than_local"
   /**

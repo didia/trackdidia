@@ -89,6 +89,9 @@ export class SyncEngine {
       calendarSyncEnabled: options.calendarSyncEnabled ?? (() => false),
       beforeFirstMerge: options.beforeFirstMerge,
       transportTimeoutMs: options.transportTimeoutMs ?? DEFAULT_TRANSPORT_TIMEOUT_MS,
+      applyLimits: options.applyLimits ?? {},
+      yieldBetweenChunks: options.yieldBetweenChunks,
+      chunkResume: new Map(),
     };
   }
 
@@ -133,6 +136,7 @@ export class SyncEngine {
     if (!status.supported) {
       return {
         ready: false,
+        backfill: { complete: false, progress: null },
         running: this.running,
         profile: this.ctx.profile,
         pendingChanges: 0,
@@ -143,7 +147,8 @@ export class SyncEngine {
       };
     }
     return {
-      ready: status.identity !== null && status.captureEnabled,
+      ready: status.identity !== null && status.captureEnabled && status.backfillComplete,
+      backfill: { complete: status.backfillComplete, progress: status.backfillProgress },
       running: this.running,
       profile: this.ctx.profile,
       pendingChanges: status.pendingChanges,

@@ -347,7 +347,11 @@ describe("pomodoro, proposals and objectives converge in any application order",
           tombstonesApplied: 0,
         });
       }
-      expect(await first.repo.enableSyncCapture()).toEqual({ installed: false, backfilled: 0 });
+      expect(await first.repo.enableSyncCapture()).toMatchObject({
+        installed: false,
+        backfilled: 0,
+        backfillComplete: true,
+      });
 
       // Replicas converge exactly once they exchange: the tombstones they invented differ in
       // clock only, and tombstone against tombstone keeps the later.

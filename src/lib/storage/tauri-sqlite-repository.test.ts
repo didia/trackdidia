@@ -193,6 +193,8 @@ describe("TauriSqliteRepository sync identity and status", () => {
       lastPublishCounter: 7,
       pendingChanges: 5,
       captureEnabled: false,
+      backfillComplete: false,
+      backfillProgress: null,
       peers: [
         {
           peerId: "dev:a",

@@ -166,6 +166,58 @@ export const writeRow = async (
   }
 };
 
+/**
+ * True for an outcome that only moves `planned_order` of an existing task: what the Planned queue
+ * repair stages for the receiver's own rows (no clock, no meta, no conflict). Many of them are
+ * written as a few statements by {@link writePlannedOrders} instead of one each.
+ */
+export const isPlannedOrderOnly = (
+  table: string,
+  info: TableInfo,
+  outcome: EntityMergeOutcome,
+): boolean => {
+  if (table !== "gtd_tasks" || info.primaryKey.length !== 1 || info.primaryKey[0] !== "id") {
+    return false;
+  }
+  const columns = Object.keys(outcome.columns);
+  return (
+    outcome.rowAction === "update" &&
+    columns.length === 1 &&
+    columns[0] === "planned_order" &&
+    !outcome.metaChanged &&
+    !outcome.tombstoneApplied &&
+    outcome.overwritten.length === 0
+  );
+};
+
+/** Rows one {@link writePlannedOrders} statement carries (3 variables each, well under any limit). */
+const PLANNED_ORDER_BATCH = 250;
+
+/**
+ * Writes `planned_order` for many tasks of one table with one statement per
+ * {@link PLANNED_ORDER_BATCH} rows. The result is the same as one `UPDATE` per row; only the number
+ * of statements (and so of writer-slot round trips) differs: a queue of 5,000 tasks renumbered by
+ * one incoming task costs 20 statements instead of 5,000.
+ */
+export const writePlannedOrders = async (
+  db: Database,
+  table: string,
+  rows: readonly { id: string; order: unknown }[],
+): Promise<void> => {
+  const t = quoteIdent(table);
+  for (let start = 0; start < rows.length; start += PLANNED_ORDER_BATCH) {
+    const batch = rows.slice(start, start + PLANNED_ORDER_BATCH);
+    const cases = batch
+      .map((_, index) => `WHEN $${index * 3 + 1} THEN $${index * 3 + 2}`)
+      .join(" ");
+    const ids = batch.map((_, index) => `$${index * 3 + 3}`).join(", ");
+    await db.execute(
+      `UPDATE ${t} SET "planned_order" = CASE "id" ${cases} END WHERE "id" IN (${ids})`,
+      batch.flatMap((row) => [row.id, row.order, row.id]),
+    );
+  }
+};
+
 export const rowsById = (
   table: string,
   info: TableInfo,
