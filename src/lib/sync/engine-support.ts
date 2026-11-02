@@ -31,6 +31,9 @@ export type EnsureSafetyBackup = (
   reasons: readonly SafetyBackupReason[],
 ) => Promise<SafetyBackupResult | undefined>;
 
+/** What a pull is about to do to the database; see {@link SyncEngineOptions.beforeWrite}. */
+export type PullWriteKind = "backup" | "apply";
+
 export interface SyncEngineOptions {
   repo: SyncEngineRepository;
   /**
@@ -61,6 +64,13 @@ export interface SyncEngineOptions {
   applyLimits?: Partial<ApplyLimits>;
   /** Awaited between the pieces of a large bundle (default: a macrotask). Tests pass a no-op. */
   yieldBetweenChunks?: () => Promise<void>;
+  /**
+   * Awaited by a PULL right before it holds the database writer: before the safety backup (`"backup"`,
+   * a whole `VACUUM INTO`) and before every apply piece (`"apply"`, including the first). Reads and
+   * folder calls are not gated. The startup pull uses it to keep the writer free for bootstrap once
+   * its wait budget has lapsed (`startup-sync.ts`); absent, nothing waits.
+   */
+  beforeWrite?: (kind: PullWriteKind) => Promise<void>;
 }
 
 /** The engine's own limit for one transport call (a folder that is online-only can be slow). */
@@ -78,6 +88,7 @@ export interface EngineContext {
   transportTimeoutMs: number;
   applyLimits: Partial<ApplyLimits>;
   yieldBetweenChunks: (() => Promise<void>) | undefined;
+  beforeWrite: ((kind: PullWriteKind) => Promise<void>) | undefined;
   /**
    * Pieces already applied of a large bundle that a budget-limited pull stopped in the middle of,
    * keyed by peer, domain, bundle hash and limits. In-process only: after a restart the bundle is

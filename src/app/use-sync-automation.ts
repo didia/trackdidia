@@ -84,12 +84,6 @@ export const useSyncAutomation = (options: SyncAutomationOptions): SyncAutomatio
       onChange: setState,
     });
     lifecycleRef.current = lifecycle;
-    lifecycle.start({
-      lastPullStartedAtMs: usable?.startedAtMs ?? null,
-      // Publishing what bootstrap and the pull left pending is step 6 of the STARTUP flow; turning
-      // sync on in a running session follows the ordinary 2-minute debounce instead.
-      publishNow: usable !== null,
-    });
     if (usable !== null && firstAdoption) {
       adoptedStartup.current = usable;
       if (usable.finished !== null) {
@@ -112,6 +106,13 @@ export const useSyncAutomation = (options: SyncAutomationOptions): SyncAutomatio
         });
       }
     }
+
+    lifecycle.start({
+      lastPullStartedAtMs: usable?.startedAtMs ?? null,
+      // Publishing what bootstrap and the pull left pending is step 6 of the STARTUP flow; turning
+      // sync on in a running session follows the ordinary 2-minute debounce instead.
+      publishNow: usable !== null,
+    });
 
     const onFocus = () => void lifecycle.resume();
     const onBlur = () => void lifecycle.hidden();

@@ -351,6 +351,19 @@ describe("with automation on", () => {
     hook.unmount();
   });
 
+  it("Sync now runs in the exclusive lane, like every automatic run", async () => {
+    const s = await session();
+    const hook = mount(s, { automationKey: null });
+    await act(async () => undefined);
+    const before = s.lane.calls;
+    await act(async () => {
+      await hook.result.current.syncNow();
+    });
+    expect(hook.result.current.run?.error).toBeNull();
+    expect(s.lane.calls).toBe(before + 1);
+    hook.unmount();
+  });
+
   it("does not start while a manual action is running", async () => {
     const s = await session();
     const hook = mount(s, { automationKey: await key(s) });
@@ -488,6 +501,32 @@ describe("the engine built during bootstrap", () => {
       automationKey: syncEngineKeyOf(s.store.current),
       startupSync: started,
     });
+    await waitFor(() => expect(publishCalls(s.host)).toBeGreaterThan(0));
+    hook.unmount();
+  });
+
+  it("the startup publish follows a pull that is still running in the background instead of being dropped", async () => {
+    const s = await session();
+    await s.a.repository.createTask({ id: "generated", title: "Generated", bucket: "inbox" });
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const list = s.a.deps.api.listSyncPeers;
+    s.a.deps.api.listSyncPeers = async (...args) => {
+      await gate;
+      return list(...args);
+    };
+    const started = await startup(s, 20);
+    expect(started?.finished).toBeNull();
+    s.host.calls.length = 0;
+    const hook = mount(s, {
+      automationKey: syncEngineKeyOf(s.store.current),
+      startupSync: started,
+    });
+    await waitFor(() => expect(hook.result.current.chip.state).toBe("syncing"));
+    expect(publishCalls(s.host)).toBe(0);
+    release();
     await waitFor(() => expect(publishCalls(s.host)).toBeGreaterThan(0));
     hook.unmount();
   });

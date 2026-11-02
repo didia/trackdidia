@@ -339,3 +339,68 @@ describe("an idle automatic cycle writes nothing", () => {
     expect(await counters(a)).toEqual(before);
   });
 });
+
+describe("the write gate of a pull", () => {
+  const LIMITS = { maxEntities: 5, maxUnionRows: 5, maxAliases: 5, maxSidecarRows: 5 };
+
+  const gated = async (gate: (kind: "backup" | "apply") => Promise<void>) => {
+    const world = await createEngineWorld([
+      {
+        name: "A",
+        engine: {
+          applyLimits: LIMITS,
+          yieldBetweenChunks: async () => undefined,
+          beforeWrite: gate,
+        },
+      },
+      { name: "B" },
+    ]);
+    const [a, b] = [world.device("A"), world.device("B")];
+    for (let i = 0; i < 24; i += 1) {
+      await b.repo.createTask({ id: `b-${i}`, title: `B${i}`, bucket: "inbox" });
+    }
+    await b.engine.publish();
+    return { a };
+  };
+
+  it("is asked before the safety backup, then before every apply piece, in that order", async () => {
+    const kinds: string[] = [];
+    const { a } = await gated(async (kind) => {
+      kinds.push(kind);
+    });
+    const pull = await a.engine.pull();
+    expect(pull.complete).toBe(true);
+    expect(kinds[0]).toBe("backup");
+    const applies = kinds.filter((kind) => kind === "apply").length;
+    expect(applies).toBe(pull.totals.chunksApplied);
+    expect(applies).toBeGreaterThan(3);
+    expect(kinds.filter((kind) => kind === "backup")).toHaveLength(1);
+  });
+
+  it("holds the backup and every apply back while the gate is closed, touching nothing", async () => {
+    let open: () => void = () => undefined;
+    const closed = new Promise<void>((resolve) => {
+      open = resolve;
+    });
+    const { a } = await gated(() => closed);
+    const pulling = a.engine.pull();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Reads happened (the bundles were fetched); nothing was applied and no backup was taken.
+    expect(a.calls.filter((call) => call.method === "applySyncBundle")).toEqual([]);
+    expect(a.engine.running).toBe("pull");
+    open();
+    const pull = await pulling;
+    expect(pull.complete).toBe(true);
+    expect(pull.safetyBackup.status).toBe("taken");
+    expect(a.calls.some((call) => call.method === "applySyncBundle")).toBe(true);
+  });
+
+  it("is never asked by a pull that has nothing to merge", async () => {
+    const asked: string[] = [];
+    const world = await createEngineWorld([
+      { name: "A", engine: { beforeWrite: async (kind) => void asked.push(kind) } },
+    ]);
+    await world.device("A").engine.pull();
+    expect(asked).toEqual([]);
+  });
+});

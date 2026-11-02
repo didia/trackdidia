@@ -289,7 +289,14 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
         SYNC_PENDING_POLL_MS,
       );
       hourlyTimer = setInterval(() => void guard(() => pullIfDue("hourly")), SYNC_HOURLY_PULL_MS);
-      if (options.publishNow === true) void guard(() => publishIfDue("startup"));
+      if (options.publishNow === true) {
+        // After a pull adopted from bootstrap (it is in flight, and its republish bump is pending
+        // work too), not instead of it: a publish asked while it runs would be dropped.
+        void guard(async () => {
+          await inFlight;
+          await publishIfDue("startup");
+        });
+      }
       emit();
     },
     stop() {
@@ -311,8 +318,12 @@ export const createSyncLifecycle = (deps: SyncLifecycleDeps): SyncLifecycle => {
         timer = setTimeout(resolve, capMs);
       });
       try {
-        // A publish already in flight is waited for (within the cap), not started twice.
-        const work = inFlight ?? guard(() => publishIfDue("quit"));
+        // A run already in flight (a pull, or a publish) is waited for first, then what is still
+        // pending is published, all within the one cap.
+        const work = guard(async () => {
+          await inFlight;
+          await publishIfDue("quit");
+        });
         await Promise.race([work, cap]);
       } finally {
         clearTimeout(timer);

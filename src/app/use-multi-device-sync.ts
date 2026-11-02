@@ -435,10 +435,15 @@ export const useMultiDeviceSync = (
         let report: SyncNowReport | null = null;
         let error: SyncUiError | null = null;
         try {
-          report = await engine.engine.syncNow(
-            syncOptions.approveStalePeers === undefined
-              ? {}
-              : { approveStalePeers: syncOptions.approveStalePeers },
+          // In the exclusive lane, so the sync never overlaps an automatic backup. (Enable and
+          // resume are not: they are the capture backfill, short writer slots that take no backup,
+          // and holding the lane for a whole backfill would starve the automatic backups.)
+          report = await latest.current.runExclusive(() =>
+            engine.engine.syncNow(
+              syncOptions.approveStalePeers === undefined
+                ? {}
+                : { approveStalePeers: syncOptions.approveStalePeers },
+            ),
           );
         } catch (caught) {
           error = toSyncUiError(caught);

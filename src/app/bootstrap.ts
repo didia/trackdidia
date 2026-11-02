@@ -58,6 +58,13 @@ export interface BootstrapOptions {
    * See `docs/multi-device-sync.md` ("Automatic triggers").
    */
   pullBeforeGenerators?: (settings: AppSettings) => Promise<boolean>;
+  /**
+   * Asked with the loaded settings before anything about the pull is shown or run: when it returns
+   * false the step does not exist (no stage label, no call), so a device with sync off or the debug
+   * gate closed shows exactly the stages it always did. Absent, the pull runs whenever
+   * `pullBeforeGenerators` is given.
+   */
+  isSyncPullEnabled?: (settings: AppSettings) => boolean;
 }
 
 /**
@@ -69,7 +76,7 @@ export interface BootstrapOptions {
  */
 export const bootstrapApplication = async (
   repository: AppRepository,
-  { onStage, pullBeforeGenerators }: BootstrapOptions = {},
+  { onStage, pullBeforeGenerators, isSyncPullEnabled }: BootstrapOptions = {},
 ): Promise<AppSettings> => {
   onStage?.(t("startup.loadSettings"));
   let settings = await repository.getSettings();
@@ -90,7 +97,7 @@ export const bootstrapApplication = async (
   );
   settings = aiUpgrade.settings;
 
-  if (pullBeforeGenerators) {
+  if (pullBeforeGenerators && (isSyncPullEnabled?.(settings) ?? true)) {
     onStage?.(t("startup.syncPull"));
     try {
       if (await pullBeforeGenerators(settings)) {

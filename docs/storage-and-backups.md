@@ -2358,7 +2358,7 @@ the Drive path.
 **Backups and automatic sync take turns.** While the automatic sync triggers are active (debug mode on and
 `multiDeviceSyncEnabled`), `useAutoBackupScheduler` runs each backup in the app's exclusive lane, the same serial
 queue every automatic pull and publish (the startup pull and its background tail included, and the safety backup
-inside a pull) runs in. A backup that waited for a sync checks again that it is still due once it has the lane
+inside a pull, and "Synchroniser maintenant") runs in. A backup that waited for a sync checks again that it is still due once it has the lane
 (the sync's own safety backup may have made it unnecessary). A manual backup from Settings is not queued (the
 writer queue serializes its SQL anyway). With sync off the scheduler gets no lane and behaves as it always did.
 

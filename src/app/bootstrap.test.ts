@@ -286,7 +286,7 @@ describe("bootstrapApplication with the multi-device sync pull", () => {
     expect(settings.gtdImportDoneAt).toBe("2026-10-01T00:00:00.000Z");
   });
 
-  it("changes nothing without a pull: same steps, same stages, no extra settings read", async () => {
+  it("changes nothing when the gate is closed: same stages, no call, no extra settings read", async () => {
     const withoutOption = await createRepository();
     const getSettings = vi.spyOn(withoutOption, "getSettings");
     const stagesWithout: string[] = [];
@@ -296,16 +296,36 @@ describe("bootstrapApplication with the multi-device sync pull", () => {
     const gateClosed = await createRepository();
     const reads = vi.spyOn(gateClosed, "getSettings");
     const stagesClosed: string[] = [];
+    const pull = vi.fn(async () => true);
     await bootstrapApplication(gateClosed, {
       onStage: (stage) => stagesClosed.push(stage),
-      // What `useBootstrap` passes when the gate is closed: it ran nothing.
-      pullBeforeGenerators: async () => false,
+      // What `useBootstrap` passes: the callback exists, the gate says the step does not.
+      pullBeforeGenerators: pull,
+      isSyncPullEnabled: () => false,
     });
+    expect(pull).not.toHaveBeenCalled();
     expect(reads.mock.calls.length).toBe(readsWithout);
-    expect(stagesClosed.filter((stage) => !stagesWithout.includes(stage))).toEqual([
-      "Synchronisation avec les autres ordinateurs",
-    ]);
+    expect(stagesClosed).toEqual(stagesWithout);
+    expect(stagesClosed).not.toContain("Synchronisation avec les autres ordinateurs");
     expect(stagesWithout).toHaveLength(6);
+  });
+
+  it("shows the stage and runs the pull when the gate is open, with the loaded settings", async () => {
+    const repository = await createRepository({ multiDeviceSyncEnabled: true });
+    const stages: string[] = [];
+    const seen: boolean[] = [];
+    const pull = vi.fn(async () => false);
+    await bootstrapApplication(repository, {
+      onStage: (stage) => stages.push(stage),
+      pullBeforeGenerators: pull,
+      isSyncPullEnabled: (settings) => {
+        seen.push(settings.multiDeviceSyncEnabled);
+        return settings.multiDeviceSyncEnabled;
+      },
+    });
+    expect(seen).toEqual([true]);
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(stages).toContain("Synchronisation avec les autres ordinateurs");
   });
 
   it("never lets a throwing pull block startup or trigger the fallback", async () => {

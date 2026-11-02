@@ -3,6 +3,7 @@ import { defaultAppSettings } from "../domain/settings";
 import type { AppSettings } from "../domain/types";
 import { t } from "../i18n";
 import { getDebugEnabled, logDebug } from "../lib/debug";
+import { isSyncAutomationEnabled } from "../lib/sync/gate";
 import { createRepository } from "../lib/storage/factory";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import type { AppRepository } from "../lib/storage/repository";
@@ -52,6 +53,12 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
   useEffect(() => {
     let cancelled = false;
     let settled = false;
+    // The 8-second rule and the moment bootstrap is over, for the sync pull that may outlive its wait.
+    const deadlineAtMs = Date.now() + BOOTSTRAP_TIMEOUT_MS;
+    let releaseBootstrapSettled: () => void = () => undefined;
+    const bootstrapSettled = new Promise<void>((resolve) => {
+      releaseBootstrapSettled = resolve;
+    });
 
     const markStage = (stage: string) => {
       startupStageRef.current = stage;
@@ -65,6 +72,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
       }
 
       settled = true;
+      releaseBootstrapSettled();
       const fallbackRepository = new MemoryRepository();
       await fallbackRepository.initialize();
 
@@ -89,13 +97,16 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
         let started: StartupSync | null = null;
         const nextSettings = await bootstrapApplication(nextRepository, {
           onStage: markStage,
+          // Sync off or the debug gate closed: the step does not exist (no stage, no call).
+          isSyncPullEnabled: (current) => isSyncAutomationEnabled(getDebugEnabled(), current),
           pullBeforeGenerators: async (current) => {
-            // Sync off or the debug gate closed: `startStartupSyncPull` returns before doing anything.
             started = await startStartupSyncPull({
               repository: nextRepository,
               settings: current,
               debugEnabled: getDebugEnabled(),
               runExclusive: runExclusiveRef.current ?? ((work) => work()),
+              bootstrapDeadlineAtMs: deadlineAtMs,
+              bootstrapSettled,
             });
             return started?.finished?.ok === true;
           },
@@ -113,6 +124,9 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
       } catch (error) {
         const message = error instanceof Error ? error.message : t("startup.unknownError");
         await activateFallback(message, error);
+      } finally {
+        // Whatever happened, a sync pull held back until now may go on.
+        releaseBootstrapSettled();
       }
     };
 
@@ -128,6 +142,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
 
     return () => {
       cancelled = true;
+      releaseBootstrapSettled();
       window.clearTimeout(timeoutId);
     };
   }, []);

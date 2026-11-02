@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // SAFETY: every laptop is an isolated `:memory:` database (see test-support/fake-laptop.ts).
 import { startStartupSyncPull } from "./startup-sync";
 import { createFakeFolderHost } from "./test-support/fake-folder-host";
+import { harnessDeviceId } from "./test-support/two-device-harness";
 import {
   enableFakeLaptop,
   type FakeLaptop,
@@ -200,5 +201,127 @@ describe("the startup pull when sync is on", () => {
     const stored = await a.repository.getSettings();
     expect(stored.lastBackupAt).not.toBe("");
     expect(startup?.binding.getSettings()).toBe(settingsA);
+  });
+});
+
+describe("the 8-second bootstrap rule", () => {
+  const slowFolder = (laptop: FakeLaptop) => {
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const list = laptop.deps.api.listSyncPeers;
+    laptop.deps.api.listSyncPeers = async (...args) => {
+      await gate;
+      return list(...args);
+    };
+    return release;
+  };
+
+  it("bounds the wait by what bootstrap has left, not by a fixed 4 s", async () => {
+    const { a, settingsA } = await world();
+    slowFolder(a);
+    const startedAt = Date.now();
+    const startup = await startStartupSyncPull({
+      repository: a.repository,
+      settings: settingsA,
+      debugEnabled: true,
+      runExclusive: lane,
+      deps: a.deps,
+      // 2.5 s are reserved for the rest of bootstrap: 100 ms are left to wait (default budget 4 s).
+      bootstrapDeadlineAtMs: a.deps.now() + 2_600,
+    });
+    expect(Date.now() - startedAt).toBeLessThan(1_500);
+    expect(startup?.finished).toBeNull();
+  });
+
+  it("starts nothing when the reserve is already used up", async () => {
+    const { host, a, settingsA } = await world();
+    host.calls.length = 0;
+    const startup = await startStartupSyncPull({
+      repository: a.repository,
+      settings: settingsA,
+      debugEnabled: true,
+      runExclusive: lane,
+      deps: a.deps,
+      bootstrapDeadlineAtMs: a.deps.now() + 1_000,
+    });
+    expect(startup).toBeNull();
+    expect(host.calls.filter((call) => call.command === "list")).toEqual([]);
+  });
+
+  it("drops an engine that is not built when the wait lapses", async () => {
+    const { a, settingsA } = await world();
+    let release: (id: string) => void = () => undefined;
+    const idRead = new Promise<string>((resolve) => {
+      release = resolve;
+    });
+    vi.mocked(a.deps.getDeviceId).mockReturnValue(idRead);
+    const startup = await startStartupSyncPull({
+      repository: a.repository,
+      settings: settingsA,
+      debugEnabled: true,
+      runExclusive: lane,
+      deps: a.deps,
+      waitBudgetMs: 30,
+    });
+    expect(startup).toBeNull();
+    release(harnessDeviceId(0));
+  });
+
+  it("keeps the database writer free once the wait has lapsed: the safety backup waits for bootstrap", async () => {
+    const { a, settingsA } = await world();
+    let bootstrapDone: () => void = () => undefined;
+    const bootstrapSettled = new Promise<void>((resolve) => {
+      bootstrapDone = resolve;
+    });
+    const startup = await startStartupSyncPull({
+      repository: a.repository,
+      settings: settingsA,
+      debugEnabled: true,
+      runExclusive: lane,
+      deps: a.deps,
+      waitBudgetMs: 30,
+      bootstrapSettled,
+    });
+    // This database holds data and has never merged: a backup (a whole VACUUM INTO) is required.
+    // Bootstrap is not over, so it has not started and nothing has been merged.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(a.backups()).toBe(0);
+    expect(await hasTask(a, "from-b")).toBe(false);
+
+    // Bootstrap's own writes (normalizations, generators, draws) go straight through.
+    const write = a.repository.createTask({ id: "generated", title: "Generated", bucket: "inbox" });
+    const outcome = await Promise.race([
+      write.then(() => "written"),
+      new Promise<string>((resolve) => setTimeout(() => resolve("blocked"), 1_000)),
+    ]);
+    expect(outcome).toBe("written");
+
+    bootstrapDone();
+    const result = await startup!.settled;
+    expect(result.ok).toBe(true);
+    expect(a.backups()).toBe(1);
+    expect(await hasTask(a, "from-b")).toBe(true);
+    expect(await hasTask(a, "generated")).toBe(true);
+  });
+
+  it("with no backup to take, applies during the wait and merges before bootstrap is over", async () => {
+    const { a, settingsA } = await world();
+    // A first merge already happened: no backup is needed any more.
+    await a.repository.recordSyncFirstMergeBackup("/backups/earlier.db");
+    const bootstrapSettled = new Promise<void>(() => undefined);
+    const startup = await startStartupSyncPull({
+      repository: a.repository,
+      settings: settingsA,
+      debugEnabled: true,
+      runExclusive: lane,
+      deps: a.deps,
+      waitBudgetMs: 5_000,
+      bootstrapSettled,
+    });
+    expect(startup?.finished?.ok).toBe(true);
+    expect(await hasTask(a, "from-b")).toBe(true);
+    expect(a.backups()).toBe(0);
   });
 });

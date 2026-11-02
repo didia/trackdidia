@@ -189,15 +189,23 @@ screen.
       - move dated work to Scheduled (`gtdScheduledNormalizationDoneAt`).
 
       **Multi-device sync (experimental, off by default).** Only when the debug gate is open
-      AND `multiDeviceSyncEnabled` is on, `useBootstrap` passes `pullBeforeGenerators`:
-      right after the `aiMaxTokens` upgrade and before the two GTD normalizations and every
-      generator, the sync engine pulls from the other laptop so recurrence generation,
-      Scheduled promotion and relationship draws see its work. Bootstrap waits at most 4 s
-      for it; past that it carries on and the same pull continues in the background (the
-      chip says "Synchronisation…" and open screens reload when it applies). A failing or
-      unreachable folder is logged and never throws into bootstrap, so it cannot activate the
-      in-memory fallback. The settings are read again when the pull finished in time. With the
-      gate closed this step does not exist: no engine, no timer, no folder call. See
+      AND `multiDeviceSyncEnabled` is on (`isSyncPullEnabled`), `useBootstrap` runs
+      `pullBeforeGenerators`: right after the `aiMaxTokens` upgrade and before the two GTD
+      normalizations and every generator, the sync engine pulls from the other laptop so
+      recurrence generation, Scheduled promotion and relationship draws see its work. The
+      wait is `min(4 s, the 8 s deadline - time already spent - 2.5 s)`, building the engine
+      included; past it bootstrap carries on and the same pull continues in the background
+      (the chip says "Synchronisation…" and open screens reload when it applies). **What keeps
+      the 8-second rule:** once the wait has lapsed the pull does not hold the database writer
+      while bootstrap finishes. The safety backup (a whole `VACUUM INTO`, required for a first
+      merge and after a schema change such as migration 47) never starts before bootstrap has
+      settled, and an apply piece starts only inside the wait. So a pull that needs a backup
+      merges nothing during bootstrap, and the generators run first (they converge with the merge).
+      The one thing that can still overrun is a writer slot already running when the wait lapses
+      (an apply piece, bounded, not measured with the real IPC cost). An unreachable folder or a
+      failed pull is logged and never throws into bootstrap. The settings are read again when
+      the pull finished in time. With the gate closed this step does not exist: no stage label,
+      no engine, no timer, no folder call. See
       [Multi-device sync](multi-device-sync.md#automatic-triggers).
    3. Log GTD overview counts from the repository.
    4. Call `repository.reconcileDay(today)`: generate due recurring tasks for the

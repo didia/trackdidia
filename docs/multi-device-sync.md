@@ -146,13 +146,13 @@ name or the profile rebuilds it.
 
 | Trigger | What happens | Limits |
 |---|---|---|
-| **Startup** (inside bootstrap) | Pull from the other laptop BEFORE the two GTD normalizations, recurrence generation, Scheduled promotion and relationship draws, so a task already completed on the other laptop is not regenerated and today's draw made there is not repeated. Then publish what is pending (step 6 of the spec's flow). | Bootstrap waits at most **4 s** for the pull; past that it carries on and the same pull keeps running in the background (chip: "Synchronisation…"; open screens reload when it applies). It never throws into bootstrap and never activates the in-memory fallback. |
+| **Startup** (inside bootstrap) | Pull from the other laptop BEFORE the two GTD normalizations, recurrence generation, Scheduled promotion and relationship draws, so a task already completed on the other laptop is not regenerated and today's draw made there is not repeated. Then publish what is pending (step 6 of the spec's flow). | Bootstrap waits at most **4 s** (less if bootstrap already spent time: never past the 8 s deadline minus 2.5 s) for the pull; past that it carries on and the same pull keeps running in the background (chip: "Synchronisation…"; open screens reload when it applies). It never throws into bootstrap, and its safety backup and later apply pieces do not take the writer until bootstrap is over ([below](#startup-ordering-the-8-second-rule-and-chunk-resumption)). |
 | **Window focus / becoming visible** | Pull. | At most once per **60 s** (any pull counts, startup included). |
 | **Hourly** | Pull. | Every 60 minutes while the app runs. |
 | **Local changes** | Publish. | A 15 s poll of one row (`pendingChanges`, a single counter comparison) notes when changes were first seen; they are published when the first is **2 minutes** old. Further edits do not push the deadline back. |
 | **Window blur / hidden** | Publish what is pending, at once. | |
-| **Quit** | Publish what is pending, best effort. | Waits at most **3 s**, then the window closes whatever happened. In tray mode the close handler publishes nothing and keeps the window alive for the native handler to hide (hiding blurs it, which already publishes). |
-| **Synchroniser maintenant** | Pull then publish, always. | Ignores and resets the backoff and the "paused" state; waits for an automatic run already in flight. |
+| **Quit** | Publish what is pending, best effort. | Waits at most **3 s** in total (for a run in flight to end, then for the publish), then the window closes whatever happened; a pull that is still running at the cap means nothing is published. In tray mode the close handler publishes nothing and keeps the window alive for the native handler to hide (hiding blurs it, which already publishes). |
+| **Synchroniser maintenant** | Pull then publish, always. | Ignores and resets the backoff and the "paused" state; waits for an automatic run already in flight, and runs in the same exclusive lane as backups. |
 
 A trigger that finds a run in flight is dropped, not queued, and no automatic trigger runs while a manual action
 (Sync now, enable, resume, folder recheck) holds the controller. Pulls apply the data in the same chunked slots as
@@ -162,14 +162,29 @@ Sync now ([details](storage-and-backups.md#chunked-capture-backfill-and-chunked-
 
 `useBootstrap` builds the engine once (`src/lib/sync/startup-sync.ts`), starts the pull, and hands both to
 `useMultiDeviceSync`, which adopts them: there is **one engine per session** (one in-flight guard, one publish
-memory). The 4 s is a **wait** budget, not a work budget. **The pull is not given an engine `budgetMs`**: when the
-wait lapses the pull continues unbudgeted in the background. This is how the slice-14 obligation (the chunk
-resume index is in memory, so a budgeted first merge of a very large bundle restarted at chunk 0 after every
-restart) is discharged: no automatic path ever cuts a merge, so the only thing that can interrupt a very large
-first merge is quitting the app, after which the next start repeats the bundle from its first chunk, in the
-background, to the end (chunks already applied merge as no-ops, about 60 % of the first cost). A persisted
-per-chunk cursor was NOT built, because the unbudgeted path makes it unnecessary for the app. The engine's
-`budgetMs` option remains for tests and callers that want it.
+memory).
+
+**What is guaranteed about the 8-second rule.** The 4 s is a **wait** budget, not a work budget, and it is
+bounded by the deadline: `min(4 s, 8 s deadline - time bootstrap already spent - 2.5 s)`, counted from the moment the
+step starts and including building the engine (a device-id read and an identity write). If the engine is not built
+when the wait lapses, or no time is left, there is no startup pull (the hook builds its own engine later).
+Once the wait has lapsed the pull continues in the background but **cannot hold the SQLite writer while bootstrap
+finishes**: the engine's `beforeWrite` gate keeps the safety backup (one long `VACUUM INTO` slot) back until
+bootstrap has settled, and lets an apply piece start only while the wait is open. Consequences, stated plainly:
+a pull that needs a backup (a first merge; a schema difference, which every laptop meets once after migration 47
+if its peer is still on 46) **merges nothing during bootstrap** and does it right after, in the background, while
+the day's generators have already run (they converge with the merge); a pull that needs no backup applies its
+pieces inside the wait. What is NOT guaranteed: a writer slot that began inside the wait (one apply piece, about
+0.1 to 0.3 s in process, projected near 1 s with the real IPC cost, which is unmeasured) can overrun the wait, which
+is what the 2.5 s reserve is for.
+
+**Chunk resumption.** The pull is not given an engine `budgetMs`: past the gate it runs unbudgeted. This is how the
+slice-14 obligation (the chunk resume index is in memory, so a budgeted first merge of a very large bundle
+restarted at chunk 0 after every restart) is discharged: no automatic path ever cuts a merge, so the only thing
+that can interrupt a very large first merge is quitting the app, after which the next start repeats the bundle
+from its first chunk, in the background, to the end (chunks already applied merge as no-ops, about 60 % of the
+first cost). The trade-off: a first merge that quits mid-way is repeated, not resumed. A persisted per-chunk
+cursor was NOT built. The engine's `budgetMs` option remains for tests and callers that want it.
 
 If the folder is slow and a generator ran before the pull finished, the merge still converges (generators are
 deterministic; spec "Generators on several full peers"): the ordering avoids visible churn, it is not a
@@ -200,10 +215,16 @@ still load when opened.
 ### Backups, the safety backup, and per-domain publishing
 
 - **Backup and sync never overlap.** Automatic pulls and publishes (the startup pull and its background tail
-  included) and the automatic-backup scheduler's backups run in one exclusive lane; see
+  included), "Synchroniser maintenant" and the automatic-backup scheduler's backups run in one exclusive lane
+  (enabling and resuming the backfill do not: they take no backup, and holding the lane for a whole backfill would starve the automatic backups); see
   [Backup behavior](storage-and-backups.md#backup-behavior).
 - **The first-merge safety backup is taken once**, not on every pull until a bundle completes: its path is
   recorded (`sync_identity.first_merge_backup_path`). A failed backup is retried and merges nothing meanwhile.
+  The record is never cleared: a first merge that stalls for weeks (a peer that keeps failing) later continues
+  against the old pre-merge backup, which is stale by then; take a manual backup before resuming such a merge.
+- **Schema version 47.** Migration 47 raises this build's schema version. A peer still on 46 is shown "Mise à jour
+  requise" by this laptop, and this laptop takes a `schema_skew` safety backup the first time it merges with a peer
+  on another schema; update both laptops.
 - **Automatic publishing is per domain.** A task edit rebuilds the `gtd` bundle only; a periodic manifest
   heartbeat (30 days) keeps the untouched folder from looking absent
   ([details](storage-and-backups.md#per-domain-change-detection-and-the-manifest-heartbeat)).
@@ -216,6 +237,7 @@ automatic run logs `statusReadMs`, the time of one `getSyncStatus`, and `maxChun
 the debug log under `sync.lifecycle`, so a session on a real laptop can read the latency off); the JavaScript heap
 inside the real webview (the 350 to 450 MB read of a very large `finance` domain is a Node figure; per-domain
 detection only makes it rarer); and the close handler in a real Tauri window (it is tested against a fake window).
+One more limit of the close handler: in tray mode it decides from the JavaScript copy of `runInTray`, while the native close handler keeps its own state; if they ever diverge (the native `desktop_set_run_in_tray` call failed), the window is kept alive by the handler and not hidden by the host, and cannot be closed by the window button until the setting is fixed.
 Manual check on a desktop: edit a task and quit within seconds (the other laptop should receive it), close with
 the Drive folder unmounted (the window must still close within about 3 s), and watch the debug log lines above.
 

@@ -13,6 +13,12 @@ import type { PublishReport, PullReport, SyncIssue } from "./engine-types";
 
 /** How long bootstrap waits for the startup pull before it carries on and lets the pull continue. */
 export const SYNC_STARTUP_PULL_BUDGET_MS = 4_000;
+/**
+ * Of the 8 s bootstrap rule (`BOOTSTRAP_TIMEOUT_MS`), what the startup pull must leave to the rest of
+ * bootstrap (normalizations, recurrence generation, draws): its wait never extends past the deadline
+ * minus this.
+ */
+export const SYNC_STARTUP_RESERVE_MS = 2_500;
 /** Focus / visibility pulls are at most this often. */
 export const SYNC_RESUME_PULL_DEBOUNCE_MS = 60_000;
 export const SYNC_HOURLY_PULL_MS = 60 * 60_000;

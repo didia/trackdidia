@@ -214,7 +214,7 @@ describe("publishing", () => {
     expect(h.calls).toEqual([]);
   });
 
-  it("a quit waits for the publish already in flight instead of starting another", async () => {
+  it("a quit waits for the run in flight, then publishes what is still pending, all within the cap", async () => {
     const h = harness();
     h.lifecycle.start();
     h.pending.value = 1;
@@ -227,9 +227,70 @@ describe("publishing", () => {
     await vi.advanceTimersByTimeAsync(1);
     const quit = h.lifecycle.quit(3_000);
     await vi.advanceTimersByTimeAsync(10);
+    h.publishImpl.current = async () => publishReport();
     release(publishReport());
     await quit;
+    // The in-flight publish, then one more for the changes made while it ran.
+    expect(syncCalls(h)).toEqual(["publish", "publish"]);
+  });
+
+  it("a quit during a pull publishes after the pull, within the cap", async () => {
+    const h = harness();
+    h.lifecycle.start();
+    h.pending.value = 2;
+    let finish: (report: PullReport) => void = () => undefined;
+    h.lifecycle.adoptPull({
+      startedAtMs: Date.now(),
+      result: new Promise<PullReport>((resolve) => {
+        finish = resolve;
+      }),
+      announceData: false,
+    });
+    const quit = h.lifecycle.quit(3_000);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(syncCalls(h)).toEqual([]);
+    finish(pullReport());
+    await quit;
     expect(syncCalls(h)).toEqual(["publish"]);
+  });
+
+  it("a quit gives up after the cap when the pull in flight never ends, publishing nothing", async () => {
+    const h = harness();
+    h.lifecycle.start();
+    h.pending.value = 2;
+    h.lifecycle.adoptPull({
+      startedAtMs: Date.now(),
+      result: new Promise<PullReport>(() => undefined),
+      announceData: false,
+    });
+    let done = false;
+    const quit = h.lifecycle.quit(3_000).then(() => {
+      done = true;
+    });
+    await vi.advanceTimersByTimeAsync(3_000);
+    await quit;
+    expect(done).toBe(true);
+    expect(syncCalls(h)).toEqual([]);
+  });
+
+  it("the startup publish waits for the adopted bootstrap pull instead of being dropped", async () => {
+    const h = harness();
+    h.pending.value = 3;
+    let finish: (report: PullReport) => void = () => undefined;
+    h.lifecycle.adoptPull({
+      startedAtMs: Date.now() - 4_000,
+      result: new Promise<PullReport>((resolve) => {
+        finish = resolve;
+      }),
+      announceData: true,
+    });
+    h.lifecycle.start({ publishNow: true });
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(syncCalls(h)).toEqual([]);
+    finish(pullReport({ totals: totals(2) }));
+    await vi.advanceTimersByTimeAsync(10);
+    expect(syncCalls(h)).toEqual(["publish"]);
+    expect(h.changed).toHaveLength(1);
   });
 });
 

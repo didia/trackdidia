@@ -54,6 +54,8 @@ import type { PeerManifest, SyncTransport } from "./transport";
  * again.
  */
 
+const macrotask = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
 /** A contact with an otherwise unchanged peer is recorded at most this often. */
 const CONTACT_RECORD_INTERVAL_MS = 24 * 60 * 60_000;
 
@@ -292,6 +294,8 @@ export const runPull = async (
     } else if (options.verifiedEmptyJoiner === true) {
       safetyBackup.status = "skipped_empty_joiner";
     } else {
+      // The backup is one long writer slot (`VACUUM INTO`): whoever gates writes gets to hold it back.
+      await ctx.beforeWrite?.("backup");
       await takeSafetyBackup(reasons);
     }
   }
@@ -528,12 +532,22 @@ export const runPull = async (
       totals.maxChunkMs = Math.max(totals.maxChunkMs, sums.maxChunkMs);
     };
     try {
+      const gate = ctx.beforeWrite;
+      // The gate is asked before the first piece and again after the yield between pieces.
+      await gate?.("apply");
+      const yieldBetweenChunks =
+        gate === undefined
+          ? ctx.yieldBetweenChunks
+          : async () => {
+              await (ctx.yieldBetweenChunks ?? macrotask)();
+              await gate("apply");
+            };
       const applied = await applyChunked(ctx.repo, domain, changeSet, {
         limits: ctx.applyLimits,
         republish: true,
         startAt: ctx.chunkResume.get(resumeKey) ?? 0,
         shouldStop: overBudget,
-        ...(ctx.yieldBetweenChunks ? { yieldBetweenChunks: ctx.yieldBetweenChunks } : {}),
+        ...(yieldBetweenChunks ? { yieldBetweenChunks } : {}),
       });
       count(applied);
       result.apply = applied;
