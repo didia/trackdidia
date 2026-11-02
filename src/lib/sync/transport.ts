@@ -190,4 +190,11 @@ export interface SyncTransport {
    * after the local change counter had already moved on.
    */
   ownGeneration(domain: SyncDomain): Promise<number | null>;
+  /**
+   * When this device's manifest in this folder was last written (epoch milliseconds), or `null` when
+   * it has none. Optional: the engine uses it to refresh a manifest that per-domain change detection
+   * left untouched for a long time (see `PUBLISH_HEARTBEAT_MS`); a transport without it is never
+   * refreshed that way.
+   */
+  ownWrittenAtMs?(): Promise<number | null>;
 }

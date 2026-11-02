@@ -143,6 +143,40 @@ a {
   transition-duration: 80ms;
 }
 
+.sync-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 16px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.sync-chip:hover {
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.sync-chip__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--success);
+}
+
+.sync-chip--syncing .sync-chip__dot,
+.sync-chip--backfill .sync-chip__dot {
+  background: var(--accent);
+}
+
+.sync-chip--error .sync-chip__dot,
+.sync-chip--paused .sync-chip__dot {
+  background: var(--accent-deep);
+}
+
 .content {
   padding: 28px;
 }

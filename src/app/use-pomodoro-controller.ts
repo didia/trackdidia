@@ -100,6 +100,8 @@ interface SessionAction {
 export const usePomodoroController = (
   repository: AppRepository | null,
   calendarDay?: string,
+  /** Changes when data merged from another laptop should be shown (multi-device sync). */
+  dataRevision = 0,
 ): PomodoroControllerValue => {
   const [state, setState] = useState<PomodoroState>(buildIdleState());
   const [sessions, setSessions] = useState<PomodoroSessionDetails[]>([]);
@@ -302,7 +304,7 @@ export const usePomodoroController = (
       return;
     }
     void runQueued("chargement Pomodoro", async () => refreshEverything(repository, true));
-  }, [calendarDay, refreshEverything, repository, runQueued]);
+  }, [calendarDay, dataRevision, refreshEverything, repository, runQueued]);
 
   const completeExpiredSessionIfCurrent = useCallback(
     async (candidate: AppRepository, captured: PomodoroSessionDetails): Promise<boolean> => {

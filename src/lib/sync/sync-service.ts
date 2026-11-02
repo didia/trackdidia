@@ -9,7 +9,7 @@ import { getDeviceId } from "./device-id";
 import { type BackfillTick, runSyncCaptureBackfill } from "./backfill-driver";
 import type { SyncBackfillLimits } from "./backfill-state";
 import { createSyncEngine, type SyncEngine } from "./sync-engine";
-import type { EnsureSafetyBackup } from "./engine-support";
+import type { EnsureSafetyBackup, SyncEngineOptions } from "./engine-support";
 import { normalizeDeviceName, type SyncIdentityResult } from "./status";
 import {
   createFolderTransport,
@@ -334,6 +334,8 @@ export interface BuildEngineInput {
   deps?: SyncServiceDeps;
   /** Called with each safety backup, so the caller can record it as the latest backup. */
   onBackup?: (backup: BackupResult) => void | Promise<void>;
+  /** Gates the engine's pulls right before they hold the writer (see `SyncEngineOptions`). */
+  beforeWrite?: SyncEngineOptions["beforeWrite"];
 }
 
 export interface BuiltSyncEngine {
@@ -372,6 +374,20 @@ export const createSafetyBackup =
     }
     return { path: backup.backupPath };
   };
+
+/** The settings an engine is built from; a change rebuilds it. */
+export const syncEngineKeyOf = (
+  settings: Pick<
+    AppSettings,
+    "backupDestinationDir" | "syncGtdFolderDir" | "syncDeviceName" | "syncProfile"
+  >,
+): string =>
+  JSON.stringify([
+    settings.backupDestinationDir,
+    settings.syncGtdFolderDir,
+    settings.syncDeviceName,
+    settings.syncProfile,
+  ]);
 
 /** Builds the engine for the current settings. Throws {@link SyncSetupError}. */
 export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyncEngine> => {
@@ -442,6 +458,7 @@ export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyn
     appVersion: await deps.getAppVersion(),
     calendarSyncEnabled: async () => (await repository.getCalendarSyncSettings()).enabled,
     beforeFirstMerge: createSafetyBackup(repository, deviceId, input.getSettings, input.onBackup),
+    ...(input.beforeWrite ? { beforeWrite: input.beforeWrite } : {}),
   });
   return { engine, transports, deviceId, identity };
 };

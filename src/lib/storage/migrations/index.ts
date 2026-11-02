@@ -1245,6 +1245,54 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    id: 47,
+    name: "add_sync_domain_change_counters",
+    // Per-domain change detection for automatic publishing. `change_counter` stays the single
+    // database-wide counter ("anything to publish?" is one comparison); each domain column holds the
+    // value `change_counter` reached when that domain was last changed, so a publish rebuilds only
+    // the domains that changed after the last publish instead of all three. Existing rows are
+    // backfilled to the current counter (every domain counts as changed once, which republishes
+    // exactly as before). `first_merge_backup_path` remembers that the first-merge safety backup was
+    // taken, so a first merge that takes several pulls does not take (and prune against) one per pull.
+    sql: `
+      ALTER TABLE sync_identity ADD COLUMN gtd_changed_counter INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sync_identity ADD COLUMN personal_changed_counter INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sync_identity ADD COLUMN finance_changed_counter INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE sync_identity ADD COLUMN first_merge_backup_path TEXT;
+      UPDATE sync_identity
+        SET gtd_changed_counter = change_counter,
+            personal_changed_counter = change_counter,
+            finance_changed_counter = change_counter;
+    `,
+    guards: {
+      skipIfColumnExists: [
+        {
+          table: "sync_identity",
+          column: "gtd_changed_counter",
+          statement:
+            "ALTER TABLE sync_identity ADD COLUMN gtd_changed_counter INTEGER NOT NULL DEFAULT 0;",
+        },
+        {
+          table: "sync_identity",
+          column: "personal_changed_counter",
+          statement:
+            "ALTER TABLE sync_identity ADD COLUMN personal_changed_counter INTEGER NOT NULL DEFAULT 0;",
+        },
+        {
+          table: "sync_identity",
+          column: "finance_changed_counter",
+          statement:
+            "ALTER TABLE sync_identity ADD COLUMN finance_changed_counter INTEGER NOT NULL DEFAULT 0;",
+        },
+        {
+          table: "sync_identity",
+          column: "first_merge_backup_path",
+          statement: "ALTER TABLE sync_identity ADD COLUMN first_merge_backup_path TEXT;",
+        },
+      ],
+    },
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */

@@ -49,18 +49,34 @@ export const runOnceWithSettingsMarker = async <T>(
 export interface BootstrapOptions {
   /** Called with a user-facing label each time a startup step begins. */
   onStage?: (stage: string) => void;
+  /**
+   * Multi-device sync's startup pull, run before the one-time normalizations and every generator
+   * (recurrences, Scheduled promotion, relationship draws) so they see the other laptop's work.
+   * It must never throw (a failing folder is its problem to log); it resolves `true` when it ran,
+   * and the settings are then read again because a merge can change shared settings. Absent, or
+   * resolving `false` (sync off, debug gate closed), bootstrap is exactly what it was without sync.
+   * See `docs/multi-device-sync.md` ("Automatic triggers").
+   */
+  pullBeforeGenerators?: (settings: AppSettings) => Promise<boolean>;
+  /**
+   * Asked with the loaded settings before anything about the pull is shown or run: when it returns
+   * false the step does not exist (no stage label, no call), so a device with sync off or the debug
+   * gate closed shows exactly the stages it always did. Absent, the pull runs whenever
+   * `pullBeforeGenerators` is given.
+   */
+  isSyncPullEnabled?: (settings: AppSettings) => boolean;
 }
 
 /**
  * Startup data sequence for an already created and initialized repository:
- * settings upgrade -> one-time normalizations -> `reconcileDay` (recurrences, Scheduled
+ * settings upgrade -> optional multi-device sync pull -> one-time normalizations -> `reconcileDay` (recurrences, Scheduled
  * promotion, Sunday carryover, expired Pomodoros) -> relationship draws -> optional finance
  * seed. Resolves with the final settings; any thrown error propagates so the caller
  * (`useBootstrap`) can activate the in-memory fallback.
  */
 export const bootstrapApplication = async (
   repository: AppRepository,
-  { onStage }: BootstrapOptions = {},
+  { onStage, pullBeforeGenerators, isSyncPullEnabled }: BootstrapOptions = {},
 ): Promise<AppSettings> => {
   onStage?.(t("startup.loadSettings"));
   let settings = await repository.getSettings();
@@ -80,6 +96,18 @@ export const bootstrapApplication = async (
     },
   );
   settings = aiUpgrade.settings;
+
+  if (pullBeforeGenerators && (isSyncPullEnabled?.(settings) ?? true)) {
+    onStage?.(t("startup.syncPull"));
+    try {
+      if (await pullBeforeGenerators(settings)) {
+        settings = await repository.getSettings();
+      }
+    } catch (error) {
+      // Defensive: the callback is documented not to throw. A sync problem never blocks startup.
+      logDebug("warn", "app.bootstrap", "Pull de synchronisation au demarrage en echec", error);
+    }
+  }
 
   const gtdOverview = await repository.getGtdOverview();
   logDebug("info", "app.bootstrap", "Etat GTD au demarrage", {

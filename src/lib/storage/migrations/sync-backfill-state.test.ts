@@ -80,7 +80,8 @@ describe("migration 46 add_sync_backfill_state", () => {
     expect(migration.name).toBe("add_sync_backfill_state");
     const index = migrations.indexOf(migration);
     expect(migrations[index - 1]?.id).toBe(45);
-    expect(migrations[index + 1]).toBeUndefined();
+    // Later migrations may follow (47 adds columns to sync_identity); this one stays untouched.
+    expect(migrations[index + 1]?.id).toBe(47);
     expect(migration.guards).toBeUndefined();
     const statements = migration.sql
       .split(";")

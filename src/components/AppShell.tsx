@@ -6,6 +6,7 @@ import { isSyncPageEnabled } from "../lib/sync/gate";
 import { shouldRenderFloatingPomodoro } from "../lib/pomodoro/floating-visibility";
 import { getQuoteOfTheDay } from "../lib/quote-of-the-day";
 import { FloatingPomodoroTimer } from "./FloatingPomodoroTimer";
+import { SyncStatusChip } from "./sync/SyncStatusChip";
 
 const navigation = [
   { to: "/", labelKey: "today", end: true },
@@ -65,6 +66,7 @@ export const AppShell = () => {
           <p className="eyebrow">{tCommon("brand")}</p>
           <h1>{quoteOfTheDay.quote}</h1>
           <p className="sidebar__copy">{t("authorPrefix", { author: quoteOfTheDay.author })}</p>
+          <SyncStatusChip />
         </div>
 
         <nav className="nav">

@@ -53,6 +53,7 @@ describe("routing", () => {
         recordSyncPeerApplied: (input) => a.repo.recordSyncPeerApplied(input),
         markSyncPublished: (counter) => a.repo.markSyncPublished(counter),
         queueSyncRepublish: () => a.repo.queueSyncRepublish(),
+        recordSyncFirstMergeBackup: (path) => a.repo.recordSyncFirstMergeBackup(path),
         readSyncPublishCounters: () => a.repo.readSyncPublishCounters(),
         readSyncSnapshot: async (domain) =>
           domain === "gtd" ? a.repo.readSyncSnapshot("personal") : a.repo.readSyncSnapshot(domain),

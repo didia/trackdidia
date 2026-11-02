@@ -311,6 +311,7 @@ describe("a counter that another write has advanced but not committed", () => {
         recordSyncPeerApplied: (input) => a.repo.recordSyncPeerApplied(input),
         markSyncPublished: (counter) => a.repo.markSyncPublished(counter),
         queueSyncRepublish: () => a.repo.queueSyncRepublish(),
+        recordSyncFirstMergeBackup: (path) => a.repo.recordSyncFirstMergeBackup(path),
         readSyncPublishCounters: async () => {
           const counters = await a.repo.readSyncPublishCounters();
           if (!injected) {
@@ -358,6 +359,7 @@ describe("a counter that another write has advanced but not committed", () => {
         recordSyncPeerApplied: (input) => a.repo.recordSyncPeerApplied(input),
         markSyncPublished: (counter) => a.repo.markSyncPublished(counter),
         queueSyncRepublish: () => a.repo.queueSyncRepublish(),
+        recordSyncFirstMergeBackup: (path) => a.repo.recordSyncFirstMergeBackup(path),
         readSyncPublishCounters: async () => {
           const counters = await a.repo.readSyncPublishCounters();
           if (!injected) {
@@ -399,6 +401,7 @@ describe("a counter that another write has advanced but not committed", () => {
         recordSyncPeerApplied: (input) => a.repo.recordSyncPeerApplied(input),
         markSyncPublished: (counter) => a.repo.markSyncPublished(counter),
         queueSyncRepublish: () => a.repo.queueSyncRepublish(),
+        recordSyncFirstMergeBackup: (path) => a.repo.recordSyncFirstMergeBackup(path),
       },
       transports: a.transports,
       profile: "personal",

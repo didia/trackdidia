@@ -54,6 +54,8 @@ import type { PeerManifest, SyncTransport } from "./transport";
  * again.
  */
 
+const macrotask = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
 /** A contact with an otherwise unchanged peer is recorded at most this often. */
 const CONTACT_RECORD_INTERVAL_MS = 24 * 60 * 60_000;
 
@@ -279,7 +281,12 @@ export const runPull = async (
   // untouched when the hook runs.
   if (ready.length > 0) {
     const reasons: SafetyBackupReason[] = [];
-    if (!mergedBefore) reasons.push("first_merge");
+    // One first-merge backup per database until a bundle completes: a large first merge that takes
+    // several pulls must not take one per pull, since a later one already holds merged data and the
+    // retention would eventually prune the one made before anything was merged.
+    if (!mergedBefore && status.firstMergeBackupPath === null && !ctx.firstMergeBackupTaken) {
+      reasons.push("first_merge");
+    }
     if (ready.some((item) => needsSchemaBackup(item))) reasons.push("schema_skew");
     safetyBackup.reasons = reasons;
     if (reasons.length === 0) {
@@ -287,6 +294,8 @@ export const runPull = async (
     } else if (options.verifiedEmptyJoiner === true) {
       safetyBackup.status = "skipped_empty_joiner";
     } else {
+      // The backup is one long writer slot (`VACUUM INTO`): whoever gates writes gets to hold it back.
+      await ctx.beforeWrite?.("backup");
       await takeSafetyBackup(reasons);
     }
   }
@@ -345,12 +354,27 @@ export const runPull = async (
       fail("no backup destination is available");
       return;
     }
+    let result: Awaited<ReturnType<NonNullable<EngineContext["beforeFirstMerge"]>>>;
     try {
-      const result = await ctx.beforeFirstMerge(reasons);
-      safetyBackup.status = "taken";
-      if (result?.path !== undefined) safetyBackup.path = result.path;
+      result = await ctx.beforeFirstMerge(reasons);
     } catch (error) {
       fail(messageOf(error), error);
+      return;
+    }
+    safetyBackup.status = "taken";
+    if (result?.path !== undefined) safetyBackup.path = result.path;
+    if (!reasons.includes("first_merge")) return;
+    ctx.firstMergeBackupTaken = true;
+    try {
+      await ctx.repo.recordSyncFirstMergeBackup(result?.path ?? "(chemin inconnu)");
+    } catch (error) {
+      // The backup exists and this process remembers it; a restart may take one more.
+      issues.push({
+        severity: "warning",
+        code: "bookkeeping_failed",
+        message: `The first-merge backup was made but could not be remembered (${messageOf(error)}); a restart may take another`,
+        detail: messageOf(error),
+      });
     }
   }
 
@@ -508,12 +532,22 @@ export const runPull = async (
       totals.maxChunkMs = Math.max(totals.maxChunkMs, sums.maxChunkMs);
     };
     try {
+      const gate = ctx.beforeWrite;
+      // The gate is asked before the first piece and again after the yield between pieces.
+      await gate?.("apply");
+      const yieldBetweenChunks =
+        gate === undefined
+          ? ctx.yieldBetweenChunks
+          : async () => {
+              await (ctx.yieldBetweenChunks ?? macrotask)();
+              await gate("apply");
+            };
       const applied = await applyChunked(ctx.repo, domain, changeSet, {
         limits: ctx.applyLimits,
         republish: true,
         startAt: ctx.chunkResume.get(resumeKey) ?? 0,
         shouldStop: overBudget,
-        ...(ctx.yieldBetweenChunks ? { yieldBetweenChunks: ctx.yieldBetweenChunks } : {}),
+        ...(yieldBetweenChunks ? { yieldBetweenChunks } : {}),
       });
       count(applied);
       result.apply = applied;

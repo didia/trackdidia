@@ -104,7 +104,7 @@ export const MultiDeviceSyncSection = () => {
         {t("card.experimental")}
       </div>
       <p>{t("card.scope")}</p>
-      <p>{t("card.manualOnly")}</p>
+      <p>{t("card.automatic")}</p>
       <p>{t("card.enableWarning")}</p>
 
       {message ? (

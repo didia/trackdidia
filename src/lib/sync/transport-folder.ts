@@ -342,6 +342,13 @@ export class FolderTransport implements SyncTransport {
     return generationOf(listed.own, domain);
   }
 
+  async ownWrittenAtMs(): Promise<number | null> {
+    const listed = await this.list("Checking this laptop's published data");
+    const writtenAt = isRecord(listed.own) ? listed.own.writtenAt : undefined;
+    const parsed = typeof writtenAt === "string" ? Date.parse(writtenAt) : Number.NaN;
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
   /** The generation of this device's manifest entry when it holds exactly `bytes`, else `null`. */
   private async committedGeneration(domain: SyncDomain, bytes: Uint8Array): Promise<number | null> {
     try {

@@ -59,6 +59,7 @@
     "createRepository": "Création du repository",
     "loadSettings": "Chargement des paramètres",
     "importGtd": "Import initial des tâches GTD",
+    "syncPull": "Synchronisation avec les autres ordinateurs",
     "migrateReferences": "Migration des références",
     "normalizeScheduled": "Normalisation des tâches planifiées",
     "collapseRecurring": "Consolidation des tâches récurrentes",

@@ -1,10 +1,22 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { AppSettings } from "../domain/types";
 import { logDebug } from "../lib/debug";
 import { backfillPercent, runSyncCaptureBackfill } from "../lib/sync/backfill-driver";
 import type { SyncBackfillProgress } from "../lib/sync/backfill-state";
 import type { EngineStatus, SyncNowReport } from "../lib/sync/engine-types";
 import type { IgnoredSyncEntry } from "../lib/sync/folder-api";
+import {
+  classifyPublish,
+  classifyPull,
+  classifyThrown,
+  deriveSyncChip,
+  pullChangedData,
+  type RunClass,
+  type SyncChip,
+  worstClass,
+} from "../lib/sync/lifecycle-policy";
+import type { ExitBridge, QuitWindow } from "../lib/sync/quit-publish";
+import type { StartupSync } from "../lib/sync/startup-sync";
 import {
   type BuiltSyncEngine,
   buildSyncEngine,
@@ -17,14 +29,18 @@ import {
   syncEnvironmentOf,
   SyncSetupError,
   type SyncServiceDeps,
+  syncEngineKeyOf,
 } from "../lib/sync/sync-service";
 import type { AppRepository } from "../lib/storage/repository";
+import { useSyncAutomation } from "./use-sync-automation";
 
 /**
  * Holds the state of the EXPERIMENTAL multi-device sync around the plain functions of
  * `lib/sync/sync-service.ts`: the engine built from the settings, the last status and the last
- * run, and the actions the Settings card and the `/sync` page call. Manual only in this build: it
- * starts nothing by itself (no startup pull, no focus or timer trigger, no publish on edit).
+ * run, and the actions the Settings card and the `/sync` page call. The automatic triggers (startup
+ * pull, focus and hourly pull, debounced / blur / quit publish) are `lib/sync/lifecycle.ts`, wired to
+ * the window by `use-sync-automation.ts`; they exist only while `automationKey` is non-null (debug
+ * gate open AND sync enabled), share this hook's engine, and never run while a manual action does.
  *
  * It lives in `AppProvider`, so the last report survives navigating between Settings and `/sync`.
  */
@@ -87,6 +103,8 @@ export interface MultiDeviceSyncController {
   backfill: BackfillView | null;
   /** The last Sync now. */
   run: SyncRunRecord | null;
+  /** The status chip: what automatic and manual syncing are doing right now. */
+  chip: SyncChip;
   /** The identity was rewritten to this device's id at the last engine build (a cloned database). */
   identityRepaired: boolean;
   enable(): Promise<void>;
@@ -113,6 +131,7 @@ export const inertSyncController: MultiDeviceSyncController = {
   ignored: [],
   backfill: null,
   run: null,
+  chip: { state: "idle", lastOkAtMs: null, retryAtMs: null },
   identityRepaired: false,
   enable: async () => undefined,
   resumeBackfill: async () => undefined,
@@ -145,16 +164,24 @@ export interface UseMultiDeviceSyncOptions {
   getSettings: () => AppSettings;
   updateSettings: (updater: (current: AppSettings) => AppSettings) => Promise<AppSettings>;
   deps?: SyncServiceDeps;
+  /**
+   * `null` or absent: no automatic trigger exists. Otherwise `syncEngineKeyOf(settings)` of a
+   * session whose debug gate is open and whose sync is enabled (`isSyncAutomationEnabled`).
+   */
+  automationKey?: string | null;
+  /** The engine and pull started during bootstrap, adopted when its key matches. */
+  startupSync?: StartupSync | null;
+  /** Serializes automatic syncs with backups (the app's exclusive lane). Defaults to no queue. */
+  runExclusive?: <T>(work: () => Promise<T>) => Promise<T>;
+  /** Data was merged from another laptop: reload the open screens. */
+  onDataChanged?: () => void;
+  /** Test seam: the window whose close request publishes. Defaults to the Tauri window. */
+  quitWindow?: () => Promise<QuitWindow>;
+  /** Test seam: the event bus and commands of the tray-quit handshake. Defaults to Tauri's. */
+  exitBridge?: () => Promise<ExitBridge>;
 }
 
-/** The settings an engine is built from; a change rebuilds it. */
-const engineKeyOf = (settings: AppSettings): string =>
-  JSON.stringify([
-    settings.backupDestinationDir,
-    settings.syncGtdFolderDir,
-    settings.syncDeviceName,
-    settings.syncProfile,
-  ]);
+const runDirectly = <T>(work: () => Promise<T>): Promise<T> => work();
 
 export const useMultiDeviceSync = (
   repository: AppRepository | null,
@@ -175,8 +202,23 @@ export const useMultiDeviceSync = (
 
   const built = useRef<{ key: string; engine: BuiltSyncEngine } | null>(null);
   const busy = useRef(false);
-  const latest = useRef({ repository, getSettings, updateSettings, deps });
-  latest.current = { repository, getSettings, updateSettings, deps };
+  const runExclusive = options.runExclusive ?? runDirectly;
+  const latest = useRef({
+    repository,
+    getSettings,
+    updateSettings,
+    deps,
+    runExclusive,
+    onDataChanged: options.onDataChanged,
+  });
+  latest.current = {
+    repository,
+    getSettings,
+    updateSettings,
+    deps,
+    runExclusive,
+    onDataChanged: options.onDataChanged,
+  };
 
   /** One action at a time; a second request while one runs is ignored, not queued. */
   const exclusive = useCallback(
@@ -204,29 +246,71 @@ export const useMultiDeviceSync = (
     [],
   );
 
+  const recordBackup = useCallback(async (backup: { createdAt: string; backupPath: string }) => {
+    await latest.current.updateSettings((stored) => ({
+      ...stored,
+      lastBackupAt: backup.createdAt,
+      lastBackupPath: backup.backupPath,
+    }));
+  }, []);
+
   const ensureEngine = useCallback(async (): Promise<BuiltSyncEngine> => {
     const current = latest.current;
     if (!current.repository) throw new SyncSetupError("unsupported_preview", "No repository");
     const settings = current.getSettings();
-    const key = engineKeyOf(settings);
+    const key = syncEngineKeyOf(settings);
     if (built.current?.key === key) return built.current.engine;
     const engine = await buildSyncEngine({
       repository: current.repository,
       settings,
       getSettings: current.getSettings,
       deps: current.deps,
-      onBackup: async (backup) => {
-        await latest.current.updateSettings((stored) => ({
-          ...stored,
-          lastBackupAt: backup.createdAt,
-          lastBackupPath: backup.backupPath,
-        }));
-      },
+      onBackup: recordBackup,
     });
     built.current = { key, engine };
     setIdentityRepaired(engine.identity.repaired);
     return engine;
+  }, [recordBackup]);
+
+  /** The engine built during bootstrap becomes this hook's engine (one engine per session). */
+  const adoptEngine = useCallback(
+    (startup: StartupSync) => {
+      if (built.current?.key !== startup.key) {
+        built.current = { key: startup.key, engine: startup.built };
+        setIdentityRepaired(startup.built.identity.repaired);
+      }
+      // From now on the engine reads the app's live settings and records its backups through them.
+      startup.binding.getSettings = () => latest.current.getSettings();
+      startup.binding.onBackup = recordBackup;
+    },
+    [recordBackup],
+  );
+
+  /** Data merged from another laptop: the settings copy and the open screens catch up. */
+  const dataChanged = useCallback(() => {
+    // Settings merged from a peer reach the app's own copy of them.
+    latest.current
+      .updateSettings((stored) => stored)
+      .catch((caught) => {
+        logDebug("warn", "sync.ui", "Rechargement des reglages apres fusion en echec", caught);
+      });
+    latest.current.onDataChanged?.();
   }, []);
+
+  const automation = useSyncAutomation({
+    repository,
+    automationKey: options.automationKey ?? null,
+    startupSync: options.startupSync ?? null,
+    now: () => latest.current.deps.now(),
+    ensureEngine,
+    adoptEngine,
+    busy,
+    runExclusive: (work) => latest.current.runExclusive(work),
+    getSettings: () => latest.current.getSettings(),
+    onDataChanged: dataChanged,
+    ...(options.quitWindow ? { quitWindow: options.quitWindow } : {}),
+    ...(options.exitBridge ? { exitBridge: options.exitBridge } : {}),
+  });
 
   const readStatus = useCallback(async (engine: BuiltSyncEngine) => {
     setStatus(await engine.engine.getStatus());
@@ -343,32 +427,68 @@ export const useMultiDeviceSync = (
   );
 
   const syncNow = useCallback(
-    (syncOptions: { approveStalePeers?: readonly string[] } = {}) =>
-      exclusive("syncing", async () => {
+    async (syncOptions: { approveStalePeers?: readonly string[] } = {}) => {
+      // An automatic run in flight finishes first: the engine runs one thing at a time.
+      await automation.lifecycle.current?.whenIdle();
+      await exclusive("syncing", async () => {
+        const lifecycle = automation.lifecycle.current;
+        // "Synchroniser maintenant" always runs, and lifts any backoff or block.
+        lifecycle?.manualStarted();
         const engine = await ensureEngine();
         let report: SyncNowReport | null = null;
         let error: SyncUiError | null = null;
         try {
-          report = await engine.engine.syncNow(
-            syncOptions.approveStalePeers === undefined
-              ? {}
-              : { approveStalePeers: syncOptions.approveStalePeers },
+          // In the exclusive lane, so the sync never overlaps an automatic backup. (Enable and
+          // resume are not: they are the capture backfill, short writer slots that take no backup,
+          // and holding the lane for a whole backfill would starve the automatic backups.)
+          report = await latest.current.runExclusive(() =>
+            engine.engine.syncNow(
+              syncOptions.approveStalePeers === undefined
+                ? {}
+                : { approveStalePeers: syncOptions.approveStalePeers },
+            ),
           );
         } catch (caught) {
           error = toSyncUiError(caught);
         }
+        const outcome: RunClass = report
+          ? worstClass(classifyPull(report.pull), classifyPublish(report.publish))
+          : classifyThrown(error?.code ?? "unexpected");
+        lifecycle?.manualFinished(outcome, error);
         setRun({ finishedAtMs: latest.current.deps.now(), report, error });
-        if (report && report.pull.totals.applied + report.pull.totals.tombstonesApplied > 0) {
-          // Settings merged from a peer reach the app's own copy of them.
-          try {
-            await latest.current.updateSettings((stored) => stored);
-          } catch (caught) {
-            logDebug("warn", "sync.ui", "Rechargement des reglages apres fusion en echec", caught);
-          }
-        }
+        if (report && pullChangedData(report.pull)) dataChanged();
         await readStatus(engine);
+      });
+    },
+    [exclusive, ensureEngine, readStatus, dataChanged, automation.lifecycle],
+  );
+
+  const lifecycleState = automation.state;
+  const [chipTick, setChipTick] = useState(0);
+  // The chip text counts down to a retry; one render at the retry time moves it on.
+  useEffect(() => {
+    const retryAt = lifecycleState?.backoffUntilMs ?? null;
+    if (retryAt === null) return;
+    const delay = Math.max(0, retryAt - latest.current.deps.now()) + 50;
+    const timer = setTimeout(() => setChipTick((value) => value + 1), delay);
+    return () => clearTimeout(timer);
+  }, [lifecycleState?.backoffUntilMs]);
+  const chip = useMemo<SyncChip>(
+    () =>
+      deriveSyncChip({
+        running:
+          lifecycleState?.running != null ||
+          phase === "syncing" ||
+          phase === "enabling" ||
+          phase === "resuming",
+        lastClass: lifecycleState?.lastClass ?? null,
+        failures: lifecycleState?.consecutiveFailures ?? 0,
+        backoffUntilMs: lifecycleState?.backoffUntilMs ?? null,
+        lastOkAtMs: lifecycleState?.lastOkAtMs ?? null,
+        backfillIncomplete: lifecycleState?.backfillIncomplete === true || backfill !== null,
       }),
-    [exclusive, ensureEngine, readStatus],
+    // `chipTick` re-evaluates the chip when a backoff has just ended.
+    [lifecycleState, phase, backfill, chipTick],
   );
 
   return useMemo<MultiDeviceSyncController>(
@@ -382,6 +502,7 @@ export const useMultiDeviceSync = (
       ignored,
       backfill,
       run,
+      chip,
       identityRepaired,
       enable,
       resumeBackfill,
@@ -400,6 +521,7 @@ export const useMultiDeviceSync = (
       ignored,
       backfill,
       run,
+      chip,
       identityRepaired,
       enable,
       resumeBackfill,

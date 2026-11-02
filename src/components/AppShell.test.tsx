@@ -1,6 +1,7 @@
 import { screen } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
 import { defaultAppSettings } from "../domain/daily-entry";
+import { inertSyncController } from "../app/use-multi-device-sync";
 import { renderWithApp } from "../test/test-utils";
 import { AppShell } from "./AppShell";
 
@@ -72,5 +73,36 @@ describe("AppShell sync nav gating", () => {
       },
     });
     expect(screen.getByRole("link", { name: "Synchronisation" })).toHaveAttribute("href", "/sync");
+  });
+});
+
+describe("AppShell sync status chip", () => {
+  it("shows the chip beside the brand only with debug mode AND sync enabled", async () => {
+    for (const [debugEnabled, multiDeviceSyncEnabled, shown] of [
+      [true, true, true],
+      [true, false, false],
+      [false, true, false],
+    ] as const) {
+      const view = await renderWithApp(
+        <Routes>
+          <Route path="/" element={<AppShell />}>
+            <Route index element={<p>today</p>} />
+          </Route>
+        </Routes>,
+        {
+          contextOverrides: {
+            debugEnabled,
+            browserPreview: false,
+            settings: { ...defaultAppSettings(), multiDeviceSyncEnabled },
+            sync: { ...inertSyncController, supported: true },
+          },
+        },
+      );
+      expect(
+        document.querySelector(".sync-chip") !== null,
+        `debug=${debugEnabled} enabled=${multiDeviceSyncEnabled}`,
+      ).toBe(shown);
+      view.unmount();
+    }
   });
 });

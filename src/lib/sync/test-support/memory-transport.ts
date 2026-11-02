@@ -358,8 +358,8 @@ class MemoryTransport implements SyncTransport {
     this.domains = ROLE_DOMAINS[folder.role];
   }
 
-  private async enter(operation: FolderOperation): Promise<void> {
-    this.world.countsOf(this.deviceId, this.folder.role)[operation] += 1;
+  private async enter(operation: FolderOperation, counted = true): Promise<void> {
+    if (counted) this.world.countsOf(this.deviceId, this.folder.role)[operation] += 1;
     if (this.world.isOffline(this.deviceId)) {
       throw new SyncTransportError("unreachable", "This laptop is offline");
     }
@@ -472,6 +472,14 @@ class MemoryTransport implements SyncTransport {
   async ownGeneration(domain: SyncDomain): Promise<number | null> {
     await this.enter("ownGeneration");
     return this.world.manifestOf(this.folder, this.deviceId)?.domains[domain]?.generation ?? null;
+  }
+
+  /** Not counted: the operation counts pin the engine's reads and writes of bundles. */
+  async ownWrittenAtMs(): Promise<number | null> {
+    await this.enter("ownGeneration", false);
+    const writtenAt = this.world.manifestOf(this.folder, this.deviceId)?.writtenAt;
+    const parsed = typeof writtenAt === "string" ? Date.parse(writtenAt) : Number.NaN;
+    return Number.isNaN(parsed) ? null : parsed;
   }
 }
 

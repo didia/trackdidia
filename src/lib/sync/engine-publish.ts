@@ -25,7 +25,10 @@ import { SyncTransportError, type SyncTransport } from "./transport";
  * the pairing again right before the hand-over: a bundle is never given to a transport that does not
  * carry its domain, so a `personal` bundle cannot reach the shared GTD folder.
  *
- * "Something changed". `change_counter` is a single counter for the whole database. Every counter
+ * "Something changed". `change_counter` is a single counter for the whole database ("anything to
+ * publish?" is one comparison with `last_publish_counter`); per-domain change detection (migration 47,
+ * `domain-counters.ts`) then rebuilds only the domains whose own counter is above the last publish.
+ * Every counter
  * that DECIDES or RECORDS anything is read through the writer queue (`readSyncPublishCounters`,
  * `readSyncSnapshot`), never from `getSyncStatus`, which reads outside the queue and can observe a
  * counter that another operation advanced but has not committed (and may roll back). The counter a
@@ -49,13 +52,28 @@ export interface PublishMemory {
   publishedAt: Map<SyncDomain, number>;
   /** Domains a transport is known to hold a bundle of (no need to ask it again). */
   knownPublished: Set<SyncDomain>;
+  /** When each transport's manifest age was last looked at (see {@link PUBLISH_HEARTBEAT_MS}). */
+  heartbeatCheckedAt: Map<string, number>;
 }
+
+/**
+ * A folder's manifest carries `writtenAt`, which peers read as "this laptop was last online then" and
+ * refuse to merge past 90 days. Every publish used to rewrite every domain and so every manifest;
+ * with per-domain change detection a folder none of whose domains changed keeps an old manifest. A
+ * domain whose folder manifest is older than this is therefore republished once, whatever its
+ * counter says, so a laptop that only edits tasks is not taken for an absent one by the folder that
+ * holds its (unchanged) journal and finance.
+ */
+export const PUBLISH_HEARTBEAT_MS = 30 * 24 * 60 * 60_000;
+/** How often a transport's manifest age is looked at: one folder listing per transport per day. */
+export const PUBLISH_HEARTBEAT_CHECK_MS = 24 * 60 * 60_000;
 
 export const newPublishMemory = (): PublishMemory => ({
   engineId: globalThis.crypto.randomUUID(),
   seq: 0,
   publishedAt: new Map(),
   knownPublished: new Set(),
+  heartbeatCheckedAt: new Map(),
 });
 
 /** The transport that carries `domain`, or `undefined`. The only place routing is decided. */
@@ -190,9 +208,31 @@ export const runPublish = async (
     try {
       assertDomainAllowed(domain, domainsPublishable(ctx.profile));
 
+      // Per-domain change detection: the domain changed after both the last recorded publish and
+      // whatever this process already wrote for it. A task edit therefore does not rebuild `finance`.
+      const changedAt = counters.domainChangedAt[domain];
+      const publishedUpTo = Math.max(
+        counters.lastPublishCounter,
+        memory.publishedAt.get(domain) ?? 0,
+      );
       let needed = options.force === true;
-      if (!needed && dirty && (memory.publishedAt.get(domain) ?? -1) < counterAtRead) {
+      if (!needed && dirty && changedAt > publishedUpTo) {
         needed = true;
+      }
+      if (!needed && transport.ownWrittenAtMs) {
+        const checkedAt = memory.heartbeatCheckedAt.get(transport.id);
+        if (checkedAt === undefined || ctx.now() - checkedAt >= PUBLISH_HEARTBEAT_CHECK_MS) {
+          const writtenAt = await withTimeout(
+            () => (transport.ownWrittenAtMs as () => Promise<number | null>)(),
+            ctx.transportTimeoutMs,
+            "Checking this laptop's published data",
+          );
+          if (writtenAt !== null && ctx.now() - writtenAt > PUBLISH_HEARTBEAT_MS) {
+            needed = true;
+          } else {
+            memory.heartbeatCheckedAt.set(transport.id, ctx.now());
+          }
+        }
       }
       if (!needed && !memory.knownPublished.has(domain)) {
         const own = await withTimeout(
@@ -205,8 +245,9 @@ export const runPublish = async (
       }
       if (!needed) {
         domains.push({ domain, outcome: "clean", transport: transport.id });
-        const current = memory.publishedAt.get(domain);
-        if (dirty && current !== undefined) covered.push(current);
+        // Nothing changed in this domain up to the counter read above, so its published state
+        // already covers it.
+        if (dirty) covered.push(counterAtRead);
         continue;
       }
 
@@ -224,6 +265,8 @@ export const runPublish = async (
         () => repairAfterLatePublish(ctx, memory, domain),
       );
       memory.publishedAt.set(domain, snapshotCounter);
+      // The manifest was just rewritten, for every domain of this transport.
+      memory.heartbeatCheckedAt.set(transport.id, ctx.now());
       covered.push(snapshotCounter);
       memory.knownPublished.add(domain);
       domains.push({ domain, outcome: "published", transport: transport.id, generation });

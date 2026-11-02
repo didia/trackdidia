@@ -11,6 +11,13 @@ import type { AppRepository } from "../lib/storage/repository";
 export interface AutoBackupSchedulerOptions {
   /** Serializes the startup check with other startup work. */
   enqueueStartupWork?: (work: () => Promise<void>) => Promise<void>;
+  /**
+   * Runs the backup alone among multi-device syncs (the app's exclusive lane): a backup and a sync
+   * never run at the same time. Absent, the backup runs at once, as it always did. A sync that took
+   * its own safety backup while this one waited makes the backup no longer due, so dueness is
+   * checked again once the lane is free.
+   */
+  runExclusive?: <T>(work: () => Promise<T>) => Promise<T>;
 }
 
 /**
@@ -32,6 +39,8 @@ export const useAutoBackupScheduler = (
   onSettingsUpdatedRef.current = onSettingsUpdated;
   const enqueueRef = useRef(options.enqueueStartupWork);
   enqueueRef.current = options.enqueueStartupWork;
+  const exclusiveRef = useRef(options.runExclusive);
+  exclusiveRef.current = options.runExclusive;
 
   useEffect(() => {
     if (!repository) {
@@ -63,20 +72,32 @@ export const useAutoBackupScheduler = (
       });
 
       try {
-        const storageInfo = await repository.getStorageInfo();
-        if (!storageInfo) {
-          return;
+        const backupNow = async () => {
+          const storageInfo = await repository.getStorageInfo();
+          if (!storageInfo) {
+            return;
+          }
+
+          const backup = await repository.createBackup("auto");
+          const nextSettings = await repository.updateSettings((current) => ({
+            ...current,
+            lastBackupAt: backup.createdAt,
+            lastBackupPath: backup.backupPath,
+          }));
+          onSettingsUpdatedRef.current(nextSettings);
+
+          logDebug("info", "storage.backup", "Backup automatique termine", backup);
+        };
+        const exclusive = exclusiveRef.current;
+        if (exclusive) {
+          await exclusive(async () => {
+            const current = getSettingsRef.current();
+            if (!isAutoBackupDue(current.lastBackupAt, current.autoBackupIntervalHours)) return;
+            await backupNow();
+          });
+        } else {
+          await backupNow();
         }
-
-        const backup = await repository.createBackup("auto");
-        const nextSettings = await repository.updateSettings((current) => ({
-          ...current,
-          lastBackupAt: backup.createdAt,
-          lastBackupPath: backup.backupPath,
-        }));
-        onSettingsUpdatedRef.current(nextSettings);
-
-        logDebug("info", "storage.backup", "Backup automatique termine", backup);
       } catch (error) {
         logDebug("error", "storage.backup", "Echec du backup automatique", error);
       } finally {

@@ -155,7 +155,9 @@ JSON (`runInTray`, `launchAtLogin`; both default `false`):
 
 - **Run in tray**: closing the window hides it to the system tray instead of quitting
   (**Afficher** / **Quitter** in the tray menu). The Rust side is `src-tauri/src/desktop_shell.rs`
-  (`desktop_set_run_in_tray` plus the close handler);
+  (`desktop_set_run_in_tray` plus the close handler). **Quitter** exits the process directly, except that
+  with multi-device sync automation on it first waits (at most 4 s) for the webview's last publish
+  ([Automatic triggers](multi-device-sync.md#automatic-triggers));
 - **Launch at login**: enables or disables `tauri-plugin-autostart` (macOS LaunchAgent).
 
 After startup settles, `useDesktopShell` re-applies the saved values once (the native host

@@ -91,7 +91,9 @@ export class SyncEngine {
       transportTimeoutMs: options.transportTimeoutMs ?? DEFAULT_TRANSPORT_TIMEOUT_MS,
       applyLimits: options.applyLimits ?? {},
       yieldBetweenChunks: options.yieldBetweenChunks,
+      beforeWrite: options.beforeWrite,
       chunkResume: new Map(),
+      firstMergeBackupTaken: false,
     };
   }
 

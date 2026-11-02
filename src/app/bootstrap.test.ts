@@ -235,3 +235,109 @@ describe("bootstrapApplication", () => {
     expect(settings.gtdReferencesMigrationDoneAt).not.toBe("");
   });
 });
+
+describe("bootstrapApplication with the multi-device sync pull", () => {
+  it("pulls after the settings upgrade and before the normalizations and every generator", async () => {
+    const repository = await createRepository();
+    const calls: string[] = [];
+    for (const name of [
+      "moveTasksWithContextToBucket",
+      "moveTasksWithScheduledDatesToBucket",
+      "reconcileDay",
+      "generateDailyRelationshipTasks",
+    ] as const) {
+      const original = (repository[name] as (...args: unknown[]) => unknown).bind(repository);
+      vi.spyOn(repository, name as never).mockImplementation(((...args: unknown[]) => {
+        calls.push(name);
+        return original(...args);
+      }) as never);
+    }
+    const stages: string[] = [];
+
+    await bootstrapApplication(repository, {
+      onStage: (stage) => stages.push(stage),
+      pullBeforeGenerators: async () => {
+        calls.push("sync pull");
+        return false;
+      },
+    });
+
+    expect(calls).toEqual([
+      "sync pull",
+      "moveTasksWithContextToBucket",
+      "moveTasksWithScheduledDatesToBucket",
+      "reconcileDay",
+      "generateDailyRelationshipTasks",
+    ]);
+    expect(stages[1]).toBe("Synchronisation avec les autres ordinateurs");
+  });
+
+  it("reads the settings again when the pull ran, because a merge can change shared settings", async () => {
+    const repository = await createRepository();
+    const settings = await bootstrapApplication(repository, {
+      pullBeforeGenerators: async () => {
+        await repository.updateSettings((current) => ({
+          ...current,
+          gtdImportDoneAt: "2026-10-01T00:00:00.000Z",
+        }));
+        return true;
+      },
+    });
+    expect(settings.gtdImportDoneAt).toBe("2026-10-01T00:00:00.000Z");
+  });
+
+  it("changes nothing when the gate is closed: same stages, no call, no extra settings read", async () => {
+    const withoutOption = await createRepository();
+    const getSettings = vi.spyOn(withoutOption, "getSettings");
+    const stagesWithout: string[] = [];
+    await bootstrapApplication(withoutOption, { onStage: (stage) => stagesWithout.push(stage) });
+    const readsWithout = getSettings.mock.calls.length;
+
+    const gateClosed = await createRepository();
+    const reads = vi.spyOn(gateClosed, "getSettings");
+    const stagesClosed: string[] = [];
+    const pull = vi.fn(async () => true);
+    await bootstrapApplication(gateClosed, {
+      onStage: (stage) => stagesClosed.push(stage),
+      // What `useBootstrap` passes: the callback exists, the gate says the step does not.
+      pullBeforeGenerators: pull,
+      isSyncPullEnabled: () => false,
+    });
+    expect(pull).not.toHaveBeenCalled();
+    expect(reads.mock.calls.length).toBe(readsWithout);
+    expect(stagesClosed).toEqual(stagesWithout);
+    expect(stagesClosed).not.toContain("Synchronisation avec les autres ordinateurs");
+    expect(stagesWithout).toHaveLength(6);
+  });
+
+  it("shows the stage and runs the pull when the gate is open, with the loaded settings", async () => {
+    const repository = await createRepository({ multiDeviceSyncEnabled: true });
+    const stages: string[] = [];
+    const seen: boolean[] = [];
+    const pull = vi.fn(async () => false);
+    await bootstrapApplication(repository, {
+      onStage: (stage) => stages.push(stage),
+      pullBeforeGenerators: pull,
+      isSyncPullEnabled: (settings) => {
+        seen.push(settings.multiDeviceSyncEnabled);
+        return settings.multiDeviceSyncEnabled;
+      },
+    });
+    expect(seen).toEqual([true]);
+    expect(pull).toHaveBeenCalledTimes(1);
+    expect(stages).toContain("Synchronisation avec les autres ordinateurs");
+  });
+
+  it("never lets a throwing pull block startup or trigger the fallback", async () => {
+    const repository = await createRepository();
+    const reconcile = vi.spyOn(repository, "reconcileDay");
+    await expect(
+      bootstrapApplication(repository, {
+        pullBeforeGenerators: async () => {
+          throw new Error("folder exploded");
+        },
+      }),
+    ).resolves.toBeDefined();
+    expect(reconcile).toHaveBeenCalledTimes(1);
+  });
+});

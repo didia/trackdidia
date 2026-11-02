@@ -299,7 +299,7 @@ export const SyncPage = () => {
       )}
 
       <div className="banner" role="note">
-        {t("page.manualNote")}
+        {t("page.automaticNote")}
       </div>
 
       {sync.setupError ? (

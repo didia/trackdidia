@@ -8,6 +8,7 @@ import { applyFinanceSplits, applyFinanceTransactions, buildFinanceContext } fro
 import { CONTEXTS, keepLocalNameOnCollision } from "./apply-names";
 import { orderByReferences, type ParentStatus, ReferenceGuard } from "./apply-references";
 import { applyRecurrenceSidecars } from "./apply-recurrence";
+import { bumpChangeCounterSql } from "./domain-counters";
 import { applyRowClockTable } from "./apply-rows";
 import {
   extraConflictOf,
@@ -814,7 +815,7 @@ export const applyChangeSet = async (
   if (context.republish === true && merged.applied + merged.tombstonesApplied > 0) {
     // The merged state is something the other laptops may not hold yet: make it pending, in this
     // transaction, so a crash between the apply and the next publish cannot lose the obligation.
-    await db.execute("UPDATE sync_identity SET change_counter = change_counter + 1 WHERE id = 1");
+    await db.execute(bumpChangeCounterSql([changeSet.domain], "1"));
   }
   return { ...merged, hlcAdvanced };
 };
