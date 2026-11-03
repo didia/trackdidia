@@ -695,8 +695,11 @@ describe("synced settings", () => {
       syncDeviceName: "Laptop A",
       language: EN,
     }));
-    for (const domain of ["gtd", "personal", "finance"] as const) {
-      await sim.syncAll(domain);
+    // A's stored profile is `work` here (any value would do for a device key), and a work database
+    // applies gtd only (`profile-guard.ts`): so A's bundles of every domain go to B, but only gtd comes back.
+    await sim.syncAll("gtd");
+    for (const domain of ["personal", "finance"] as const) {
+      await sim.exchange(a, b, domain);
     }
     const onB = await b.repo.getSettings();
     expect(onB.language).toBe(EN);

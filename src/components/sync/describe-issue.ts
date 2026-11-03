@@ -45,7 +45,13 @@ export const keyedIssues = (issues: readonly SyncIssue[]): { key: string; issue:
 };
 
 /** Failures retrying cannot fix: the page shows them first and prominently. */
-export type PersistentKind = "configuration" | "too_large" | "unsupported" | "internal";
+export type PersistentKind =
+  | "configuration"
+  | "too_large"
+  | "unsupported"
+  | "internal"
+  /** A work device that holds personal data: sync is paused until it starts from a fresh database. */
+  | "work_profile";
 
 const PERSISTENT_KINDS: readonly string[] = [
   "configuration",
@@ -54,12 +60,26 @@ const PERSISTENT_KINDS: readonly string[] = [
   "internal",
 ];
 
-export const persistentKindOf = (issue: SyncIssue): PersistentKind | null =>
-  (issue.code === "transport_failed" || issue.code === "publish_failed") &&
-  issue.detail !== undefined &&
-  PERSISTENT_KINDS.includes(issue.detail)
+export const persistentKindOf = (issue: SyncIssue): PersistentKind | null => {
+  if (issue.code === "work_profile_data_present") return "work_profile";
+  return (issue.code === "transport_failed" || issue.code === "publish_failed") &&
+    issue.detail !== undefined &&
+    PERSISTENT_KINDS.includes(issue.detail)
     ? (issue.detail as PersistentKind)
     : null;
+};
+
+/** "personal=3,finance=12" (the engine's detail) as the words the page uses. */
+const foreignCountsLabel = (t: TFunction<"sync">, detail: string | undefined): string => {
+  const parts = (detail ?? "")
+    .split(",")
+    .map((part) => part.split("="))
+    .filter(
+      ([domain, count]) => (domain === "personal" || domain === "finance") && Number(count) > 0,
+    )
+    .map(([domain, count]) => `${domainLabel(t, domain)} : ${count}`);
+  return parts.join(" ; ");
+};
 
 export interface DescribedIssue {
   /** Headline for a persistent failure; absent for an ordinary issue. */
@@ -75,6 +95,13 @@ export interface DescribedIssue {
 export const describeIssue = (t: TFunction<"sync">, issue: SyncIssue): DescribedIssue => {
   const persistent = persistentKindOf(issue);
   const folder = folderLabel(t, issue.transport);
+  if (persistent === "work_profile") {
+    return {
+      title: t("page.issues.workProfile.title"),
+      body: t("page.issues.workProfile.body", { counts: foreignCountsLabel(t, issue.detail) }),
+      persistent,
+    };
+  }
   if (persistent !== null) {
     const key = {
       configuration: "configuration",
@@ -119,6 +146,7 @@ export const describeIssue = (t: TFunction<"sync">, issue: SyncIssue): Described
       domain: issue.domain ?? "",
       kept: issue.progress?.kept ?? 0,
       total: issue.progress?.total ?? 0,
+      counts: foreignCountsLabel(t, issue.detail),
     }),
     persistent: null,
   };

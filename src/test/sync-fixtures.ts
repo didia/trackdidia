@@ -46,6 +46,7 @@ export const status = (overrides: Partial<EngineStatus> = {}): EngineStatus => (
   lastPull: null,
   lastPublish: null,
   issues: [],
+  profileViolation: null,
   ...overrides,
 });
 

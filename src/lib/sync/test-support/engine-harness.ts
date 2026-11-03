@@ -34,6 +34,8 @@ export interface EngineDeviceSpec {
   name: string;
   /** Default `personal`. */
   profile?: DeviceProfile;
+  /** The profile persisted in the device's settings (default: `profile`); differs only on purpose. */
+  storedProfile?: DeviceProfile;
   /** Folder roles the device can reach. Default: both for a personal device, `gtd` for a work one. */
   roles?: readonly FolderRole[];
   engine?: Partial<
@@ -78,6 +80,7 @@ const recordingRepo = (device: SyncDevice, calls: RepoCall[]): SyncEngineReposit
   },
   queueSyncRepublish: () => device.repo.queueSyncRepublish(),
   recordSyncFirstMergeBackup: (path) => device.repo.recordSyncFirstMergeBackup(path),
+  inspectSyncProfileData: (options) => device.repo.inspectSyncProfileData(options),
   markSyncPublished: (counter) => {
     calls.push({ method: "markSyncPublished" });
     return device.repo.markSyncPublished(counter);
@@ -93,9 +96,16 @@ export const createEngineWorld = async (
     harnessOptions,
   );
   const folders = createMemoryFolders();
-  const devices: EngineDevice[] = specs.map((spec, index) => {
+  const devices: EngineDevice[] = [];
+  for (const [index, spec] of specs.entries()) {
     const base = sim.devices[index] as SyncDevice;
     const profile = spec.profile ?? "personal";
+    // The repository's own guard reads the PERSISTED profile (`profile-guard.ts`), so a simulated work
+    // laptop stores it too. `storedProfile` lets a test make the two disagree.
+    const stored = spec.storedProfile ?? profile;
+    if (stored !== "personal") {
+      await base.repo.updateSettings((current) => ({ ...current, syncProfile: stored }));
+    }
     const roles =
       spec.roles ?? (profile === "work" ? (["gtd"] as const) : (["gtd", "personal"] as const));
     const transports = roles.map((role) => folders.attach(base.deviceId, role));
@@ -111,8 +121,8 @@ export const createEngineWorld = async (
       beforeFirstMerge: async () => ({ path: `memory://backup/${base.name}` }),
       ...rest,
     });
-    return Object.assign(base, { profile, engine, transports, calls }) as EngineDevice;
-  });
+    devices.push(Object.assign(base, { profile, engine, transports, calls }) as EngineDevice);
+  }
   return {
     sim,
     folders,

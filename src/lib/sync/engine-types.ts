@@ -78,6 +78,14 @@ export type SyncIssueCode =
   | "safety_backup_required"
   | "publish_failed"
   | "publish_skipped"
+  /**
+   * A `work` device found personal or finance rows in its own database (startup re-check, spec "Work
+   * profile"). Sync is paused: nothing is read from a folder, applied or published. Only a fresh
+   * database fixes it, so the lifecycle treats it as blocked.
+   */
+  | "work_profile_data_present"
+  /** The work-profile look at the database failed; nothing syncs until it succeeds (retried). */
+  | "profile_check_failed"
   /** Local changes stay pending because a domain this device may publish has no transport right now. */
   | "pending_unpublished_domain";
 
@@ -295,6 +303,14 @@ export interface PeerStatus {
   calendarSyncEnabled: boolean | null;
 }
 
+/** What a work device found in its own database: rows of the domains it must not hold. */
+export interface ProfileViolationInfo {
+  personal: number;
+  finance: number;
+  /** False when only the cheap look ran: the counts then mean "at least". */
+  exact: boolean;
+}
+
 export type EngineActivity = "pull" | "publish" | "syncNow";
 
 export interface EngineStatus {
@@ -313,4 +329,9 @@ export interface EngineStatus {
   lastPublish: PublishReport | null;
   /** Warnings and errors of the last pull and the last publish. */
   issues: SyncIssue[];
+  /**
+   * Set while a `work` device holds personal or finance rows: sync is paused (see
+   * `engine-profile.ts`). Always `null` for a personal device.
+   */
+  profileViolation: ProfileViolationInfo | null;
 }

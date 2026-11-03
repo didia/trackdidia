@@ -7,6 +7,8 @@ import type {
   SyncCaptureEnableResult,
 } from "../sync/backfill-state";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { ProfileDataInspection } from "../sync/profile-data";
+import type { InspectProfileDataOptions } from "../sync/profile-data-sql";
 import type { SyncDomain } from "../sync/registry";
 import type {
   SyncIdentityResult,
@@ -654,6 +656,16 @@ export interface AppRepository {
     options?: SyncApplyOptions,
   ): Promise<SyncApplyResult>;
   /**
+   * What this database holds per sync domain (`gtd`, `personal`, `finance`), seed rows excluded: the
+   * rows of every table of the domain, the sidecar rows (clocks, tombstones, snapshots, aliases,
+   * conflicts, marks) that describe such an entity, and the personal or finance settings that differ
+   * from their defaults. Read only, inside a writer slot. `exact: false` stops at the first row of
+   * each source (the cheap startup check: cost does not grow with the data) and a count then means "at
+   * least"; the default counts. `domains` limits the look. The work profile's guards are built on it
+   * (`profile-data.ts`). Memory rejects: sync is unavailable in browser preview.
+   */
+  inspectSyncProfileData(options?: InspectProfileDataOptions): Promise<ProfileDataInspection>;
+  /**
    * Records what the sync engine has taken from one peer, in `sync_peers` (device-local; never
    * published). The per-domain bundle hashes are MERGED into the stored map (a domain that is not
    * named keeps its hash), the manifest is replaced, `syncedAt` replaces the contact time (`null` keeps the stored one), and the row is created on first
@@ -705,6 +717,8 @@ export interface AppRepository {
 }
 
 export type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+export type { ProfileDataInspection } from "../sync/profile-data";
+export type { InspectProfileDataOptions } from "../sync/profile-data-sql";
 export type {
   SyncIdentity,
   SyncIdentityResult,

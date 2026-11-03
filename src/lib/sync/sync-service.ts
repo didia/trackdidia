@@ -3,6 +3,8 @@ import { backupDestinationOverlap, isBackupDestinationConfigured } from "../back
 import { logDebug } from "../debug";
 import type { AppRepository, BackupResult } from "../storage/repository";
 import { type FolderOverlap, folderOverlap } from "./folder-paths";
+import { type DeviceProfile, WORK_PROFILE_SELECTABLE } from "./profile";
+import { describeForeignCounts, decideJoin, decideProfileChange } from "./profile-rules";
 import type { SyncFolderEnvironment, SyncFolderRole } from "./folder-api";
 import { SyncFolderError } from "./folder-api";
 import { getDeviceId } from "./device-id";
@@ -37,8 +39,14 @@ import {
 export type SyncSetupErrorCode =
   /** Browser preview (or the startup fallback): there is no persistent storage to sync. */
   | "unsupported_preview"
-  /** `syncProfile` is not `personal`: the work profile ships in a later release. */
+  /** `syncProfile` is not `personal` and the work profile is not selectable in this release. */
   | "unsupported_profile"
+  /**
+   * The work profile was refused because the database holds personal or finance rows (to join as
+   * `work`, or to change to it). `SyncSetupError.counts` says how many; the fix is a fresh database
+   * (spec "Work profile"), which the app never creates or deletes by itself.
+   */
+  | "work_profile_data_present"
   /** No backup destination: it is the personal folder and where the safety backup is written. */
   | "no_backup_destination"
   | "no_gtd_folder"
@@ -62,16 +70,23 @@ export class SyncSetupError extends Error {
   readonly code: SyncSetupErrorCode;
   /** Which folder the problem is about, when one is. */
   readonly role: SyncFolderRole | undefined;
+  /** `work_profile_data_present` only: the personal and finance rows that block the profile. */
+  readonly counts: { personal: number; finance: number } | undefined;
 
   constructor(
     code: SyncSetupErrorCode,
     message: string,
-    options?: { cause?: unknown; role?: SyncFolderRole },
+    options?: {
+      cause?: unknown;
+      role?: SyncFolderRole;
+      counts?: { personal: number; finance: number };
+    },
   ) {
     super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = "SyncSetupError";
     this.code = code;
     this.role = options?.role;
+    this.counts = options?.counts;
   }
 }
 
@@ -81,6 +96,11 @@ export interface SyncServiceDeps {
   getAppVersion: () => Promise<string>;
   /** Epoch milliseconds. */
   now: () => number;
+  /**
+   * Test seam: whether the `work` profile may be enabled and built. Absent, it is
+   * {@link WORK_PROFILE_SELECTABLE} (false in this release); no UI passes it.
+   */
+  workProfileSelectable?: boolean;
 }
 
 const appVersionOrUnknown = async (): Promise<string> => {
@@ -116,19 +136,27 @@ export const syncEnvironmentOf = async (
 
 export interface PreparedFolders {
   gtd: string;
-  personal: string;
+  /** `null` on a work device: it is never given the personal folder. */
+  personal: string | null;
 }
 
 /**
- * Validates and prepares both folders. Throws a {@link SyncSetupError}; nothing is written to a
+ * Validates and prepares the folders. Throws a {@link SyncSetupError}; nothing is written to a
  * folder whose settings are incomplete or overlapping.
+ *
+ * A `personal` device prepares both. A `work` device prepares the shared GTD folder only (spec "Work
+ * profile": the personal folder is not reachable from it): its backup folder, if it has one, is its
+ * own and is only passed to the host for the nesting check, never prepared as a sync folder.
  */
 export const prepareFolders = async (
   deps: SyncServiceDeps,
-  settings: Pick<AppSettings, "backupDestinationDir" | "syncGtdFolderDir">,
+  settings: Pick<AppSettings, "backupDestinationDir" | "syncGtdFolderDir"> &
+    Partial<Pick<AppSettings, "syncProfile">>,
   environment: SyncFolderEnvironment,
 ): Promise<PreparedFolders> => {
-  if (!isBackupDestinationConfigured(settings.backupDestinationDir)) {
+  const work = settings.syncProfile === "work";
+  const backupConfigured = isBackupDestinationConfigured(settings.backupDestinationDir);
+  if (!work && !backupConfigured) {
     throw new SyncSetupError(
       "no_backup_destination",
       "Choose the backup folder first: it is the personal sync folder and where the safety backup is written",
@@ -140,9 +168,9 @@ export const prepareFolders = async (
       role: "gtd",
     });
   }
-  const personalDir = settings.backupDestinationDir.trim();
+  const personalDir = backupConfigured ? settings.backupDestinationDir.trim() : null;
   const gtdDir = settings.syncGtdFolderDir.trim();
-  const overlap = folderOverlap(gtdDir, personalDir);
+  const overlap = personalDir === null ? null : folderOverlap(gtdDir, personalDir);
   if (overlap !== null) {
     throw new SyncSetupError(
       "folders_overlap",
@@ -151,7 +179,11 @@ export const prepareFolders = async (
     );
   }
 
-  const prepare = async (role: SyncFolderRole, folderDir: string, otherFolderDir: string) => {
+  const prepare = async (
+    role: SyncFolderRole,
+    folderDir: string,
+    otherFolderDir: string | undefined,
+  ) => {
     try {
       await deps.api.prepareSyncFolder({ folderDir, role, environment }, otherFolderDir);
     } catch (error) {
@@ -166,7 +198,8 @@ export const prepareFolders = async (
     }
   };
   // The shared folder first: it is the one that can leak the most if it is the wrong folder.
-  await prepare("gtd", gtdDir, personalDir);
+  await prepare("gtd", gtdDir, personalDir ?? undefined);
+  if (work || personalDir === null) return { gtd: gtdDir, personal: null };
   await prepare("personal", personalDir, gtdDir);
   return { gtd: gtdDir, personal: personalDir };
 };
@@ -205,10 +238,16 @@ export interface EnableSyncInput {
   yieldBetweenChunks?: () => Promise<void>;
 }
 
+/** Whether `profile` may be enabled or built here: `personal` always, `work` only through the seam. */
+const profileSupported = (profile: unknown, deps: SyncServiceDeps): profile is DeviceProfile =>
+  profile === "personal" ||
+  (profile === "work" && (deps.workProfileSelectable ?? WORK_PROFILE_SELECTABLE));
+
 /** Throws unless sync can run on this device with these settings (profile and storage). */
 export const assertSyncSupported = async (
   repository: AppRepository,
   settings: Pick<AppSettings, "syncProfile">,
+  deps: SyncServiceDeps = defaultSyncServiceDeps,
 ): Promise<SyncFolderEnvironment> => {
   const status = await repository.getSyncStatus();
   const environment = status.supported ? await syncEnvironmentOf(repository) : null;
@@ -218,13 +257,94 @@ export const assertSyncSupported = async (
       "Multi-device sync is unavailable in browser preview",
     );
   }
-  if (settings.syncProfile !== "personal") {
+  if (!profileSupported(settings.syncProfile, deps)) {
     throw new SyncSetupError(
       "unsupported_profile",
       `The "${String(settings.syncProfile)}" sync profile is not supported yet`,
     );
   }
   return environment;
+};
+
+/**
+ * Throws `work_profile_data_present` unless a database may be a work database: no personal or finance
+ * row (sidecar rows and personal settings included, seed rows not), looked at exactly so the error
+ * can say how many. This is what makes "joining as `work` on a non-empty personal database" and
+ * "changing a personal database to `work`" the same refusal. A `personal` profile always passes.
+ * Reads only: nothing is written, moved or deleted (the manual path is the user's).
+ */
+export const assertProfileFitsDatabase = async (
+  repository: AppRepository,
+  profile: DeviceProfile,
+): Promise<void> => {
+  if (profile !== "work") return;
+  const inspection = await repository.inspectSyncProfileData();
+  const decision = decideJoin({ profile, inspection });
+  if (decision.kind === "refused") {
+    throw new SyncSetupError(
+      "work_profile_data_present",
+      `This database holds personal data (${describeForeignCounts(decision.counts)}), so it cannot be a work laptop's database. Start the work laptop from a fresh database`,
+      { counts: decision.counts },
+    );
+  }
+};
+
+export interface ChangeSyncProfileInput {
+  repository: AppRepository;
+  settings: AppSettings;
+  to: DeviceProfile;
+  updateSettings: (updater: (current: AppSettings) => AppSettings) => Promise<AppSettings>;
+  deps?: SyncServiceDeps;
+}
+
+export interface ChangeSyncProfileResult {
+  /** `noop`: the profile was already `to`; `changed`: the setting was saved. */
+  outcome: "noop" | "changed";
+  /** What the person has to do next (`profile-rules.ts`): choose the personal folder, import... */
+  steps: readonly string[];
+}
+
+/**
+ * Changes this device's profile (spec "Work profile": "Profile changes are deliberate"), with the
+ * rules of `decideProfileChange`: the same profile is a no-op; `work` -> `personal` is allowed and
+ * reports the folder and import steps still to do; `personal` -> `work` is refused with the counts
+ * when the database holds personal or finance rows, and saves nothing. Nothing here deletes, moves or
+ * archives a database. No screen calls it yet, and `work` is refused as `unsupported_profile` unless
+ * the seam {@link SyncServiceDeps.workProfileSelectable} is set.
+ */
+export const changeSyncProfile = async (
+  input: ChangeSyncProfileInput,
+): Promise<ChangeSyncProfileResult> => {
+  const { repository, settings, to } = input;
+  const deps = input.deps ?? defaultSyncServiceDeps;
+  if (to !== "personal" && to !== "work") {
+    throw new SyncSetupError("unsupported_profile", `"${String(to)}" is not a sync profile`);
+  }
+  if (!profileSupported(to, deps)) {
+    throw new SyncSetupError(
+      "unsupported_profile",
+      `The "${to}" sync profile is not supported yet`,
+    );
+  }
+  const from: DeviceProfile = settings.syncProfile === "work" ? "work" : "personal";
+  // The inspection is only needed for a change TO work; a no-op or a change to personal reads nothing.
+  const inspection =
+    to === "work" && from !== "work" ? await repository.inspectSyncProfileData() : null;
+  const decision = decideProfileChange({
+    from,
+    to,
+    inspection: inspection ?? { counts: { gtd: 0, personal: 0, finance: 0 } },
+  });
+  if (decision.kind === "refused") {
+    throw new SyncSetupError(
+      "work_profile_data_present",
+      `This database holds personal data (${describeForeignCounts(decision.counts)}), so it cannot become a work laptop's database. Start the work laptop from a fresh database`,
+      { counts: decision.counts },
+    );
+  }
+  if (decision.kind === "noop") return { outcome: "noop", steps: [] };
+  await input.updateSettings((current) => ({ ...current, syncProfile: to }));
+  return { outcome: "changed", steps: decision.steps };
 };
 
 /**
@@ -238,7 +358,7 @@ export const assertSyncSupported = async (
 export const enableSync = async (input: EnableSyncInput): Promise<EnableSyncResult> => {
   const { repository, settings, updateSettings } = input;
   const deps = input.deps ?? defaultSyncServiceDeps;
-  const environment = await assertSyncSupported(repository, settings);
+  const environment = await assertSyncSupported(repository, settings, deps);
 
   let deviceName: string;
   try {
@@ -249,6 +369,9 @@ export const enableSync = async (input: EnableSyncInput): Promise<EnableSyncResu
   if (deviceName.length === 0) {
     throw new SyncSetupError("device_name_invalid", "Give this laptop a name");
   }
+  // A work device starts from a database with no personal or finance rows: refused before any
+  // folder is touched or any identity written (spec "Joining the second laptop").
+  await assertProfileFitsDatabase(repository, settings.syncProfile);
 
   input.onStep?.("folders");
   const folders = await prepareFolders(deps, settings, environment);
@@ -393,7 +516,8 @@ export const syncEngineKeyOf = (
 export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyncEngine> => {
   const { repository, settings } = input;
   const deps = input.deps ?? defaultSyncServiceDeps;
-  const environment = await assertSyncSupported(repository, settings);
+  const environment = await assertSyncSupported(repository, settings, deps);
+  const profile: DeviceProfile = settings.syncProfile === "work" ? "work" : "personal";
 
   let deviceId: string;
   try {
@@ -412,6 +536,16 @@ export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyn
     throw new SyncSetupError("device_name_invalid", messageOf(error), { cause: error });
   }
   const identity = await repository.ensureSyncIdentity({ deviceId, deviceName });
+  if (identity.repaired) {
+    // A database copied or restored from another laptop carried that laptop's id (spec "Cloned device
+    // identity"). This runs at every engine build, i.e. at startup, not only when sync is enabled: the
+    // device-id file wins and the data behaves as a normal second peer from here on.
+    logDebug(
+      "warn",
+      "sync.setup",
+      "L'identite de sync de cette base venait d'un autre ordinateur: reecrite au demarrage",
+    );
+  }
 
   // Backing up writes the whole database into the backup folder: if that is (or holds, or is in)
   // the shared GTD folder, nothing runs until the user fixes it.
@@ -424,6 +558,8 @@ export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyn
   }
 
   const transports: FolderTransport[] = [];
+  // A work device is given the shared GTD folder only: the backup folder is its own (never the
+  // personal folder) and must not become a personal-role transport (spec "Work profile", layer 1).
   if (isBackupDestinationConfigured(settings.syncGtdFolderDir)) {
     transports.push(
       createFolderTransport({
@@ -435,7 +571,7 @@ export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyn
       }),
     );
   }
-  if (isBackupDestinationConfigured(settings.backupDestinationDir)) {
+  if (profile === "personal" && isBackupDestinationConfigured(settings.backupDestinationDir)) {
     transports.push(
       createFolderTransport({
         role: "personal",
@@ -453,7 +589,7 @@ export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyn
   const engine = createSyncEngine({
     repo: repository,
     transports,
-    profile: "personal",
+    profile,
     now: deps.now,
     appVersion: await deps.getAppVersion(),
     calendarSyncEnabled: async () => (await repository.getCalendarSyncSettings()).enabled,

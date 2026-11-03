@@ -101,7 +101,10 @@ import {
   UNCATEGORIZED_CATEGORY_ID,
   type ClassificationOutcome,
 } from "../finance/classify";
-import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
+import {
+  DEFAULT_FINANCE_CATEGORIES,
+  SYSTEM_FINANCE_CATEGORIES,
+} from "../finance/default-categories";
 import {
   isSuggestionDismissed,
   type DismissedSuggestionPair,
@@ -122,45 +125,6 @@ import { planSplitSave, validateSplitTotal } from "../finance/splits";
 import { detectTransfers, type TransferCandidateTransaction } from "../finance/transfers";
 import { createEntityId, nowIso } from "../gtd/shared";
 
-const SYSTEM_CATEGORIES: FinanceCategory[] = [
-  {
-    id: "fincat:non-categorise",
-    name: "Non catégorisé",
-    parentId: null,
-    kind: "expense",
-    archived: false,
-    isSystem: true,
-    defersToNextMonth: false,
-    sortOrder: 0,
-    createdAt: "1970-01-01T00:00:00.000Z",
-    updatedAt: "1970-01-01T00:00:00.000Z",
-  },
-  {
-    id: "fincat:transfert",
-    name: "Transfert",
-    parentId: null,
-    kind: "transfer",
-    archived: false,
-    isSystem: true,
-    defersToNextMonth: false,
-    sortOrder: 1,
-    createdAt: "1970-01-01T00:00:00.000Z",
-    updatedAt: "1970-01-01T00:00:00.000Z",
-  },
-  {
-    id: "fincat:split",
-    name: "Répartition",
-    parentId: null,
-    kind: "internal",
-    archived: false,
-    isSystem: true,
-    defersToNextMonth: false,
-    sortOrder: 2,
-    createdAt: "1970-01-01T00:00:00.000Z",
-    updatedAt: "1970-01-01T00:00:00.000Z",
-  },
-];
-
 const memoryKey = (merchantKey: string, accountId: string, sign: -1 | 0 | 1): string =>
   `${merchantKey}\u0000${accountId}\u0000${sign}`;
 
@@ -168,7 +132,7 @@ export class FinanceMemoryStore {
   people = new Map<string, FinancePerson>();
   accounts = new Map<string, FinanceAccount>();
   categories = new Map<string, FinanceCategory>(
-    SYSTEM_CATEGORIES.map((category) => [category.id, category]),
+    SYSTEM_FINANCE_CATEGORIES.map((category) => [category.id, { ...category }]),
   );
   transactions = new Map<string, FinanceTransaction>();
   splits = new Map<string, FinanceTransactionSplit>();

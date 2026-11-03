@@ -196,6 +196,9 @@ import {
 } from "../sync/domain-counters";
 import { SyncApplyError } from "../sync/errors";
 import { readChangeSet } from "../sync/list-changes";
+import type { ProfileDataInspection } from "../sync/profile-data";
+import { type InspectProfileDataOptions, inspectProfileData } from "../sync/profile-data-sql";
+import { assertChangeSetAllowedForProfile, readStoredProfile } from "../sync/profile-guard";
 import { SYNC_DOMAINS, type SyncDomain } from "../sync/registry";
 import {
   assertValidDeviceId,
@@ -3554,6 +3557,10 @@ export class TauriSqliteRepository implements AppRepository {
     // One transaction, internal helpers only: re-entering the writer queue from inside it would
     // deadlock. Any error rolls back every row, meta, snapshot, conflict and the `applying` flag.
     return this.writeTransaction(async (tx) => {
+      // Layer 3 of the work-profile isolation: the PERSISTED profile (never a parameter of the call)
+      // decides what may be applied here, whatever the engine passed in. Refused before anything is
+      // read or written.
+      assertChangeSetAllowedForProfile(prepared, await readStoredProfile(transactionDb(tx)));
       // Checked inside the transaction, against the stored state: a peer's rows must not be merged
       // while some local entities still lack the clocks and snapshots the merge compares against.
       await assertBackfillComplete(transactionDb(tx));
@@ -3563,6 +3570,13 @@ export class TauriSqliteRepository implements AppRepository {
         republish: options.republish === true,
       });
     });
+  }
+
+  async inspectSyncProfileData(
+    options: InspectProfileDataOptions = {},
+  ): Promise<ProfileDataInspection> {
+    // A writer slot, like the other sync reads: no transaction is half-way through while it counts.
+    return this.writeQueue.run(async () => inspectProfileData(await this.getDb(), options));
   }
 
   async recordSyncPeerApplied(input: SyncPeerAppliedInput): Promise<void> {

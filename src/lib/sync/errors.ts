@@ -43,8 +43,14 @@ export class SyncChangeSetError extends Error {
 export type SyncApplyErrorCode =
   /** The domain passed to the call differs from the one in the change set. */
   | "domain_mismatch"
-  /** The device profile does not allow this domain (`assertDomainAllowed`). */
+  /**
+   * The device profile does not allow this domain, or the change set carries a table, alias or
+   * setting of a domain the profile may not hold (`assertDomainAllowed`,
+   * `assertChangeSetAllowedForProfile`).
+   */
   | "domain_not_allowed"
+  /** The stored device profile is neither `personal` nor `work`: nothing is applied or read. */
+  | "profile_unknown"
   /** A table whose merge class this build cannot merge yet. The whole bundle is refused. */
   | "unsupported_merge_class"
   /** Change capture is not installed, so local edits could not be told apart from remote ones. */
