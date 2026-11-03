@@ -53,6 +53,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
   useEffect(() => {
     let cancelled = false;
     let settled = false;
+    let bootstrapSucceeded = false;
     let knownProfile: AppSettings["syncProfile"] | undefined;
     // The 8-second rule and the moment bootstrap is over, for the sync pull that may outlive its wait.
     const deadlineAtMs = Date.now() + BOOTSTRAP_TIMEOUT_MS;
@@ -81,7 +82,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
         syncProfile: knownProfile ?? "work",
       }));
 
-      if (!cancelled) {
+      if (!cancelled && !bootstrapSucceeded) {
         setRepository(fallbackRepository);
         setSettings(fallbackSettings);
         setStartupError(message);
@@ -120,7 +121,8 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
           },
         });
 
-        if (settled || cancelled) return;
+        if (cancelled) return;
+        bootstrapSucceeded = true;
         settled = true;
         if (!cancelled) {
           setStartupSync(started);

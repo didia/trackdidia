@@ -97,6 +97,36 @@ describe("useBootstrap", () => {
     expect(result.current.startupError).toContain("Création du repository");
   });
 
+  it("replaces the timeout fallback when repository startup later succeeds", async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.updateSettings((current) => ({ ...current, syncProfile: "personal" }));
+    let resolveRepository!: (repository: MemoryRepository) => void;
+    factory.createRepository.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRepository = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useBootstrap());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BOOTSTRAP_TIMEOUT_MS + 1);
+    });
+    expect(result.current.repository).not.toBe(repository);
+    expect(result.current.settings.syncProfile).toBe("work");
+    expect(result.current.startupError).not.toBeNull();
+
+    await act(async () => {
+      resolveRepository(repository);
+    });
+    expect(result.current.repository).toBe(repository);
+    expect(result.current.settings.syncProfile).toBe("personal");
+    expect(result.current.settings.gtdReferencesMigrationDoneAt).not.toBe("");
+    expect(result.current.startupError).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
   describe("multi-device sync at startup", () => {
     const repositoryWithSync = async () => {
       const repository = new MemoryRepository();
