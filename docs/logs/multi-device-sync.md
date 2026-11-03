@@ -1,3 +1,7 @@
+# 2026-11-02 — Work-profile shell and startup gates
+
+The stored work profile now restricts routes and Settings and skips personal and finance startup and runtime jobs, while retaining GTD and Pomodoro. Profile selection and guided join remain unavailable.
+
 # Multi-device sync log
 
 Back to [Documentation Log](../log.md). Canonical page:

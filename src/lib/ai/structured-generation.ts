@@ -35,6 +35,7 @@ export const sourceFromStatus = (
 
 interface StructuredSurfaceOptions<T> {
   repository: AppRepository;
+  ensureAuthorized?: () => Promise<void>;
   provider: AiProvider;
   settings: AppSettings;
   surface: AiSurface;
@@ -106,6 +107,7 @@ export async function runStructuredSurface<T>(
               : null;
           })();
       if (cached) {
+        await options.ensureAuthorized?.();
         await options.finalize?.();
         return { message, ...cached, source: "cache" };
       }
@@ -136,7 +138,9 @@ export async function runStructuredSurface<T>(
   });
   const persist = async (message: AiMessage, response: T): Promise<PersistedSurfaceResult<T>> => {
     const proposals = options.buildProposals?.(message.id, response, message.createdAt) ?? [];
+    await options.ensureAuthorized?.();
     const saved = await repository.saveCoachPulseEpisode(message, proposals);
+    await options.ensureAuthorized?.();
     await options.finalize?.();
     return {
       message: saved.message,
@@ -153,12 +157,14 @@ export async function runStructuredSurface<T>(
   }
 
   try {
+    await options.ensureAuthorized?.();
     const first = await provider.generateStructured(request());
     let parsed = parse(first.text);
     let finalText = first.text;
     let usage = first.usage;
     let model = first.model;
     if (!parsed.ok) {
+      await options.ensureAuthorized?.();
       const repair = await provider.generateStructured(request(parsed.error));
       parsed = parse(repair.text);
       finalText = repair.text;
@@ -200,6 +206,7 @@ export async function runStructuredSurface<T>(
       parsed.value,
     );
   } catch (error) {
+    await options.ensureAuthorized?.();
     const warning =
       error instanceof Error ? error.message : t("aiGenerationFailed", { ns: "common" });
     if (options.persistFallback === false)

@@ -26,6 +26,7 @@ const wrapRepository = (repository: MemoryRepository) => {
   const value: AppContextValue = {
     repository,
     settings: defaultAppSettings(),
+    deviceProfile: "personal",
     updateSettings: (updater) => repository.updateSettings(updater),
     coachService: new CoachPulseService(new FakeProvider()),
     browserPreview: true,

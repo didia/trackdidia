@@ -42,6 +42,7 @@ export interface CoachPulseRequest {
   deltaClass?: AiDeltaClass | null;
   /** Local hour for steer/wind_down scope keys (`YYYY-MM-DD#13`). */
   slotHour?: number;
+  ensureAuthorized?: () => Promise<void>;
 }
 
 export interface CommitmentResolutionPayload {
@@ -223,11 +224,13 @@ export class CoachPulseService {
       localOnly = false,
       deltaClass = null,
       slotHour,
+      ensureAuthorized,
     } = request;
     const snapshot = buildDailySnapshot(snapshotInputs, settings.aiPayloadScope);
     const scopeKey = buildScopeKey(entry.date, stance, slotHour);
     const createdAt = nowIso();
 
+    await ensureAuthorized?.();
     await runMemoryLifecycle(repository, entry.date, snapshotInputs.historyEntries, createdAt);
     const activeMemories = await repository.listAiMemories({
       status: "active",
@@ -276,6 +279,7 @@ export class CoachPulseService {
       !localOnly && aiConfigured && (trigger === "explicit" || autoMayCallProvider);
     const result = await runStructuredSurface({
       repository,
+      ensureAuthorized,
       provider: this.provider,
       settings,
       surface: "coach_pulse",

@@ -17,7 +17,8 @@ import { SyncErrorMessage } from "../sync/SyncErrorMessage";
  */
 export const MultiDeviceSyncSection = () => {
   const { t } = useTranslation("sync");
-  const { settings, updateSettings, debugEnabled, browserPreview, sync } = useAppContext();
+  const { settings, updateSettings, debugEnabled, browserPreview, sync, deviceProfile } =
+    useAppContext();
   const [nameDraft, setNameDraft] = useState(settings.syncDeviceName);
   const [message, setMessage] = useState("");
   const [choosing, setChoosing] = useState(false);
@@ -103,7 +104,7 @@ export const MultiDeviceSyncSection = () => {
       <div className="banner banner--danger" role="note">
         {t("card.experimental")}
       </div>
-      <p>{t("card.scope")}</p>
+      <p>{t(deviceProfile === "work" ? "card.workScope" : "card.scope")}</p>
       <p>{t("card.automatic")}</p>
       <p>{t("card.enableWarning")}</p>
 
@@ -134,15 +135,17 @@ export const MultiDeviceSyncSection = () => {
           {t("card.deviceNameHelp")}
         </p>
 
-        <label>
-          <span>{t("card.personalFolder")}</span>
-          <input
-            type="text"
-            readOnly
-            value={isBackupDestinationConfigured(personalDir) ? personalDir : ""}
-            placeholder={t("card.personalFolderUnset")}
-          />
-        </label>
+        {deviceProfile === "personal" && (
+          <label>
+            <span>{t("card.personalFolder")}</span>
+            <input
+              type="text"
+              readOnly
+              value={isBackupDestinationConfigured(personalDir) ? personalDir : ""}
+              placeholder={t("card.personalFolderUnset")}
+            />
+          </label>
+        )}
 
         <label>
           <span>{t("card.gtdFolder")}</span>

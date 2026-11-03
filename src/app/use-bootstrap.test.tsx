@@ -57,6 +57,7 @@ describe("useBootstrap", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.repository).toBeInstanceOf(MemoryRepository);
     expect(result.current.startupError).toBe("sqlite exploded");
+    expect(result.current.settings.syncProfile).toBe("work");
   });
 
   it("activates the fallback when a step of bootstrapApplication throws", async () => {
@@ -71,6 +72,8 @@ describe("useBootstrap", () => {
     expect(result.current.repository).toBeInstanceOf(MemoryRepository);
     expect(result.current.repository).not.toBe(repository);
     expect(result.current.startupError).toBe("step failed");
+    expect(result.current.settings.syncProfile).toBe("personal");
+    expect((await result.current.repository!.getSettings()).syncProfile).toBe("personal");
   });
 
   it("activates the fallback after the eight-second timeout and names the stage", async () => {

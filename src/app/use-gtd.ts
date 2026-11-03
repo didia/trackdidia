@@ -37,7 +37,9 @@ export const useGtdWorkspace = () => {
         await repository.reconcileDay(getTodayDate());
       }
       // Relationship tasks are generated separately from day reconciliation.
-      await repository.generateDailyRelationshipTasks(getTodayDate());
+      if ((await repository.getSettings()).syncProfile === "personal") {
+        await repository.generateDailyRelationshipTasks(getTodayDate());
+      }
       const nextTasks = await repository.listTasks({ includeCompleted: false });
       const [nextProjects, nextContexts, nextEvents] = await Promise.all([
         repository.listProjects(),

@@ -92,6 +92,7 @@ const MountedGtdView = ({
     () => ({
       repository,
       settings: defaultAppSettings(),
+      deviceProfile: "personal",
       updateSettings: (updater) => repository.updateSettings(updater),
       coachService: new CoachPulseService(new FakeProvider()),
       browserPreview: true,
@@ -364,6 +365,41 @@ describe("useLocalDayReconciliation", () => {
 
       expect(notifyCompletion).toHaveBeenCalledTimes(1);
       expect(await repository.listNotifiedFinanceAlertKeys("2026-09-07")).toHaveLength(1);
+    });
+
+    it("drops an alert pass suspended across a switch to work", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(2026, 8, 7, 12));
+      notifyCompletion.mockClear();
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      const account = await seedAccount(repository);
+      await exhaustEnvelope(repository, account.id);
+      let release!: () => void;
+      let entered!: () => void;
+      const blocked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      const original = repository.listFinanceCategories.bind(repository);
+      vi.spyOn(repository, "listFinanceCategories").mockImplementation(async (...args) => {
+        entered();
+        await blocked;
+        return original(...args);
+      });
+      render(<MountedGtdView repository={repository} financeEnabled financeNotifyRunout />);
+      await act(async () => {
+        await started;
+      });
+      await repository.updateSettings((current) => ({ ...current, syncProfile: "work" }));
+      await act(async () => {
+        release();
+        await flushEffects();
+      });
+      expect(notifyCompletion).not.toHaveBeenCalled();
+      expect(await repository.listNotifiedFinanceAlertKeys("2026-09-07")).toEqual([]);
     });
 
     it("re-evaluates on a later same-day resume and notifies an alert that appeared meanwhile", async () => {

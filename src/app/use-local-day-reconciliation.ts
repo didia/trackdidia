@@ -52,11 +52,27 @@ export const useLocalDayReconciliation = (
     let cancelled = false;
     let timeoutId: number | undefined;
 
+    const financeAuthorized = async (candidate: AppRepository) =>
+      !cancelled &&
+      financeEnabledRef.current &&
+      financeNotifyRunoutRef.current &&
+      (await candidate.getSettings()).syncProfile === "personal" &&
+      !cancelled &&
+      financeEnabledRef.current &&
+      financeNotifyRunoutRef.current;
+
     const snapshotFinance = async (candidate: AppRepository | null, today: string) => {
       if (!candidate || !financeEnabledRef.current) {
         return;
       }
       try {
+        if (
+          cancelled ||
+          (await candidate.getSettings()).syncProfile !== "personal" ||
+          cancelled ||
+          !financeEnabledRef.current
+        )
+          return;
         const count = await candidate.snapshotFinanceAccountBalances(today);
         logDebug("info", "app.localDay", "Snapshot des soldes finance effectue", { count });
       } catch {
@@ -68,8 +84,11 @@ export const useLocalDayReconciliation = (
 
     const notifyFinanceAlerts = async (candidate: AppRepository, today: string) => {
       try {
+        if (!(await financeAuthorized(candidate))) return;
         const { alerts } = await candidate.computeFinanceForecast(today);
+        if (!(await financeAuthorized(candidate))) return;
         const alreadyNotifiedKeysToday = await candidate.listNotifiedFinanceAlertKeys(today);
+        if (!(await financeAuthorized(candidate))) return;
         const decisions = evaluateFinanceAlertNotifications({
           settings: { financeNotifyRunout: financeNotifyRunoutRef.current },
           alerts,
@@ -77,12 +96,14 @@ export const useLocalDayReconciliation = (
         });
 
         const categories = decisions.length > 0 ? await candidate.listFinanceCategories(true) : [];
+        if (!(await financeAuthorized(candidate))) return;
         const categoryNameById = new Map(
           categories.map((category) => [category.id, category.name]),
         );
         let notifiedCount = 0;
 
         for (const { alert } of decisions) {
+          if (!(await financeAuthorized(candidate))) return;
           const title =
             alert.kind === "cash_runout"
               ? t("financeCashRunoutTitle", { ns: "notifications" })
@@ -98,7 +119,7 @@ export const useLocalDayReconciliation = (
                 });
 
           const notified = await notifyPomodoroCompletion(title, body);
-          if (notified) {
+          if (notified && (await financeAuthorized(candidate))) {
             // Recorded right after delivery so a later failure cannot make a retry re-notify.
             await candidate.recordFinanceAlertNotifications(today, [alert.key]);
             notifiedCount += 1;

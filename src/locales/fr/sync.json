@@ -3,6 +3,7 @@
     "title": "Synchronisation multi-ordinateurs (expérimental)",
     "subtitle": "Garde deux ordinateurs personnels à jour l'un de l'autre à travers des dossiers Google Drive. Fonction expérimentale, visible uniquement en mode debug.",
     "experimental": "Expérimental : la première synchronisation fait d'abord une sauvegarde de cette base, et il n'existe aucune interface de restauration. Ne l'active qu'après avoir vérifié ta sauvegarde.",
+    "workScope": "Profil travail : seules les tâches GTD et les sessions Pomodoro sont synchronisées dans le dossier GTD partagé. Les sauvegardes restent propres à cet ordinateur.",
     "scope": "Profil personnel : tout est synchronisé (tâches GTD, journal, objectifs, finances, réglages partagés). Le dossier GTD est partagé ; le dossier personnel est le dossier de sauvegarde choisi plus haut. Les secrets (clé OpenRouter, clé RescueTime, jeton LLM) et les réglages propres à cet ordinateur ne sont jamais synchronisés.",
     "automatic": "Une fois activée, la synchronisation s'exécute toute seule : au démarrage (avant la génération des récurrences du jour), quand la fenêtre reprend le focus (au plus une fois par minute), toutes les heures, et elle publie tes changements environ deux minutes après le premier, quand la fenêtre perd le focus et à la fermeture. « Synchroniser maintenant » sur la page Synchronisation force une synchronisation à tout moment.",
     "browserPreview": "Indisponible en mode aperçu navigateur : la synchronisation exige l'application de bureau et son stockage persistant.",

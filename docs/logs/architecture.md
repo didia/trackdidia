@@ -1,3 +1,7 @@
+# 2026-11-02 — Work profile routes
+
+Documented the restricted work route set and profile-dependent finance registration.
+
 # Architecture log
 
 Back to [Documentation Log](../log.md). Canonical page:

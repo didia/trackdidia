@@ -107,6 +107,8 @@ React page
 
 ## Route catalog
 
+The stored work profile restricts the route set and Settings independently of the sync gate; see [Work shell and jobs](multi-device-sync.md#work-profile-guards-and-shell). Its index opens Next Actions and unknown routes redirect there.
+
 All routes render under `AppShell`, which supplies the sidebar, daily quote, and
 floating Pomodoro timer. The sidebar's nav list is normally static, but a nav
 entry can carry a `flag` naming an `AppSettings` boolean; `AppShell` reads
@@ -148,7 +150,7 @@ listed only when `isSyncPageEnabled(debugEnabled, settings)` (debug mode AND
 | `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import, calendar sync, experimental multi-device sync card (debug mode only) |
 | `/waiting-someday` | Redirect | Legacy alias redirected to `/waiting-for` |
 
-`/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
+`/finances/*` is registered for the personal profile in `App.tsx` (a `FinanceRoutes` element reads
 `settings.financeEnabled` and renders `<Navigate to="/" replace />` instead of
 its child routes while the flag is off), so a stale bookmark or deep link never
 404s — it just lands on Today. Every finance screen that exists ships a tab in

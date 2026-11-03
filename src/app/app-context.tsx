@@ -42,6 +42,7 @@ import { usePulseScheduler } from "./use-pulse-scheduler";
 export interface AppContextValue {
   repository: AppRepository;
   settings: AppSettings;
+  deviceProfile: AppSettings["syncProfile"];
   updateSettings: (updater: SettingsUpdater) => Promise<AppSettings>;
   coachService: CoachPulseService;
   browserPreview: boolean;
@@ -85,8 +86,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   settingsRef.current = settings;
   const calendarDay = useLocalDayReconciliation(
     repository,
-    settings.financeEnabled,
-    settings.financeNotifyRunout,
+    settings.syncProfile === "personal" && settings.financeEnabled,
+    settings.syncProfile === "personal" && settings.financeNotifyRunout,
   );
   const pomodoro = usePomodoroController(repository, calendarDay, syncRevision);
   const pomodoroRef = useRef(pomodoro);
@@ -183,11 +184,16 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     });
   }, []);
 
-  const pulseRevision = usePulseScheduler(repository, coachService, getFocusSessionActive, {
-    getSettings,
-    updateSettings,
-    enqueueStartupWork,
-  });
+  const pulseRevision = usePulseScheduler(
+    settings.syncProfile === "personal" ? repository : null,
+    coachService,
+    getFocusSessionActive,
+    {
+      getSettings,
+      updateSettings,
+      enqueueStartupWork,
+    },
+  );
   useAutoBackupScheduler(repository, getSettings, publishSettings, {
     enqueueStartupWork,
     // Only a session with automatic sync has anything to take turns with; otherwise the backup runs
@@ -207,6 +213,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         ? {
             repository,
             settings,
+            deviceProfile: settings.syncProfile,
             updateSettings,
             coachService,
             browserPreview,

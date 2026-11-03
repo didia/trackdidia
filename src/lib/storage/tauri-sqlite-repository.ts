@@ -413,7 +413,9 @@ export class TauriSqliteRepository implements AppRepository {
       await this.loadSyncCaptureState(db);
 
       logDebug("info", "storage.sqlite", "SQLite pret");
-      await this.relocateDimancheNotesOnce();
+      if ((await this.getSettings()).syncProfile === "personal") {
+        await this.relocateDimancheNotesOnce();
+      }
     } catch (error) {
       logDebug("error", "storage.sqlite", "Echec initialisation SQLite", error);
       throw new Error(`SQLite init failed: ${formatUnknownError(error)}`);

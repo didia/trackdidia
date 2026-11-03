@@ -53,6 +53,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
   useEffect(() => {
     let cancelled = false;
     let settled = false;
+    let knownProfile: AppSettings["syncProfile"] | undefined;
     // The 8-second rule and the moment bootstrap is over, for the sync pull that may outlive its wait.
     const deadlineAtMs = Date.now() + BOOTSTRAP_TIMEOUT_MS;
     let releaseBootstrapSettled: () => void = () => undefined;
@@ -75,10 +76,14 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
       releaseBootstrapSettled();
       const fallbackRepository = new MemoryRepository();
       await fallbackRepository.initialize();
+      const fallbackSettings = await fallbackRepository.updateSettings((current) => ({
+        ...current,
+        syncProfile: knownProfile ?? "work",
+      }));
 
       if (!cancelled) {
         setRepository(fallbackRepository);
-        setSettings(defaultAppSettings());
+        setSettings(fallbackSettings);
         setStartupError(message);
         setLoading(false);
         logDebug(
@@ -97,6 +102,9 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
         let started: StartupSync | null = null;
         const nextSettings = await bootstrapApplication(nextRepository, {
           onStage: markStage,
+          onSettingsLoaded: (loaded) => {
+            knownProfile = loaded.syncProfile;
+          },
           // Sync off or the debug gate closed: the step does not exist (no stage, no call).
           isSyncPullEnabled: (current) => isSyncAutomationEnabled(getDebugEnabled(), current),
           pullBeforeGenerators: async (current) => {
@@ -112,6 +120,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
           },
         });
 
+        if (settled || cancelled) return;
         settled = true;
         if (!cancelled) {
           setStartupSync(started);
