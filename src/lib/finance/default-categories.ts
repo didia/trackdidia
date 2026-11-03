@@ -4,7 +4,7 @@
 // (Uncategorized/Transfer/Split), which are inserted by migration 37 itself
 // because engine code hard-references their ids.
 
-import type { FinanceCategoryKind } from "../../domain/finance";
+import type { FinanceCategory, FinanceCategoryKind } from "../../domain/finance";
 
 export interface DefaultFinanceCategorySeed {
   id: string;
@@ -155,3 +155,57 @@ export const DEFAULT_FINANCE_CATEGORIES: DefaultFinanceCategorySeed[] = [
     sortOrder: 1,
   },
 ];
+
+/**
+ * The three system categories, as migration 37 inserts them (its SQL is the original; this is the
+ * one TypeScript copy, used by the in-memory store and by the sync work-profile guards, and
+ * `sync-profile-data.test.ts` fails if a migrated database differs from it).
+ */
+export const SYSTEM_FINANCE_CATEGORIES: readonly FinanceCategory[] = [
+  {
+    id: "fincat:non-categorise",
+    name: "Non catégorisé",
+    parentId: null,
+    kind: "expense",
+    archived: false,
+    isSystem: true,
+    defersToNextMonth: false,
+    sortOrder: 0,
+    createdAt: "1970-01-01T00:00:00.000Z",
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "fincat:transfert",
+    name: "Transfert",
+    parentId: null,
+    kind: "transfer",
+    archived: false,
+    isSystem: true,
+    defersToNextMonth: false,
+    sortOrder: 1,
+    createdAt: "1970-01-01T00:00:00.000Z",
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  },
+  {
+    id: "fincat:split",
+    name: "Répartition",
+    parentId: null,
+    kind: "internal",
+    archived: false,
+    isSystem: true,
+    defersToNextMonth: false,
+    sortOrder: 2,
+    createdAt: "1970-01-01T00:00:00.000Z",
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  },
+];
+
+/** What `seedDefaultCategories` stores for a taxonomy entry (flags off), timestamps aside. */
+export const defaultSeedAsCategory = (seed: DefaultFinanceCategorySeed): FinanceCategory => ({
+  ...seed,
+  archived: false,
+  isSystem: false,
+  defersToNextMonth: false,
+  createdAt: "",
+  updatedAt: "",
+});

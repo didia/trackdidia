@@ -332,7 +332,11 @@ that exist in code:
 the **sidecar rows** that describe such an entity (`sync_entity_meta` clocks and tombstones, `sync_entity_snapshot` copies,
 `sync_id_aliases`, `sync_conflicts`, `sync_dirty` marks; routed by `entity_type`, so they are found even when the table row is
 gone) and the personal or finance settings that differ from their defaults. A fresh database passes: the three seeded finance
-categories (and the default taxonomy), their clocks and snapshots, and the markers the app writes itself are whitelisted.
+categories (and the default taxonomy), their clocks and snapshots, and the markers the app writes itself are whitelisted. A
+seeded category is whitelisted only **while it is still exactly the shipped seed**: rename "Pharmacie" to a medication (or change
+its parent, kind, archive state, flags or order) and it is finance data, so a database that holds it can neither become nor join as
+a work database, and a work device that holds it pauses; deleting a seeded category counts too, and so do the conflicts and
+aliases about one ([details](storage-and-backups.md#work-profile-guards-in-the-repository)).
 
 **Profile-change rules** (pure, `profile-rules.ts`, called by `changeSyncProfile` and `enableSync`; no screen calls them yet):
 

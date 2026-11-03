@@ -1582,11 +1582,23 @@ excluded, read-only, inside a writer slot. It counts (`profile-data.ts` decides,
   `entity_type` column. A `setting` entity is routed by its key's scope; an entity type this build does not know counts as
   `personal`;
 - the `personal` and `finance` settings that differ from their defaults (device and `gtd` settings never count).
-Seed rows are not data: the three system finance categories (migration 37) and the default taxonomy
-(`seedFinanceDefaultCategories`), by id, in the table AND in their meta and snapshot rows (the capture backfill stamps
-them), and the settings the app writes itself on every database (`APP_MANAGED_SETTING_KEYS`:
-`dimancheNotesRelocatedAt`, `aiMaxTokensUpgradeDoneAt`, `financeCategoriesSeededAt`, and the two relationship-draw
-processed dates). There are no seeded GTD rows in this build: any task, project or context, the ones the relationship-draw
+Seed rows are not data, but only while they are still the seed: the three system finance categories (migration 37) and the
+default taxonomy (`seedFinanceDefaultCategories`) are exempt **only while the stored row equals the shipped definition** in
+every user-editable column (name, parent, kind, archived, system and defers-to-next-month flags, sort order). A rename (say
+"Pharmacie" to a medication), a re-parent, a re-kind, an archive, a flag or a sort-order change makes that row finance data; so
+does a deleted seed (its tombstone counts). Only `created_at` and `updated_at` are ignored: seeding stamps the time it ran and
+every save rewrites `updated_at`, so they carry no content, and no migration or startup step rewrites a seeded row. The
+definition is `SYSTEM_FINANCE_CATEGORIES` and `DEFAULT_FINANCE_CATEGORIES` in `finance/default-categories.ts` (the in-memory store
+uses the same system list; a test fails if a migrated database or the real seeding differs from them). The SQL compares each
+category to the shipped values through a `VALUES` table of the ~55 seeds: no scan of other tables, and the cheap `LIMIT 1` probe
+and the exact count run the same predicate, so a modified seed flips both. The meta, snapshot and dirty-mark rows of a seeded
+category (the capture backfill stamps them) are exempt only while its live row is unmodified AND they retain no value (a
+tombstone's `deleted_row_json`, a snapshot's `snapshot_json`, a delete mark's `old_row`; `finance_categories` merges as whole
+rows, so none is written for it, and a value that is there is not provably the seed); once the row is modified, deleted or
+missing, they count. `sync_conflicts` and `sync_id_aliases` rows of a seeded category always count (a conflict keeps both versions
+of an edited value, even after the row was edited back). The settings the app writes itself on every database are not counted
+either (`APP_MANAGED_SETTING_KEYS`: `dimancheNotesRelocatedAt`, `aiMaxTokensUpgradeDoneAt`, `financeCategoriesSeededAt`, and the
+two relationship-draw processed dates); `financeEnabled` is not among them, so a database that ever enabled finance counts. There are no seeded GTD rows in this build: any task, project or context, the ones the relationship-draw
 generator creates on a first start included, is data (`isVerifiedEmptyDatabase`).
 `exact: false` (the startup check) stops at the first row of each source: 45 statements (the exact look of all three domains is 59,
 counting ones), each a `LIMIT 1` probe of a table or a primary-key prefix probe of a sidecar per domain. The statement count does not

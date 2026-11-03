@@ -1,8 +1,11 @@
 import { defaultAppSettings } from "../../domain/settings";
 import type { AppSettings } from "../../domain/types/settings";
-import { DEFAULT_FINANCE_CATEGORIES } from "../finance/default-categories";
-import { SPLIT_CATEGORY_ID, UNCATEGORIZED_AFTER_SPLITS_ID } from "../finance/splits";
-import { TRANSFER_CATEGORY_ID } from "../finance/transfers";
+import type { FinanceCategory } from "../../domain/finance";
+import {
+  DEFAULT_FINANCE_CATEGORIES,
+  defaultSeedAsCategory,
+  SYSTEM_FINANCE_CATEGORIES,
+} from "../finance/default-categories";
 import { canonicalJson } from "./field-clocks";
 import {
   DEVICE_DOMAIN,
@@ -39,7 +42,9 @@ import {
  * Seed rows are not data. A database that never held anything of the user's has the three finance
  * system categories (migration 37) and, once finance was enabled, the default category taxonomy; the
  * capture backfill gives each of them a clock and a snapshot, and the app stamps a few one-time
- * markers into the settings row by itself. None of that makes a database "personal".
+ * markers into the settings row by itself. None of that makes a database "personal" - as long as the
+ * seed is still the seed: a seeded category the user edited (or deleted) is user data, see
+ * {@link SEEDED_FINANCE_CATEGORIES}.
  */
 
 /** Rows per domain, seed rows excluded. */
@@ -59,15 +64,25 @@ export const FOREIGN_TO_WORK_DOMAINS = [
 
 /**
  * The finance categories every database can hold without the user having done anything: the three
- * system categories the migrations insert (their ids are hard-referenced by the engine) and the
- * default taxonomy `seedFinanceDefaultCategories` inserts. Matched by id.
+ * system categories migration 37 inserts (their ids are hard-referenced by the engine) and the default
+ * taxonomy `seedFinanceDefaultCategories` inserts, both from `finance/default-categories.ts`.
+ *
+ * A seeded category is NOT data only while its stored content is the shipped content: the seed
+ * definition's every user-editable column (name, parent, kind, archived, system and
+ * defers-to-next-month flags, sort order) must be unchanged. Matching the id alone would let a
+ * renamed category ("Pharmacie" -> a medication) through, since an edit never changes the id. Only
+ * `created_at` and `updated_at` are left out: seeding stamps them with the time it ran, and every
+ * save of the category (even one that changes nothing) rewrites `updated_at`, so they say when, not
+ * what; no migration or startup step rewrites a seeded row. Nothing else of the row is excluded.
  */
-export const SEEDED_FINANCE_CATEGORY_IDS: readonly string[] = [
-  UNCATEGORIZED_AFTER_SPLITS_ID,
-  TRANSFER_CATEGORY_ID,
-  SPLIT_CATEGORY_ID,
-  ...DEFAULT_FINANCE_CATEGORIES.map((category) => category.id),
+export const SEEDED_FINANCE_CATEGORIES: readonly FinanceCategory[] = [
+  ...SYSTEM_FINANCE_CATEGORIES,
+  ...DEFAULT_FINANCE_CATEGORIES.map(defaultSeedAsCategory),
 ];
+
+export const SEEDED_FINANCE_CATEGORY_IDS: readonly string[] = SEEDED_FINANCE_CATEGORIES.map(
+  (category) => category.id,
+);
 
 /**
  * Settings the application writes itself, once, on every database (the startup normalizations and the
@@ -88,19 +103,35 @@ const MANAGED_SETTINGS: ReadonlySet<string> = new Set(APP_MANAGED_SETTING_KEYS);
 /**
  * The tables whose rows are routed by an `entity_type` column, with the column that names the row's
  * entity. `profile-data.test.ts` fails when the migrated schema has another table with an
- * `entity_type` column. `seedExempt`: the unmodified-seed rule applies (state about an entity, as
- * opposed to a log of something that happened to it).
+ * `entity_type` column.
+ *
+ * `seedExemptWhenNoValues`: the SQL condition "this row retains no value of the entity" that, together
+ * with a live seeded category that is still unmodified, exempts the row of a seeded finance category
+ * (state about an unmodified seed; nothing of the user's). A row that retains a value (a snapshot, a
+ * tombstone's deleted values, a delete mark's old row) or describes a deleted category is counted:
+ * `finance_categories` merges as whole rows, so none of those is ever written for it in this build, and
+ * a value that is there anyway is not provably the shipped seed. Aliases and conflicts have no such
+ * condition and are always counted: a conflict holds both versions of an edited value, so it can keep
+ * what a rename was even after the row was changed back.
  */
 export const ENTITY_TYPED_SIDECARS: readonly {
   table: string;
   idColumn: string;
-  seedExempt: boolean;
+  seedExemptWhenNoValues: string | null;
 }[] = [
-  { table: "sync_entity_meta", idColumn: "entity_id", seedExempt: true },
-  { table: "sync_entity_snapshot", idColumn: "entity_id", seedExempt: true },
-  { table: "sync_dirty", idColumn: "entity_id", seedExempt: true },
-  { table: "sync_id_aliases", idColumn: "alias_id", seedExempt: false },
-  { table: "sync_conflicts", idColumn: "entity_id", seedExempt: false },
+  {
+    table: "sync_entity_meta",
+    idColumn: "entity_id",
+    seedExemptWhenNoValues: "deleted_at IS NULL AND deleted_row_json IS NULL",
+  },
+  {
+    table: "sync_entity_snapshot",
+    idColumn: "entity_id",
+    seedExemptWhenNoValues: "snapshot_json IS NULL",
+  },
+  { table: "sync_dirty", idColumn: "entity_id", seedExemptWhenNoValues: "old_row IS NULL" },
+  { table: "sync_id_aliases", idColumn: "alias_id", seedExemptWhenNoValues: null },
+  { table: "sync_conflicts", idColumn: "entity_id", seedExemptWhenNoValues: null },
 ];
 
 /** Entity types that never belong to a domain: the settings blob's dirty mark. */

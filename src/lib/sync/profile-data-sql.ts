@@ -9,7 +9,7 @@ import {
   KNOWN_ENTITY_TYPES,
   type ProfileDataInspection,
   type RawProfileData,
-  SEEDED_FINANCE_CATEGORY_IDS,
+  SEEDED_FINANCE_CATEGORIES,
   summarizeProfileData,
 } from "./profile-data";
 import { SETTING_ENTITY_TYPE, SYNC_DOMAINS, type SyncDomain } from "./registry";
@@ -31,26 +31,65 @@ export interface InspectProfileDataOptions {
   exact?: boolean;
 }
 
+/**
+ * One look at one source: `exact` counts, otherwise it stops at the first row. Both forms run the SAME
+ * `FROM ... WHERE`, so a row that counts is a row that flips the cheap probe. `prefix` is a `WITH` clause.
+ */
 const countWhere = async (
   db: Database,
   from: string,
   where: string,
   params: unknown[],
   exact: boolean,
+  prefix = "",
 ): Promise<number> => {
   if (exact) {
     const rows = await db.select<{ n: number }[]>(
-      `SELECT COUNT(*) AS n FROM ${from} WHERE ${where}`,
+      `${prefix}SELECT COUNT(*) AS n FROM ${from} WHERE ${where}`,
       params,
     );
     return Number(rows[0]?.n ?? 0);
   }
   const rows = await db.select<{ n: number }[]>(
-    `SELECT 1 AS n FROM ${from} WHERE ${where} LIMIT 1`,
+    `${prefix}SELECT 1 AS n FROM ${from} WHERE ${where} LIMIT 1`,
     params,
   );
   return rows.length > 0 ? 1 : 0;
 };
+
+const SEED_COLUMNS = 8;
+
+/** The shipped seed categories as a CTE named `seed`, its parameters numbered from `offset + 1`. */
+const seedCte = (offset: number): { sql: string; params: unknown[] } => {
+  const params: unknown[] = [];
+  const rows = SEEDED_FINANCE_CATEGORIES.map((category, row) => {
+    params.push(
+      category.id,
+      category.name,
+      category.parentId,
+      category.kind,
+      category.archived ? 1 : 0,
+      category.isSystem ? 1 : 0,
+      category.defersToNextMonth ? 1 : 0,
+      category.sortOrder,
+    );
+    const first = offset + row * SEED_COLUMNS;
+    return `(${Array.from({ length: SEED_COLUMNS }, (_, i) => `$${first + i + 1}`).join(", ")})`;
+  });
+  return {
+    sql: `WITH seed(id, name, parent_id, kind, archived, is_system, defers, sort_order) AS (VALUES ${rows.join(", ")}) `,
+    params,
+  };
+};
+
+/**
+ * Ids of the seeded categories whose stored row still equals the shipped seed (needs `seedCte`). A
+ * deleted, renamed, re-parented, re-kinded, archived, re-flagged or reordered one is not in it.
+ */
+const PRISTINE_SEED_IDS = `SELECT c.id FROM finance_categories c JOIN seed s
+  ON s.id = c.id AND s.name = c.name AND s.parent_id IS c.parent_id AND s.kind = c.kind
+  AND s.archived = c.archived AND s.is_system = c.is_system
+  AND s.defers = c.defers_to_next_month AND s.sort_order = c.sort_order`;
 
 const bind = (values: readonly unknown[], offset: number): string =>
   values.map((_, index) => `$${offset + index + 1}`).join(", ");
@@ -77,13 +116,14 @@ export const readRawProfileData = async (
   // 1. The tables of the domains.
   for (const domain of domains) {
     for (const table of entityTypesOfDomain(domain)) {
-      const seeded = table === "finance_categories";
+      const seed = table === "finance_categories" ? seedCte(0) : null;
       const count = await countWhere(
         db,
         quoteIdent(table),
-        seeded ? `id NOT IN (${bind(SEEDED_FINANCE_CATEGORY_IDS, 0)})` : "1 = 1",
-        seeded ? [...SEEDED_FINANCE_CATEGORY_IDS] : [],
+        seed === null ? "1 = 1" : `id NOT IN (${PRISTINE_SEED_IDS})`,
+        seed === null ? [] : seed.params,
         exact,
+        seed === null ? "" : seed.sql,
       );
       if (count > 0) tables[table] = count;
     }
@@ -91,8 +131,6 @@ export const readRawProfileData = async (
 
   // 2. Sidecar rows, routed by entity type. Per sidecar table and per domain one probe; unknown
   // entity types (counted as personal) and the settings (routed by key) are two more.
-  const seedClause = (idColumn: string, offset: number): string =>
-    `NOT (entity_type = 'finance_categories' AND ${quoteIdent(idColumn)} IN (${bind(SEEDED_FINANCE_CATEGORY_IDS, offset)}))`;
   for (const sidecar of ENTITY_TYPED_SIDECARS) {
     const from = quoteIdent(sidecar.table);
     for (const domain of domains) {
@@ -100,11 +138,15 @@ export const readRawProfileData = async (
       if (types.length === 0) continue;
       const params: unknown[] = [...types];
       let where = `entity_type IN (${bind(types, 0)})`;
-      if (sidecar.seedExempt) {
-        where += ` AND ${seedClause(sidecar.idColumn, params.length)}`;
-        params.push(...SEEDED_FINANCE_CATEGORY_IDS);
+      let prefix = "";
+      if (sidecar.seedExemptWhenNoValues !== null && types.includes("finance_categories")) {
+        // Exempt only the rows of a seeded category that is alive and unmodified, and that retain no value.
+        const seed = seedCte(params.length);
+        prefix = seed.sql;
+        params.push(...seed.params);
+        where += ` AND NOT (entity_type = 'finance_categories' AND ${quoteIdent(sidecar.idColumn)} IN (${PRISTINE_SEED_IDS}) AND ${sidecar.seedExemptWhenNoValues})`;
       }
-      const count = await countWhere(db, from, where, params, exact);
+      const count = await countWhere(db, from, where, params, exact, prefix);
       if (count > 0) {
         sidecars.push({ table: sidecar.table, domain, label: `${domain} entities`, count });
       }

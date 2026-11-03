@@ -130,6 +130,36 @@ describe("the work-profile startup re-check", () => {
     ).toHaveLength(1);
   });
 
+  it("a seeded finance category that was modified pauses a work device; the pristine taxonomy does not", async () => {
+    for (const rename of [false, true]) {
+      const w3 = await world();
+      const [a, w] = [w3.device("A"), w3.device("W")];
+      await a.repo.createTask({ id: "from-a", title: "From A", bucket: "inbox" });
+      await a.engine.publish();
+      await w.repo.seedFinanceDefaultCategories();
+      if (rename) {
+        const pharmacy = (await w.repo.listFinanceCategories(true)).find(
+          (category) => category.id === "fincat:sante.pharmacie",
+        );
+        await w.repo.saveFinanceCategory({
+          ...(pharmacy as NonNullable<typeof pharmacy>),
+          name: "Médicaments privés",
+        });
+      }
+      await w.stamp();
+      const report = await w.engine.pull();
+      if (rename) {
+        expect(issuesOf(report, "work_profile_data_present")).toHaveLength(1);
+        expect(applies(w)).toEqual([]);
+        expect(await hasTask(w, "from-a")).toBe(false);
+        expect((await w.engine.getStatus()).profileViolation?.finance).toBeGreaterThan(0);
+      } else {
+        expect(issuesOf(report, "work_profile_data_present")).toEqual([]);
+        expect(await hasTask(w, "from-a")).toBe(true);
+      }
+    }
+  });
+
   it("finds personal data that only survives as a sidecar row, or as a changed personal setting", async () => {
     for (const plant of [
       (w: EngineDevice) =>

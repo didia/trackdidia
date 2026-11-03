@@ -218,6 +218,56 @@ describe("changing the profile (service path, test seam on)", () => {
     expect((await setupCode(change(laptop, "work"))).code).toBe("work_profile_data_present");
   });
 
+  it("REGRESSION: a seeded finance category the user renamed refuses the work profile, a pristine taxonomy does not", async () => {
+    const seed = async (rename: boolean) => {
+      const laptop = await openFakeLaptop(host(), 0);
+      await laptop.repository.updateSettings((current) => ({ ...current, financeEnabled: true }));
+      await laptop.repository.seedFinanceDefaultCategories();
+      if (rename) {
+        const pharmacy = (await laptop.repository.listFinanceCategories(true)).find(
+          (category) => category.id === "fincat:sante.pharmacie",
+        );
+        await laptop.repository.saveFinanceCategory({
+          ...(pharmacy as NonNullable<typeof pharmacy>),
+          name: "Antidépresseurs de Marie",
+        });
+      }
+      await laptop.repository.updateSettings((current) => ({ ...current, financeEnabled: false }));
+      await laptop.repository.ensureSyncIdentity({
+        deviceId: harnessDeviceId(0),
+        deviceName: "Laptop 1",
+      });
+      await laptop.repository.enableSyncCapture();
+      return laptop;
+    };
+
+    const renamed = await seed(true);
+    const error = await setupCode(change(renamed, "work"));
+    expect(error.code).toBe("work_profile_data_present");
+    expect(error.counts?.finance).toBeGreaterThan(0);
+    expect(error.counts?.personal).toBe(0);
+    expect((await renamed.settings()).syncProfile).toBe("personal");
+    // Joining (enable) as work is the same refusal, before anything is touched.
+    await renamed.repository.updateSettings((current) => ({ ...current, syncProfile: "work" }));
+    const fake = host();
+    expect(
+      (
+        await setupCode(
+          enableSync({
+            repository: renamed.repository,
+            settings: await renamed.settings(),
+            updateSettings: (u) => renamed.repository.updateSettings(u),
+            deps: { ...withWork(renamed), api: fake.api },
+          }),
+        )
+      ).code,
+    ).toBe("work_profile_data_present");
+    expect(fake.calls).toEqual([]);
+
+    const pristine = await seed(false);
+    expect((await change(pristine, "work")).outcome).toBe("changed");
+  });
+
   it("work -> personal is allowed whatever the database holds, with the steps still to do", async () => {
     const laptop = await openWorkLaptop(host(), 0);
     await laptop.repository.saveDailyEntry(createEmptyDailyEntry("2026-10-01"));
