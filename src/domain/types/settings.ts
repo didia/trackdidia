@@ -80,6 +80,8 @@ export interface AppSettings {
   multiDeviceSyncEnabled: boolean;
   /** The device profile. Only `"personal"` is supported; a stored `"work"` is refused by sync. */
   syncProfile: "personal" | "work";
+  /** Device-local marker that the first-run profile decision was made. */
+  profileDecisionMadeAt: string;
   /** The shared GTD folder (visible to personal and work laptops). Empty until chosen. */
   syncGtdFolderDir: string;
   /** How this laptop is named to its peers. */

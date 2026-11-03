@@ -249,6 +249,8 @@ describe("work profile initialization", () => {
     await work.updateSettings((settings) => ({ ...settings, syncProfile: "personal" }));
     const personal = open();
     await personal.initialize();
+    expect((await personal.getSettings()).dimancheNotesRelocatedAt).toBe("");
+    await personal.relocateDimancheNotesOnce();
     expect((await personal.getSettings()).dimancheNotesRelocatedAt).not.toBe("");
   });
 });

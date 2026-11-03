@@ -84,6 +84,7 @@ export const bootstrapApplication = async (
   onSettingsLoaded?.(settings);
 
   if (settings.syncProfile === "personal") {
+    await repository.relocateDimancheNotesOnce();
     const aiUpgrade = await runOnceWithSettingsMarker(
       repository,
       settings,

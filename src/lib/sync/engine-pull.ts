@@ -125,6 +125,7 @@ export const runPull = async (
   const totals = emptyTotals();
   const safetyBackup: SafetyBackupReport = { reasons: [], status: "not_needed" };
   let halted = false;
+  let guardEmpty = false;
 
   const finish = (): PullReport => ({
     startedAtMs,
@@ -234,6 +235,7 @@ export const runPull = async (
     const seen = new Set<string>();
     const ordered = [...manifests]
       .filter((manifest) => manifest?.deviceId !== selfId)
+      .filter((manifest) => options.peerId === undefined || manifest?.deviceId === options.peerId)
       .sort((a, b) => byDeviceId(a, b));
     for (const manifest of ordered) {
       const verdict = evaluateManifest({
@@ -302,6 +304,7 @@ export const runPull = async (
       safetyBackup.status = "not_needed";
     } else if (options.verifiedEmptyJoiner === true) {
       safetyBackup.status = "skipped_empty_joiner";
+      guardEmpty = true;
     } else {
       // The backup is one long writer slot (`VACUUM INTO`): whoever gates writes gets to hold it back.
       await ctx.beforeWrite?.("backup");
@@ -554,6 +557,10 @@ export const runPull = async (
       const applied = await applyChunked(ctx.repo, domain, changeSet, {
         limits: ctx.applyLimits,
         republish: true,
+        requireEmptyDatabase: guardEmpty,
+        onProgress: () => {
+          guardEmpty = false;
+        },
         startAt: ctx.chunkResume.get(resumeKey) ?? 0,
         shouldStop: overBudget,
         ...(yieldBetweenChunks ? { yieldBetweenChunks } : {}),
@@ -592,6 +599,8 @@ export const runPull = async (
       const failedPiece = error instanceof ChunkedApplyError ? error : null;
       if (failedPiece) count(failedPiece.partial);
       const cause = failedPiece ? failedPiece.cause : error;
+      if (cause instanceof SyncApplyError && cause.code === "join_database_not_empty")
+        halted = true;
       const known =
         cause instanceof SyncApplyError ||
         cause instanceof SyncClockError ||

@@ -64,7 +64,8 @@ export type SyncSetupErrorCode =
    * lost: the pass is resumable, and sync stays off until it has finished.
    */
   | "backfill_incomplete"
-  | "no_folders";
+  | "no_folders"
+  | "peer_incomplete";
 
 export class SyncSetupError extends Error {
   readonly code: SyncSetupErrorCode;
@@ -236,6 +237,8 @@ export interface EnableSyncInput {
   backfillLimits?: Partial<SyncBackfillLimits>;
   /** Awaited between chunks; the default yields a macrotask. */
   yieldBetweenChunks?: () => Promise<void>;
+  /** Join initializes capture before its first pull, then activates only after that pull succeeds. */
+  deferActivation?: boolean;
 }
 
 /** Whether `profile` may be enabled or built here: `personal` always, `work` only through the seam. */
@@ -438,7 +441,8 @@ export const enableSync = async (input: EnableSyncInput): Promise<EnableSyncResu
   });
 
   input.onStep?.("saving");
-  await updateSettings((current) => ({ ...current, multiDeviceSyncEnabled: true }));
+  if (!input.deferActivation)
+    await updateSettings((current) => ({ ...current, multiDeviceSyncEnabled: true }));
   return { identity, capture: { ...capture, durationMs }, folders };
 };
 
@@ -459,6 +463,8 @@ export interface BuildEngineInput {
   onBackup?: (backup: BackupResult) => void | Promise<void>;
   /** Gates the engine's pulls right before they hold the writer (see `SyncEngineOptions`). */
   beforeWrite?: SyncEngineOptions["beforeWrite"];
+  /** A join may already have made its required backup before constructing the engine. */
+  beforeFirstMerge?: EnsureSafetyBackup;
 }
 
 export interface BuiltSyncEngine {
@@ -593,7 +599,9 @@ export const buildSyncEngine = async (input: BuildEngineInput): Promise<BuiltSyn
     now: deps.now,
     appVersion: await deps.getAppVersion(),
     calendarSyncEnabled: async () => (await repository.getCalendarSyncSettings()).enabled,
-    beforeFirstMerge: createSafetyBackup(repository, deviceId, input.getSettings, input.onBackup),
+    beforeFirstMerge:
+      input.beforeFirstMerge ??
+      createSafetyBackup(repository, deviceId, input.getSettings, input.onBackup),
     ...(input.beforeWrite ? { beforeWrite: input.beforeWrite } : {}),
   });
   return { engine, transports, deviceId, identity };

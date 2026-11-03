@@ -9,6 +9,8 @@ import { MemoryRepository } from "../lib/storage/memory-repository";
 import type { AppRepository } from "../lib/storage/repository";
 import { type StartupSync, startStartupSyncPull } from "../lib/sync/startup-sync";
 import { bootstrapApplication } from "./bootstrap";
+import { isVerifiedEmptyDatabase } from "../lib/sync/profile-data";
+import { WORK_PROFILE_SELECTABLE, type DeviceProfile } from "../lib/sync/profile";
 
 export const BOOTSTRAP_TIMEOUT_MS = 8_000;
 
@@ -27,11 +29,20 @@ export interface BootstrapState {
    * adopts it.
    */
   startupSync: StartupSync | null;
+  profileChoice: {
+    choose: (profile: DeviceProfile) => Promise<boolean>;
+    error: string | null;
+    busy: boolean;
+    workSelectable: boolean;
+  } | null;
 }
 
 export interface UseBootstrapOptions {
   /** Runs work alone among backups and syncs; the startup pull and its background tail go through it. */
   runExclusive?: <T>(work: () => Promise<T>) => Promise<T>;
+  /** Test seam; release callers always use the compile-time gate. */
+  workProfileSelectable?: boolean;
+  inspectFirstRun?: boolean;
 }
 
 /**
@@ -47,16 +58,18 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
   const [startupStage, setStartupStage] = useState(() => t("startup.bootstrap"));
   const startupStageRef = useRef(startupStage);
   const [startupSync, setStartupSync] = useState<StartupSync | null>(null);
+  const [profileChoice, setProfileChoice] = useState<BootstrapState["profileChoice"]>(null);
   const runExclusiveRef = useRef(options.runExclusive);
   runExclusiveRef.current = options.runExclusive;
 
   useEffect(() => {
     let cancelled = false;
     let settled = false;
-    let bootstrapSucceeded = false;
+    let startupComplete = false;
     let knownProfile: AppSettings["syncProfile"] | undefined;
     // The 8-second rule and the moment bootstrap is over, for the sync pull that may outlive its wait.
-    const deadlineAtMs = Date.now() + BOOTSTRAP_TIMEOUT_MS;
+    let deadlineAtMs = Date.now() + BOOTSTRAP_TIMEOUT_MS;
+    let timeoutId: number;
     let releaseBootstrapSettled: () => void = () => undefined;
     const bootstrapSettled = new Promise<void>((resolve) => {
       releaseBootstrapSettled = resolve;
@@ -74,6 +87,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
       }
 
       settled = true;
+      setProfileChoice(null);
       releaseBootstrapSettled();
       const fallbackRepository = new MemoryRepository();
       await fallbackRepository.initialize();
@@ -82,7 +96,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
         syncProfile: knownProfile ?? "work",
       }));
 
-      if (!cancelled && !bootstrapSucceeded) {
+      if (!cancelled && !startupComplete) {
         setRepository(fallbackRepository);
         setSettings(fallbackSettings);
         setStartupError(message);
@@ -100,6 +114,86 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
       try {
         markStage(t("startup.createRepository"));
         const nextRepository = await createRepository();
+        if (cancelled) return;
+        let loaded = await nextRepository.getSettings();
+        if (cancelled) return;
+        // Old installations already carry startup markers, even if they have no user rows.
+        const initialized =
+          loaded.syncProfile === "work" ||
+          loaded.profileDecisionMadeAt ||
+          loaded.gtdReferencesMigrationDoneAt ||
+          loaded.gtdScheduledNormalizationDoneAt ||
+          loaded.aiMaxTokensUpgradeDoneAt ||
+          loaded.dimancheNotesRelocatedAt ||
+          loaded.multiDeviceSyncEnabled;
+        if (
+          initialized ||
+          !(options.inspectFirstRun ?? !(nextRepository instanceof MemoryRepository))
+        ) {
+          knownProfile = loaded.syncProfile;
+        }
+        if (
+          !initialized &&
+          (options.inspectFirstRun ?? !(nextRepository instanceof MemoryRepository))
+        ) {
+          const inspection = await nextRepository.inspectSyncProfileData({ exact: false });
+          if (cancelled) return;
+          if (!isVerifiedEmptyDatabase(inspection)) knownProfile = loaded.syncProfile;
+          if (isVerifiedEmptyDatabase(inspection)) {
+            window.clearTimeout(timeoutId);
+            loaded = await new Promise<AppSettings>((resolve) => {
+              let busy = false;
+              const choose = async (profile: DeviceProfile): Promise<boolean> => {
+                if (
+                  busy ||
+                  cancelled ||
+                  (profile === "work" &&
+                    !(options.workProfileSelectable ?? WORK_PROFILE_SELECTABLE))
+                )
+                  return false;
+                busy = true;
+                deadlineAtMs = Date.now() + BOOTSTRAP_TIMEOUT_MS;
+                timeoutId = window.setTimeout(onTimeout, BOOTSTRAP_TIMEOUT_MS);
+                setProfileChoice({
+                  choose,
+                  error: null,
+                  busy: true,
+                  workSelectable: options.workProfileSelectable ?? WORK_PROFILE_SELECTABLE,
+                });
+                try {
+                  const selected = await nextRepository.updateSettings((current) => ({
+                    ...current,
+                    syncProfile: profile,
+                    profileDecisionMadeAt: new Date().toISOString(),
+                  }));
+                  if (cancelled) return false;
+                  knownProfile = selected.syncProfile;
+                  setProfileChoice(null);
+                  resolve(selected);
+                  return true;
+                } catch (error) {
+                  window.clearTimeout(timeoutId);
+                  busy = false;
+                  if (!cancelled)
+                    setProfileChoice({
+                      choose,
+                      error: error instanceof Error ? error.message : t("startup.unknownError"),
+                      busy: false,
+                      workSelectable: options.workProfileSelectable ?? WORK_PROFILE_SELECTABLE,
+                    });
+                  return false;
+                }
+              };
+              setProfileChoice({
+                choose,
+                error: null,
+                busy: false,
+                workSelectable: options.workProfileSelectable ?? WORK_PROFILE_SELECTABLE,
+              });
+            });
+          }
+        }
+        if (cancelled) return;
         let started: StartupSync | null = null;
         const nextSettings = await bootstrapApplication(nextRepository, {
           onStage: markStage,
@@ -122,8 +216,9 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
         });
 
         if (cancelled) return;
-        bootstrapSucceeded = true;
+        startupComplete = true;
         settled = true;
+        window.clearTimeout(timeoutId);
         if (!cancelled) {
           setStartupSync(started);
           setRepository(nextRepository);
@@ -141,11 +236,18 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
       }
     };
 
-    const timeoutId = window.setTimeout(() => {
+    const onTimeout = () => {
+      // A late repository may expose the chooser after the fallback already settled. If its
+      // save stalls, leave the existing fallback accessible; a late success can still recover.
+      if (settled && !startupComplete && !cancelled) {
+        setProfileChoice(null);
+        return;
+      }
       activateFallback(t("startup.timeout", { stage: startupStageRef.current })).catch((error) => {
         logDebug("error", "app.bootstrap", "Echec inattendu du fallback (timeout)", error);
       });
-    }, BOOTSTRAP_TIMEOUT_MS);
+    };
+    timeoutId = window.setTimeout(onTimeout, BOOTSTRAP_TIMEOUT_MS);
 
     bootstrap().catch((error) => {
       logDebug("error", "app.bootstrap", "Echec inattendu du bootstrap (non intercepte)", error);
@@ -158,5 +260,14 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
     };
   }, []);
 
-  return { repository, settings, setSettings, loading, startupError, startupStage, startupSync };
+  return {
+    repository,
+    settings,
+    setSettings,
+    loading,
+    startupError,
+    startupStage,
+    startupSync,
+    profileChoice,
+  };
 };

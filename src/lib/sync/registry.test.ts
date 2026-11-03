@@ -1037,6 +1037,7 @@ describe("settings registry", () => {
         "runInTray",
         "storageMode",
         "multiDeviceSyncEnabled",
+        "profileDecisionMadeAt",
         "syncDeviceName",
         "syncGtdFolderDir",
         "syncProfile",

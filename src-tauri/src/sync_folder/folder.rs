@@ -126,6 +126,41 @@ pub fn gtd_marker_around(root: &Path) -> Option<PathBuf> {
     None
 }
 
+/// Work backups must not enter or enclose a personal-role folder. Unlike the legacy GTD
+/// check, errors and aliases in the subtree are refused: an unreadable marker is not proof
+/// that the destination is safe.
+pub fn refuse_personal_marker_around(root: &Path) -> Result<(), String> {
+    let root = root.canonicalize().map_err(|error| error.to_string())?;
+    for dir in root.ancestors() {
+        if read_marker(dir).map_err(|error| error.to_string())? == Some(Role::Personal) {
+            return Err(format!("Dossier personnel interdit: {}", dir.display()));
+        }
+    }
+    let mut pending = vec![root];
+    let mut visited = 0usize;
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).map_err(|error| error.to_string())? {
+            let entry = entry.map_err(|error| error.to_string())?;
+            visited += 1;
+            if visited > MAX_SCANNED_ENTRIES {
+                return Err("Trop de fichiers pour verifier le dossier de backup".into());
+            }
+            let kind = entry.file_type().map_err(|error| error.to_string())?;
+            if kind.is_symlink() {
+                return Err(format!("Lien non verifiable: {}", entry.path().display()));
+            }
+            if kind.is_dir() {
+                let path = entry.path();
+                if read_marker(&path).map_err(|error| error.to_string())? == Some(Role::Personal) {
+                    return Err(format!("Dossier personnel interdit: {}", path.display()));
+                }
+                pending.push(path);
+            }
+        }
+    }
+    Ok(())
+}
+
 /// A folder holding the full-database backups is the personal folder; it must never be shared.
 fn looks_like_personal_folder(root: &Path) -> bool {
     ["backups", "backups-dev"]

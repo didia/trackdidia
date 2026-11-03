@@ -1113,6 +1113,7 @@ export const SETTINGS_REGISTRY: Readonly<Record<keyof AppSettings, SettingRule>>
   // Multi-device sync's own switches: what a laptop syncs with can never be decided by a peer.
   multiDeviceSyncEnabled: device,
   syncProfile: device,
+  profileDecisionMadeAt: device,
   syncGtdFolderDir: device,
   syncDeviceName: device,
 

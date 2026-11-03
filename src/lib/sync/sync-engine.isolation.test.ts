@@ -182,12 +182,11 @@ describe("a work laptop that only sees the shared GTD folder", () => {
       );
 
     // What exists on a database that never synced: the three finance system categories the
-    // migrations seed, and the clock of the one personal setting every database stamps itself.
+    // migrations seed. Sunday-note relocation is deferred until personal bootstrap.
     expect(seededMeta.map((meta) => `${meta.entity_type}:${meta.entity_id}`)).toEqual([
       "finance_categories:fincat:non-categorise",
       "finance_categories:fincat:split",
       "finance_categories:fincat:transfert",
-      "setting:dimancheNotesRelocatedAt",
     ]);
 
     // Round 1: every laptop works, A and B on everything, W on its list.

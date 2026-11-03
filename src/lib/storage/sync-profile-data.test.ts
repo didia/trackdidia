@@ -49,7 +49,6 @@ describe("inspectSyncProfileData on a database that never held anything of the u
         "finance_categories:fincat:split",
         "finance_categories:fincat:transfert",
         "finance_categories:fincat:non-categorise",
-        "setting:dimancheNotesRelocatedAt",
       ]),
     );
     const snapshots = await probe.db.select<{ n: number }[]>(

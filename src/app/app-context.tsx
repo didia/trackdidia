@@ -9,7 +9,8 @@ import {
   type PropsWithChildren,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { FirstRunProfileChoice } from "../components/FirstRunProfileChoice";
 import { BackupOverlapBanner } from "../components/BackupOverlapBanner";
 import { DebugPanel } from "../components/DebugPanel";
 import type { SettingsUpdater } from "../domain/settings";
@@ -76,8 +77,17 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const { t: tSettings } = useTranslation("settings");
   // Backups and automatic multi-device syncs (the startup pull included) take turns in this lane.
   const [syncLane] = useState(createSerialQueue);
-  const { repository, settings, setSettings, loading, startupError, startupStage, startupSync } =
-    useBootstrap({ runExclusive: syncLane.run });
+  const {
+    repository,
+    settings,
+    setSettings,
+    loading,
+    startupError,
+    startupStage,
+    startupSync,
+    profileChoice,
+  } = useBootstrap({ runExclusive: syncLane.run });
+  const navigate = useNavigate();
   const [debugEnabled, setDebugEnabledState] = useState(getDebugEnabled);
   const [syncRevision, setSyncRevision] = useState(0);
   const coachService = useMemo(() => new CoachPulseService(new OpenRouterProvider()), []);
@@ -243,6 +253,19 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       sync,
     ],
   );
+
+  if (profileChoice) {
+    return (
+      <FirstRunProfileChoice
+        {...profileChoice}
+        onJoin={() => {
+          void profileChoice.choose("personal").then((ok) => {
+            if (ok) navigate("/parametres");
+          });
+        }}
+      />
+    );
+  }
 
   if (loading || !value) {
     return (

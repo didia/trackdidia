@@ -72,7 +72,8 @@
     "unexpected": "Erreur inattendue : {{detail}}",
     "roleGtd": "Dossier GTD partagé",
     "rolePersonal": "Dossier personnel",
-    "backfill_incomplete": "L'initialisation du suivi des changements a été interrompue avant la fin. Rien n'est perdu : utilise « Reprendre l'initialisation » pour la terminer."
+    "backfill_incomplete": "L'initialisation du suivi des changements a été interrompue avant la fin. Rien n'est perdu : utilise « Reprendre l'initialisation » pour la terminer.",
+    "peer_incomplete": "Certaines données de cet ordinateur ne sont pas encore arrivées. Attends la synchronisation des dossiers, puis réessaie."
   },
   "chip": {
     "label": "Synchronisation",
@@ -252,5 +253,31 @@
       "resume": "Reprendre l'initialisation",
       "resuming": "Reprise de l'initialisation…"
     }
+  },
+  "join": {
+    "title": "Rejoindre un ordinateur existant",
+    "subtitle": "Choisis le profil et les dossiers, puis confirme l’ordinateur à importer.",
+    "freshHelp": "Pour un ordinateur de travail, commence avec une base neuve. Si cette base contient des données personnelles ou financières, déplace toi-même la base et toutes ses sauvegardes vers un emplacement personnel avant de repartir avec une base neuve. L’application ne les déplace ni ne les supprime.",
+    "disableFirst": "Désactive la synchronisation avant de rejoindre un autre ordinateur.",
+    "profile": "Profil de cet ordinateur",
+    "personal": "Personnel",
+    "work": "Travail (bientôt disponible)",
+    "workBackup": "Dossier de sauvegarde local ou de travail (facultatif si la base est vide)",
+    "chooseBackup": "Choisir le dossier de sauvegarde",
+    "inspect": "Rechercher les ordinateurs",
+    "localCounts": "Données locales : GTD {{gtd}}, personnelles {{personal}}, finances {{finance}}.",
+    "remoteCounts": "GTD {{gtd}}, personnelles {{personal}}, finances {{finance}}",
+    "refused": "Cette base contient des données personnelles ou financières. Déplace manuellement la base et ses sauvegardes vers un emplacement personnel, puis utilise une base neuve.",
+    "backupRequired": "Une sauvegarde est nécessaire avant la fusion.",
+    "backupSkipped": "Une base vérifiée vide peut être importée sans sauvegarde.",
+    "noPeers": "Aucun ordinateur trouvé dans ces dossiers.",
+    "selectPeer": "Choisis un ordinateur à importer",
+    "confirm": "Confirmer et importer",
+    "cancel": "Annuler",
+    "done": "Import terminé et synchronisation activée.",
+    "incomplete": "Import incomplet ; la synchronisation reste désactivée. {{details}}",
+    "chooseBackupRequired": "Choisis un dossier de sauvegarde avant de continuer.",
+    "pending": "en attente",
+    "peerIncomplete": "Certaines données de cet ordinateur ne sont pas encore arrivées. Attends la synchronisation des dossiers, puis recherche à nouveau."
   }
 }

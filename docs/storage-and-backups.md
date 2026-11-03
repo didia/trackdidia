@@ -1566,7 +1566,7 @@ arrival orders), `sync-engine.test.ts` (three laptops through the folder), the s
 
 ### Work-profile guards in the repository
 
-Data layer only (no screen, no route): the guards that keep personal and finance rows off a `work` database.
+The data-layer guards keep personal and finance rows off a `work` database; work selection remains disabled, with the join path available through test seams.
 `work` is still not selectable (`WORK_PROFILE_SELECTABLE` is `false`; tests switch it on through
 `SyncServiceDeps.workProfileSelectable`). The user-facing summary is in
 [Multi-device sync](multi-device-sync.md#the-work-profile-guards-data-layer-only).
@@ -1730,7 +1730,7 @@ for that domain of that peer at the last merge (`sync_peers` manifest `mergedSch
 local upgrade are both new skews; a contact that merged nothing does not update the recorded pairs. One
 backup covers every domain of the run, whatever its pair: the hook runs before anything is applied.
 `verifiedEmptyJoiner: true` (a pull option, decided by the join flow) skips it and the skip is recorded
-(`safetyBackup.status = "skipped_empty_joiner"`). With no hook, or when it throws, NO bundle is applied: the
+(`safetyBackup.status = "skipped_empty_joiner"`). Guided join also requests an atomic emptiness recheck in the first apply transaction; a newly nonempty database refuses the merge. With no hook, or when it throws, NO bundle is applied: the
 pull reports `safety_backup_required`, `complete: false`, `safetyBackup.status = "failed"` and the work in
 `remaining`; `getStatus()` shows those peers as `error` with that message. A throttle for the hook, if
 wanted, belongs to its implementation.
@@ -2702,3 +2702,10 @@ code task.
 - [AI, settings, and privacy](ai-settings-and-privacy.md)
 - [Calendar sync](calendar-sync.md)
 - [Desktop builds](desktop-builds.md)
+
+
+A backup made under the work profile is refused by the native host when its canonical destination
+is inside, contains, or is a personal-role folder. The host checks the destination subtree and
+ancestors, refuses unreadable markers and aliases it cannot safely verify, and checks before
+creating the backup directory and again after. The same profile is supplied for manual, automatic
+and sync safety backups and retention. Personal backups retain their existing behavior.

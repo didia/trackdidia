@@ -12,6 +12,7 @@ import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { DesktopShellSection } from "../components/settings/DesktopShellSection";
 import { LlmBridgeSection } from "../components/settings/LlmBridgeSection";
+import { SyncJoinSection } from "../components/settings/SyncJoinSection";
 import { MultiDeviceSyncSection } from "../components/settings/MultiDeviceSyncSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
@@ -1342,6 +1343,7 @@ export const SettingsPage = () => {
       </SectionCard>
 
       <MultiDeviceSyncSection />
+      <SyncJoinSection />
 
       {deviceProfile === "personal" && (
         <StorageOverviewSection

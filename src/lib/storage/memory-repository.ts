@@ -166,6 +166,7 @@ import { CalendarSyncMemoryStore } from "./calendar-sync-memory-store";
 import { FinanceMemoryStore } from "./finance-memory-store";
 
 export class MemoryRepository implements AppRepository {
+  async relocateDimancheNotesOnce(): Promise<void> {}
   private entries = new Map<string, DailyEntry>();
   private weeklyReviews = new Map<string, WeeklyReview>();
   private weeklyObjectives = new Map<string, WeeklyObjective>();

@@ -196,7 +196,7 @@ import {
 } from "../sync/domain-counters";
 import { SyncApplyError } from "../sync/errors";
 import { readChangeSet } from "../sync/list-changes";
-import type { ProfileDataInspection } from "../sync/profile-data";
+import { isVerifiedEmptyDatabase, type ProfileDataInspection } from "../sync/profile-data";
 import { type InspectProfileDataOptions, inspectProfileData } from "../sync/profile-data-sql";
 import { assertChangeSetAllowedForProfile, readStoredProfile } from "../sync/profile-guard";
 import { SYNC_DOMAINS, type SyncDomain } from "../sync/registry";
@@ -413,9 +413,6 @@ export class TauriSqliteRepository implements AppRepository {
       await this.loadSyncCaptureState(db);
 
       logDebug("info", "storage.sqlite", "SQLite pret");
-      if ((await this.getSettings()).syncProfile === "personal") {
-        await this.relocateDimancheNotesOnce();
-      }
     } catch (error) {
       logDebug("error", "storage.sqlite", "Echec initialisation SQLite", error);
       throw new Error(`SQLite init failed: ${formatUnknownError(error)}`);
@@ -445,7 +442,7 @@ export class TauriSqliteRepository implements AppRepository {
     }
   }
 
-  private async relocateDimancheNotesOnce(): Promise<void> {
+  async relocateDimancheNotesOnce(): Promise<void> {
     await this.writeTransaction(async (tx) => {
       const db = transactionDb(tx);
 
@@ -1627,6 +1624,7 @@ export class TauriSqliteRepository implements AppRepository {
         backupDir = await invoke<string>("ensure_backup_dir", {
           destinationDir: settings.backupDestinationDir,
           environment: storageInfo.environment,
+          ...(settings.syncProfile === "work" ? { profile: "work" } : {}),
         });
       } catch (error) {
         throw toBackupDirError(error);
@@ -1648,6 +1646,7 @@ export class TauriSqliteRepository implements AppRepository {
           {
             destinationDir: settings.backupDestinationDir,
             environment: storageInfo.environment,
+            ...(settings.syncProfile === "work" ? { profile: "work" } : {}),
             // Whenever the file name carries the device tag, retention counts that tag's group.
             ...(deviceId === undefined ? {} : { deviceId }),
           },
@@ -3559,6 +3558,15 @@ export class TauriSqliteRepository implements AppRepository {
     // One transaction, internal helpers only: re-entering the writer queue from inside it would
     // deadlock. Any error rolls back every row, meta, snapshot, conflict and the `applying` flag.
     return this.writeTransaction(async (tx) => {
+      if (
+        options.requireEmptyDatabase &&
+        !isVerifiedEmptyDatabase(await inspectProfileData(transactionDb(tx)))
+      ) {
+        throw new SyncApplyError(
+          "join_database_not_empty",
+          "The database changed before the join; a safety backup is required",
+        );
+      }
       // Layer 3 of the work-profile isolation: the PERSISTED profile (never a parameter of the call)
       // decides what may be applied here, whatever the engine passed in. Refused before anything is
       // read or written.
