@@ -50,6 +50,10 @@ pub fn gtd_folder_marker_around(root: &Path) -> Option<std::path::PathBuf> {
     folder::gtd_marker_around(root)
 }
 
+pub fn refuse_personal_marker_around(root: &Path) -> Result<(), String> {
+    folder::refuse_personal_marker_around(root)
+}
+
 /// A `manifest.json` (and the manifest the webview sends to publish) may not exceed this.
 pub const MAX_MANIFEST_BYTES: u64 = 1024 * 1024;
 /// Largest bundle Rust will store or return. Bundles cross the webview boundary as base64 inside

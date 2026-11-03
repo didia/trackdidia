@@ -1,3 +1,9 @@
+# 2026-11-02 — Work-profile shell and startup gates
+
+- 2026-11-03: Guided join stages profile and folder choices, displays domain counts and imports only the confirmed peer. A transactional empty-database guard protects a skipped backup; nonempty joins back up first. Work selection remains disabled.
+
+The stored work profile now restricts routes and Settings and skips personal and finance startup and runtime jobs, while retaining GTD and Pomodoro. Profile selection and guided join remain unavailable.
+
 # Multi-device sync log
 
 Back to [Documentation Log](../log.md). Canonical page:

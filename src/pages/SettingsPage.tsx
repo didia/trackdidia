@@ -12,6 +12,7 @@ import { SectionCard } from "../components/SectionCard";
 import { AiPayloadPreviewSection } from "../components/settings/AiPayloadPreviewSection";
 import { DesktopShellSection } from "../components/settings/DesktopShellSection";
 import { LlmBridgeSection } from "../components/settings/LlmBridgeSection";
+import { SyncJoinSection } from "../components/settings/SyncJoinSection";
 import { MultiDeviceSyncSection } from "../components/settings/MultiDeviceSyncSection";
 import { StorageOverviewSection } from "../components/settings/StorageOverviewSection";
 import { useSectionSave } from "../components/settings/useSectionSave";
@@ -90,8 +91,15 @@ const parseActivityLines = (text: string) =>
 
 export const SettingsPage = () => {
   const { t } = useTranslation("settings");
-  const { repository, settings, updateSettings, debugEnabled, setDebugEnabled, browserPreview } =
-    useAppContext();
+  const {
+    repository,
+    settings,
+    updateSettings,
+    debugEnabled,
+    setDebugEnabled,
+    browserPreview,
+    deviceProfile,
+  } = useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
   // Raw text of the activity lists: parsing on every keystroke would swallow Enter and spaces.
@@ -397,569 +405,581 @@ export const SettingsPage = () => {
 
   return (
     <div className="page">
-      <PageHeader eyebrow={t("hero.eyebrow")} title={t("hero.title")} copy={t("hero.copy")} />
-
-      <SectionCard title={t("ai.title")} subtitle={t("ai.subtitle")}>
-        <form
-          className="settings-form"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            const parsedSlots = parsePulseSlotHours(pulseSlotsDraft);
-            if (!parsedSlots.ok) {
-              setPulseSlotsError(parsedSlots.error);
-              return;
-            }
-
-            setPulseSlotsError("");
-            setSavingSettings(true);
-            const trimmedCostRate = costRateDraft.trim();
-            await savePreferences(
-              {
-                ...draftSettings,
-                aiPulseSlots: parsedSlots.hours,
-                aiCostPerMillionTokens:
-                  trimmedCostRate === ""
-                    ? settings.aiCostPerMillionTokens
-                    : Math.max(0, Number(trimmedCostRate)),
-              },
-              aiPreferenceKeys,
-            );
-            setSavingSettings(false);
-          }}
-        >
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.aiEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("ai.enable")}</span>
-          </label>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={debugEnabled}
-              onChange={(event) => setDebugEnabled(event.target.checked)}
-            />
-            <span>{t("ai.debug")}</span>
-          </label>
-
-          <label>
-            <span>{t("ai.baseUrl")}</span>
-            <input
-              type="url"
-              value={draftSettings.aiBaseUrl}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiBaseUrl: event.target.value,
-                }))
-              }
-              placeholder={t("ai.baseUrlPlaceholder")}
-            />
-          </label>
-
-          <label>
-            <span>{t("ai.model")}</span>
-            <input
-              type="text"
-              value={draftSettings.aiModel}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiModel: event.target.value,
-                }))
-              }
-              placeholder={t("ai.modelPlaceholder")}
-            />
-          </label>
-
-          <label>
-            <span>{t("ai.apiKey")}</span>
-            <input
-              type="password"
-              value={draftSettings.aiApiKey}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiApiKey: event.target.value,
-                }))
-              }
-              placeholder={t("ai.apiKeyPlaceholder")}
-            />
-          </label>
-
-          <label>
-            <span>{t("ai.payloadScopeLabel")}</span>
-            <select
-              value={draftSettings.aiPayloadScope}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiPayloadScope: event.target.value as AiPayloadScope,
-                }))
-              }
-            >
-              {payloadScopeValues.map((value) => (
-                <option key={value} value={value}>
-                  {t(`ai.payloadScope.${value}`)}
-                </option>
-              ))}
-            </select>
-          </label>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.aiMemoryEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiMemoryEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("ai.memory")}</span>
-          </label>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.aiPulseEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiPulseEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("ai.pulse")}</span>
-          </label>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.aiPastorEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiPastorEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("ai.pastor")}</span>
-          </label>
-          <p className="field-card__helper">{t("ai.pastorHelper")}</p>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.aiPulseNotifyEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiPulseNotifyEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("ai.pulseNotify")}</span>
-          </label>
-
-          <label>
-            <span>{t("ai.pulseSlots")}</span>
-            <input
-              type="text"
-              value={pulseSlotsDraft}
-              onChange={(event) => {
-                setPulseSlotsDraft(event.target.value);
-                if (pulseSlotsError) {
-                  setPulseSlotsError("");
-                }
-              }}
-              onBlur={() => {
-                const parsed = parsePulseSlotHours(pulseSlotsDraft);
-                setPulseSlotsError(parsed.ok ? "" : parsed.error);
-              }}
-              placeholder={t("ai.pulseSlotsPlaceholder")}
-              aria-invalid={pulseSlotsError.length > 0}
-            />
-            {pulseSlotsError ? <span className="field-error">{pulseSlotsError}</span> : null}
-          </label>
-
-          <label>
-            <span>{t("ai.maxNotifications")}</span>
-            <input
-              type="number"
-              min={0}
-              step={1}
-              value={draftSettings.aiPulseMaxNotificationsPerDay}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiPulseMaxNotificationsPerDay: Math.max(0, Number(event.target.value || 0)),
-                }))
-              }
-            />
-          </label>
-
-          <label>
-            <span>{t("ai.maxTokens")}</span>
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={draftSettings.aiMaxTokens}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  aiMaxTokens: Math.max(1, Math.floor(Number(event.target.value || 1))),
-                }))
-              }
-            />
-          </label>
-
-          <label>
-            <span>{t("ai.costRate")}</span>
-            <input
-              type="number"
-              min={0}
-              step={0.1}
-              value={costRateDraft}
-              onChange={(event) => setCostRateDraft(event.target.value)}
-            />
-          </label>
-
-          <div className="form-actions">
-            <button className="button button--primary" type="submit" disabled={savingSettings}>
-              {savingSettings ? t("ai.saving") : t("ai.save")}
-            </button>
-            <button
-              className="button button--ghost"
-              type="button"
-              onClick={() => {
-                const defaults = defaultAppSettings();
-                setDraftSettings((current) => ({
-                  ...current,
-                  ...Object.fromEntries(aiPreferenceKeys.map((key) => [key, defaults[key]])),
-                }));
-                setPulseSlotsDraft(formatPulseSlotHours(defaults.aiPulseSlots));
-                setCostRateDraft(String(defaults.aiCostPerMillionTokens));
-                setPulseSlotsError("");
-              }}
-            >
-              {t("ai.reset")}
-            </button>
-          </div>
-        </form>
-      </SectionCard>
-
-      <AiCostDashboardSection repository={repository} costPerMillionTokens={parsedCostRate} />
-
-      <AiCoachAnalyticsSection repository={repository} />
-
-      <AiMemoryProfileSection
-        repository={repository}
-        memoryEnabled={draftSettings.aiMemoryEnabled}
+      <PageHeader
+        eyebrow={t("hero.eyebrow")}
+        title={t("hero.title")}
+        copy={deviceProfile === "personal" ? t("hero.copy") : t("hero.workCopy")}
       />
 
-      {debugEnabled ? <AiPayloadPreviewSection repository={repository} /> : null}
+      {deviceProfile === "personal" && (
+        <>
+          <SectionCard title={t("ai.title")} subtitle={t("ai.subtitle")}>
+            <form
+              className="settings-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                const parsedSlots = parsePulseSlotHours(pulseSlotsDraft);
+                if (!parsedSlots.ok) {
+                  setPulseSlotsError(parsedSlots.error);
+                  return;
+                }
 
-      <SectionCard title={t("rescuetime.title")} subtitle={t("rescuetime.subtitle")}>
-        {rescuetimeMessage ? <div className="banner">{rescuetimeMessage}</div> : null}
+                setPulseSlotsError("");
+                setSavingSettings(true);
+                const trimmedCostRate = costRateDraft.trim();
+                await savePreferences(
+                  {
+                    ...draftSettings,
+                    aiPulseSlots: parsedSlots.hours,
+                    aiCostPerMillionTokens:
+                      trimmedCostRate === ""
+                        ? settings.aiCostPerMillionTokens
+                        : Math.max(0, Number(trimmedCostRate)),
+                  },
+                  aiPreferenceKeys,
+                );
+                setSavingSettings(false);
+              }}
+            >
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={draftSettings.aiEnabled}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>{t("ai.enable")}</span>
+              </label>
 
-        <form
-          className="settings-form"
-          onSubmit={async (event) => {
-            event.preventDefault();
-            setSavingRescuetimeSettings(true);
-            setRescuetimeMessage("");
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={debugEnabled}
+                  onChange={(event) => setDebugEnabled(event.target.checked)}
+                />
+                <span>{t("ai.debug")}</span>
+              </label>
 
-            try {
-              await savePreferences(draftSettings, ["rescuetimeApiKey"]);
-              setRescuetimeMessage(t("rescuetime.saved"));
-            } catch (error) {
-              setRescuetimeMessage(
-                error instanceof Error ? error.message : t("rescuetime.saveError"),
-              );
-            } finally {
-              setSavingRescuetimeSettings(false);
-            }
-          }}
-        >
-          <label>
-            <span>{t("rescuetime.apiKey")}</span>
-            <input
-              type="password"
-              value={draftSettings.rescuetimeApiKey}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  rescuetimeApiKey: event.target.value,
-                }))
-              }
-              placeholder={t("rescuetime.apiKeyPlaceholder")}
-            />
-          </label>
+              <label>
+                <span>{t("ai.baseUrl")}</span>
+                <input
+                  type="url"
+                  value={draftSettings.aiBaseUrl}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiBaseUrl: event.target.value,
+                    }))
+                  }
+                  placeholder={t("ai.baseUrlPlaceholder")}
+                />
+              </label>
+
+              <label>
+                <span>{t("ai.model")}</span>
+                <input
+                  type="text"
+                  value={draftSettings.aiModel}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiModel: event.target.value,
+                    }))
+                  }
+                  placeholder={t("ai.modelPlaceholder")}
+                />
+              </label>
+
+              <label>
+                <span>{t("ai.apiKey")}</span>
+                <input
+                  type="password"
+                  value={draftSettings.aiApiKey}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiApiKey: event.target.value,
+                    }))
+                  }
+                  placeholder={t("ai.apiKeyPlaceholder")}
+                />
+              </label>
+
+              <label>
+                <span>{t("ai.payloadScopeLabel")}</span>
+                <select
+                  value={draftSettings.aiPayloadScope}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiPayloadScope: event.target.value as AiPayloadScope,
+                    }))
+                  }
+                >
+                  {payloadScopeValues.map((value) => (
+                    <option key={value} value={value}>
+                      {t(`ai.payloadScope.${value}`)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={draftSettings.aiMemoryEnabled}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiMemoryEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>{t("ai.memory")}</span>
+              </label>
+
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={draftSettings.aiPulseEnabled}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiPulseEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>{t("ai.pulse")}</span>
+              </label>
+
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={draftSettings.aiPastorEnabled}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiPastorEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>{t("ai.pastor")}</span>
+              </label>
+              <p className="field-card__helper">{t("ai.pastorHelper")}</p>
+
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={draftSettings.aiPulseNotifyEnabled}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiPulseNotifyEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>{t("ai.pulseNotify")}</span>
+              </label>
+
+              <label>
+                <span>{t("ai.pulseSlots")}</span>
+                <input
+                  type="text"
+                  value={pulseSlotsDraft}
+                  onChange={(event) => {
+                    setPulseSlotsDraft(event.target.value);
+                    if (pulseSlotsError) {
+                      setPulseSlotsError("");
+                    }
+                  }}
+                  onBlur={() => {
+                    const parsed = parsePulseSlotHours(pulseSlotsDraft);
+                    setPulseSlotsError(parsed.ok ? "" : parsed.error);
+                  }}
+                  placeholder={t("ai.pulseSlotsPlaceholder")}
+                  aria-invalid={pulseSlotsError.length > 0}
+                />
+                {pulseSlotsError ? <span className="field-error">{pulseSlotsError}</span> : null}
+              </label>
+
+              <label>
+                <span>{t("ai.maxNotifications")}</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={draftSettings.aiPulseMaxNotificationsPerDay}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiPulseMaxNotificationsPerDay: Math.max(0, Number(event.target.value || 0)),
+                    }))
+                  }
+                />
+              </label>
+
+              <label>
+                <span>{t("ai.maxTokens")}</span>
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  value={draftSettings.aiMaxTokens}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      aiMaxTokens: Math.max(1, Math.floor(Number(event.target.value || 1))),
+                    }))
+                  }
+                />
+              </label>
+
+              <label>
+                <span>{t("ai.costRate")}</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={costRateDraft}
+                  onChange={(event) => setCostRateDraft(event.target.value)}
+                />
+              </label>
+
+              <div className="form-actions">
+                <button className="button button--primary" type="submit" disabled={savingSettings}>
+                  {savingSettings ? t("ai.saving") : t("ai.save")}
+                </button>
+                <button
+                  className="button button--ghost"
+                  type="button"
+                  onClick={() => {
+                    const defaults = defaultAppSettings();
+                    setDraftSettings((current) => ({
+                      ...current,
+                      ...Object.fromEntries(aiPreferenceKeys.map((key) => [key, defaults[key]])),
+                    }));
+                    setPulseSlotsDraft(formatPulseSlotHours(defaults.aiPulseSlots));
+                    setCostRateDraft(String(defaults.aiCostPerMillionTokens));
+                    setPulseSlotsError("");
+                  }}
+                >
+                  {t("ai.reset")}
+                </button>
+              </div>
+            </form>
+          </SectionCard>
+
+          <AiCostDashboardSection repository={repository} costPerMillionTokens={parsedCostRate} />
+
+          <AiCoachAnalyticsSection repository={repository} />
+
+          <AiMemoryProfileSection
+            repository={repository}
+            memoryEnabled={draftSettings.aiMemoryEnabled}
+          />
+
+          {debugEnabled ? <AiPayloadPreviewSection repository={repository} /> : null}
+
+          <SectionCard title={t("rescuetime.title")} subtitle={t("rescuetime.subtitle")}>
+            {rescuetimeMessage ? <div className="banner">{rescuetimeMessage}</div> : null}
+
+            <form
+              className="settings-form"
+              onSubmit={async (event) => {
+                event.preventDefault();
+                setSavingRescuetimeSettings(true);
+                setRescuetimeMessage("");
+
+                try {
+                  await savePreferences(draftSettings, ["rescuetimeApiKey"]);
+                  setRescuetimeMessage(t("rescuetime.saved"));
+                } catch (error) {
+                  setRescuetimeMessage(
+                    error instanceof Error ? error.message : t("rescuetime.saveError"),
+                  );
+                } finally {
+                  setSavingRescuetimeSettings(false);
+                }
+              }}
+            >
+              <label>
+                <span>{t("rescuetime.apiKey")}</span>
+                <input
+                  type="password"
+                  value={draftSettings.rescuetimeApiKey}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      rescuetimeApiKey: event.target.value,
+                    }))
+                  }
+                  placeholder={t("rescuetime.apiKeyPlaceholder")}
+                />
+              </label>
+
+              <div className="form-actions">
+                <button
+                  className="button button--primary"
+                  type="submit"
+                  disabled={savingRescuetimeSettings}
+                >
+                  {savingRescuetimeSettings ? t("ai.saving") : t("rescuetime.save")}
+                </button>
+                <button
+                  className="button"
+                  type="button"
+                  disabled={testingRescuetime || !draftSettings.rescuetimeApiKey.trim()}
+                  onClick={async () => {
+                    setTestingRescuetime(true);
+                    setRescuetimeMessage("");
+
+                    try {
+                      const result = await goalsService.testConnection(
+                        draftSettings.rescuetimeApiKey,
+                      );
+                      setRescuetimeMessage(
+                        result.goalCount > 0
+                          ? t("rescuetime.testOkWithGoals", {
+                              count: result.goalCount,
+                              sample: result.sampleGoal,
+                            })
+                          : t("rescuetime.testOkEmpty"),
+                      );
+                    } catch (error) {
+                      setRescuetimeMessage(
+                        error instanceof Error ? error.message : t("rescuetime.testError"),
+                      );
+                    } finally {
+                      setTestingRescuetime(false);
+                    }
+                  }}
+                >
+                  {testingRescuetime ? t("rescuetime.testing") : t("rescuetime.test")}
+                </button>
+              </div>
+            </form>
+          </SectionCard>
+
+          <SectionCard title={t("relationship.title")} subtitle={t("relationship.subtitle")}>
+            {relationshipSave.message ? (
+              <div className="banner">{relationshipSave.message}</div>
+            ) : null}
+
+            <div className="settings-form">
+              <label className="switch-row">
+                <input
+                  type="checkbox"
+                  checked={draftSettings.relationshipDrawsEnabled}
+                  onChange={(event) =>
+                    setDraftSettings((current) => ({
+                      ...current,
+                      relationshipDrawsEnabled: event.target.checked,
+                    }))
+                  }
+                />
+                <span>{t("relationship.enable")}</span>
+              </label>
+
+              <label className="stacked-field">
+                <span>{t("relationship.children")}</span>
+                <RichTextarea
+                  rows={10}
+                  value={childrenActivitiesText}
+                  onChange={(event) => {
+                    setChildrenActivitiesText(event.target.value);
+                    setDraftSettings((current) => ({
+                      ...current,
+                      relationshipDrawChildrenActivities: parseActivityLines(event.target.value),
+                    }));
+                  }}
+                />
+              </label>
+
+              <label className="stacked-field">
+                <span>{t("relationship.spouse")}</span>
+                <RichTextarea
+                  rows={10}
+                  value={spouseActivitiesText}
+                  onChange={(event) => {
+                    setSpouseActivitiesText(event.target.value);
+                    setDraftSettings((current) => ({
+                      ...current,
+                      relationshipDrawSpouseActivities: parseActivityLines(event.target.value),
+                    }));
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="form-actions">
+              <button
+                className="button button--primary"
+                type="button"
+                disabled={relationshipSave.saving}
+                onClick={() =>
+                  void relationshipSave.run(t("relationship.saved"), t("relationship.saveError"))
+                }
+              >
+                {relationshipSave.saving ? t("ai.saving") : t("relationship.save")}
+              </button>
+            </div>
+          </SectionCard>
+        </>
+      )}
+      <LlmBridgeSection />
+
+      {deviceProfile === "personal" && <DesktopShellSection />}
+
+      {deviceProfile === "personal" && (
+        <SectionCard title={t("finance.title")} subtitle={t("finance.subtitle")}>
+          {financeSave.message ? <div className="banner">{financeSave.message}</div> : null}
+
+          <div className="settings-form">
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                checked={draftSettings.financeEnabled}
+                onChange={(event) =>
+                  setDraftSettings((current) => ({
+                    ...current,
+                    financeEnabled: event.target.checked,
+                  }))
+                }
+              />
+              <span>{t("finance.enable")}</span>
+            </label>
+
+            <label>
+              <span>{t("finance.baseCurrency")}</span>
+              <input
+                type="text"
+                value={draftSettings.financeBaseCurrency}
+                onChange={(event) =>
+                  setDraftSettings((current) => ({
+                    ...current,
+                    financeBaseCurrency: event.target.value,
+                  }))
+                }
+                placeholder={t("finance.baseCurrencyPlaceholder")}
+              />
+            </label>
+
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                checked={draftSettings.financeAlertsOnToday}
+                onChange={(event) =>
+                  setDraftSettings((current) => ({
+                    ...current,
+                    financeAlertsOnToday: event.target.checked,
+                  }))
+                }
+              />
+              <span>{t("finance.alertsOnToday")}</span>
+            </label>
+
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                checked={draftSettings.financeNotifyRunout}
+                onChange={(event) =>
+                  setDraftSettings((current) => ({
+                    ...current,
+                    financeNotifyRunout: event.target.checked,
+                  }))
+                }
+              />
+              <span>{t("finance.notifyRunout")}</span>
+            </label>
+
+            <label>
+              <span>{t("finance.safetyBufferMinor")}</span>
+              <input
+                type="text"
+                value={financeSafetyBufferDraft}
+                onChange={(event) => setFinanceSafetyBufferDraft(event.target.value)}
+                placeholder={t("finance.safetyBufferMinorPlaceholder")}
+              />
+            </label>
+
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                disabled={!draftSettings.aiEnabled}
+                checked={draftSettings.financeAiCategorizationEnabled}
+                onChange={(event) =>
+                  setDraftSettings((current) => ({
+                    ...current,
+                    financeAiCategorizationEnabled: event.target.checked,
+                  }))
+                }
+              />
+              <span>{t("finance.aiCategorizationEnabled")}</span>
+            </label>
+            <p className="field-card__helper">{t("finance.aiCategorizationPrivacyNote")}</p>
+
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                disabled={!draftSettings.aiEnabled}
+                checked={draftSettings.financeAiStatementEnabled}
+                onChange={(event) =>
+                  setDraftSettings((current) => ({
+                    ...current,
+                    financeAiStatementEnabled: event.target.checked,
+                  }))
+                }
+              />
+              <span>{t("finance.aiStatementEnabled")}</span>
+            </label>
+            <p className="field-card__helper">{t("finance.aiStatementPrivacyNote")}</p>
+
+            <label className="switch-row">
+              <input
+                type="checkbox"
+                disabled={!draftSettings.aiEnabled}
+                checked={draftSettings.financeAiAutoApplyEnabled}
+                onChange={(event) =>
+                  setDraftSettings((current) => ({
+                    ...current,
+                    financeAiAutoApplyEnabled: event.target.checked,
+                  }))
+                }
+              />
+              <span>{t("finance.aiAutoApplyEnabled")}</span>
+            </label>
+
+            <label>
+              <span>{t("finance.aiAutoApplyMinConfidence")}</span>
+              <input
+                type="text"
+                disabled={!draftSettings.aiEnabled}
+                value={financeAiAutoApplyMinConfidenceDraft}
+                onChange={(event) => setFinanceAiAutoApplyMinConfidenceDraft(event.target.value)}
+                placeholder={t("finance.aiAutoApplyMinConfidencePlaceholder")}
+              />
+            </label>
+            {!draftSettings.aiEnabled ? (
+              <p className="field-card__helper">{t("finance.aiRequiresAiEnabled")}</p>
+            ) : null}
+          </div>
 
           <div className="form-actions">
             <button
               className="button button--primary"
-              type="submit"
-              disabled={savingRescuetimeSettings}
-            >
-              {savingRescuetimeSettings ? t("ai.saving") : t("rescuetime.save")}
-            </button>
-            <button
-              className="button"
               type="button"
-              disabled={testingRescuetime || !draftSettings.rescuetimeApiKey.trim()}
-              onClick={async () => {
-                setTestingRescuetime(true);
-                setRescuetimeMessage("");
-
-                try {
-                  const result = await goalsService.testConnection(draftSettings.rescuetimeApiKey);
-                  setRescuetimeMessage(
-                    result.goalCount > 0
-                      ? t("rescuetime.testOkWithGoals", {
-                          count: result.goalCount,
-                          sample: result.sampleGoal,
-                        })
-                      : t("rescuetime.testOkEmpty"),
-                  );
-                } catch (error) {
-                  setRescuetimeMessage(
-                    error instanceof Error ? error.message : t("rescuetime.testError"),
-                  );
-                } finally {
-                  setTestingRescuetime(false);
-                }
-              }}
+              disabled={financeSave.saving}
+              onClick={() => void financeSave.run(t("finance.saved"), t("finance.saveError"))}
             >
-              {testingRescuetime ? t("rescuetime.testing") : t("rescuetime.test")}
+              {financeSave.saving ? t("finance.seeding") : t("finance.save")}
             </button>
           </div>
-        </form>
-      </SectionCard>
-
-      <SectionCard title={t("relationship.title")} subtitle={t("relationship.subtitle")}>
-        {relationshipSave.message ? <div className="banner">{relationshipSave.message}</div> : null}
-
-        <div className="settings-form">
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.relationshipDrawsEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  relationshipDrawsEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("relationship.enable")}</span>
-          </label>
-
-          <label className="stacked-field">
-            <span>{t("relationship.children")}</span>
-            <RichTextarea
-              rows={10}
-              value={childrenActivitiesText}
-              onChange={(event) => {
-                setChildrenActivitiesText(event.target.value);
-                setDraftSettings((current) => ({
-                  ...current,
-                  relationshipDrawChildrenActivities: parseActivityLines(event.target.value),
-                }));
-              }}
-            />
-          </label>
-
-          <label className="stacked-field">
-            <span>{t("relationship.spouse")}</span>
-            <RichTextarea
-              rows={10}
-              value={spouseActivitiesText}
-              onChange={(event) => {
-                setSpouseActivitiesText(event.target.value);
-                setDraftSettings((current) => ({
-                  ...current,
-                  relationshipDrawSpouseActivities: parseActivityLines(event.target.value),
-                }));
-              }}
-            />
-          </label>
-        </div>
-
-        <div className="form-actions">
-          <button
-            className="button button--primary"
-            type="button"
-            disabled={relationshipSave.saving}
-            onClick={() =>
-              void relationshipSave.run(t("relationship.saved"), t("relationship.saveError"))
-            }
-          >
-            {relationshipSave.saving ? t("ai.saving") : t("relationship.save")}
-          </button>
-        </div>
-      </SectionCard>
-
-      <LlmBridgeSection />
-
-      <DesktopShellSection />
-
-      <SectionCard title={t("finance.title")} subtitle={t("finance.subtitle")}>
-        {financeSave.message ? <div className="banner">{financeSave.message}</div> : null}
-
-        <div className="settings-form">
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.financeEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  financeEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("finance.enable")}</span>
-          </label>
-
-          <label>
-            <span>{t("finance.baseCurrency")}</span>
-            <input
-              type="text"
-              value={draftSettings.financeBaseCurrency}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  financeBaseCurrency: event.target.value,
-                }))
-              }
-              placeholder={t("finance.baseCurrencyPlaceholder")}
-            />
-          </label>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.financeAlertsOnToday}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  financeAlertsOnToday: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("finance.alertsOnToday")}</span>
-          </label>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              checked={draftSettings.financeNotifyRunout}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  financeNotifyRunout: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("finance.notifyRunout")}</span>
-          </label>
-
-          <label>
-            <span>{t("finance.safetyBufferMinor")}</span>
-            <input
-              type="text"
-              value={financeSafetyBufferDraft}
-              onChange={(event) => setFinanceSafetyBufferDraft(event.target.value)}
-              placeholder={t("finance.safetyBufferMinorPlaceholder")}
-            />
-          </label>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              disabled={!draftSettings.aiEnabled}
-              checked={draftSettings.financeAiCategorizationEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  financeAiCategorizationEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("finance.aiCategorizationEnabled")}</span>
-          </label>
-          <p className="field-card__helper">{t("finance.aiCategorizationPrivacyNote")}</p>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              disabled={!draftSettings.aiEnabled}
-              checked={draftSettings.financeAiStatementEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  financeAiStatementEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("finance.aiStatementEnabled")}</span>
-          </label>
-          <p className="field-card__helper">{t("finance.aiStatementPrivacyNote")}</p>
-
-          <label className="switch-row">
-            <input
-              type="checkbox"
-              disabled={!draftSettings.aiEnabled}
-              checked={draftSettings.financeAiAutoApplyEnabled}
-              onChange={(event) =>
-                setDraftSettings((current) => ({
-                  ...current,
-                  financeAiAutoApplyEnabled: event.target.checked,
-                }))
-              }
-            />
-            <span>{t("finance.aiAutoApplyEnabled")}</span>
-          </label>
-
-          <label>
-            <span>{t("finance.aiAutoApplyMinConfidence")}</span>
-            <input
-              type="text"
-              disabled={!draftSettings.aiEnabled}
-              value={financeAiAutoApplyMinConfidenceDraft}
-              onChange={(event) => setFinanceAiAutoApplyMinConfidenceDraft(event.target.value)}
-              placeholder={t("finance.aiAutoApplyMinConfidencePlaceholder")}
-            />
-          </label>
-          {!draftSettings.aiEnabled ? (
-            <p className="field-card__helper">{t("finance.aiRequiresAiEnabled")}</p>
-          ) : null}
-        </div>
-
-        <div className="form-actions">
-          <button
-            className="button button--primary"
-            type="button"
-            disabled={financeSave.saving}
-            onClick={() => void financeSave.run(t("finance.saved"), t("finance.saveError"))}
-          >
-            {financeSave.saving ? t("finance.seeding") : t("finance.save")}
-          </button>
-        </div>
-      </SectionCard>
-
+        </SectionCard>
+      )}
       <SectionCard title={t("calendar.title")} subtitle={t("calendar.subtitle")}>
         {browserPreview ? (
           <div className="banner">{t("calendar.browserPreviewNotice")}</div>
@@ -1323,8 +1343,14 @@ export const SettingsPage = () => {
       </SectionCard>
 
       <MultiDeviceSyncSection />
+      <SyncJoinSection />
 
-      <StorageOverviewSection repository={repository} gtdImportDoneAt={settings.gtdImportDoneAt} />
+      {deviceProfile === "personal" && (
+        <StorageOverviewSection
+          repository={repository}
+          gtdImportDoneAt={settings.gtdImportDoneAt}
+        />
+      )}
     </div>
   );
 };

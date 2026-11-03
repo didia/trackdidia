@@ -49,6 +49,7 @@ export const runOnceWithSettingsMarker = async <T>(
 export interface BootstrapOptions {
   /** Called with a user-facing label each time a startup step begins. */
   onStage?: (stage: string) => void;
+  onSettingsLoaded?: (settings: AppSettings) => void;
   /**
    * Multi-device sync's startup pull, run before the one-time normalizations and every generator
    * (recurrences, Scheduled promotion, relationship draws) so they see the other laptop's work.
@@ -76,26 +77,30 @@ export interface BootstrapOptions {
  */
 export const bootstrapApplication = async (
   repository: AppRepository,
-  { onStage, pullBeforeGenerators, isSyncPullEnabled }: BootstrapOptions = {},
+  { onStage, onSettingsLoaded, pullBeforeGenerators, isSyncPullEnabled }: BootstrapOptions = {},
 ): Promise<AppSettings> => {
   onStage?.(t("startup.loadSettings"));
   let settings = await repository.getSettings();
+  onSettingsLoaded?.(settings);
 
-  const aiUpgrade = await runOnceWithSettingsMarker(
-    repository,
-    settings,
-    "aiMaxTokensUpgradeDoneAt",
-    async () => {
-      // The upgrade stamps its own marker together with the token value.
-      const upgraded = await repository.updateSettings(
-        (current) => applyLegacyAiMaxTokensUpgrade(current, new Date().toISOString()) ?? current,
-      );
-      logDebug("info", "app.bootstrap", "Migration aiMaxTokens terminee", {
-        aiMaxTokens: upgraded.aiMaxTokens,
-      });
-    },
-  );
-  settings = aiUpgrade.settings;
+  if (settings.syncProfile === "personal") {
+    await repository.relocateDimancheNotesOnce();
+    const aiUpgrade = await runOnceWithSettingsMarker(
+      repository,
+      settings,
+      "aiMaxTokensUpgradeDoneAt",
+      async () => {
+        // The upgrade stamps its own marker together with the token value.
+        const upgraded = await repository.updateSettings(
+          (current) => applyLegacyAiMaxTokensUpgrade(current, new Date().toISOString()) ?? current,
+        );
+        logDebug("info", "app.bootstrap", "Migration aiMaxTokens terminee", {
+          aiMaxTokens: upgraded.aiMaxTokens,
+        });
+      },
+    );
+    settings = aiUpgrade.settings;
+  }
 
   if (pullBeforeGenerators && (isSyncPullEnabled?.(settings) ?? true)) {
     onStage?.(t("startup.syncPull"));
@@ -153,35 +158,36 @@ export const bootstrapApplication = async (
     carryoverEvents: reconciliation.carryoverEvents,
   });
 
-  onStage?.(t("startup.generateRelationship"));
-  const generatedRelationshipCount = await repository.generateDailyRelationshipTasks(today);
-  settings = await repository.getSettings();
-  logDebug("info", "app.bootstrap", "Generation des activites relationnelles terminee", {
-    generatedRelationshipCount,
-  });
+  if (settings.syncProfile === "personal") {
+    onStage?.(t("startup.generateRelationship"));
+    const generatedRelationshipCount = await repository.generateDailyRelationshipTasks(today);
+    settings = await repository.getSettings();
+    logDebug("info", "app.bootstrap", "Generation des activites relationnelles terminee", {
+      generatedRelationshipCount,
+    });
 
-  // Idempotent one-time seed, gated on the feature flag and a settings marker — never on
-  // the network, and swallowed on failure so it cannot add a new way to miss the 8-second
-  // timeout. See docs/finance.md "Settings".
-  if (settings.financeEnabled) {
-    try {
-      const financeSeed = await runOnceWithSettingsMarker(
-        repository,
-        settings,
-        "financeCategoriesSeededAt",
-        async () => {
-          const seededCount = await repository.seedFinanceDefaultCategories();
-          logDebug("info", "app.bootstrap", "Seed des categories de finance terminee", {
-            seededCount,
-          });
-        },
-      );
-      settings = financeSeed.settings;
-    } catch (error) {
-      logDebug("error", "app.bootstrap", "Echec du seed des categories de finance", error);
+    // Idempotent one-time seed, gated on the feature flag and a settings marker — never on
+    // the network, and swallowed on failure so it cannot add a new way to miss the 8-second
+    // timeout. See docs/finance.md "Settings".
+    if (settings.financeEnabled) {
+      try {
+        const financeSeed = await runOnceWithSettingsMarker(
+          repository,
+          settings,
+          "financeCategoriesSeededAt",
+          async () => {
+            const seededCount = await repository.seedFinanceDefaultCategories();
+            logDebug("info", "app.bootstrap", "Seed des categories de finance terminee", {
+              seededCount,
+            });
+          },
+        );
+        settings = financeSeed.settings;
+      } catch (error) {
+        logDebug("error", "app.bootstrap", "Echec du seed des categories de finance", error);
+      }
     }
   }
-
   onStage?.(t("startup.finalize"));
   return settings;
 };

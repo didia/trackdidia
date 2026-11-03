@@ -41,6 +41,7 @@ export class SyncChangeSetError extends Error {
 }
 
 export type SyncApplyErrorCode =
+  | "join_database_not_empty"
   /** The domain passed to the call differs from the one in the change set. */
   | "domain_mismatch"
   /**

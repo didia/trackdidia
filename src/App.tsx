@@ -54,35 +54,50 @@ export const FinanceRoutes = () => {
   );
 };
 
+export const AppRoutes = () => {
+  const { deviceProfile } = useAppContext();
+  const personal = deviceProfile === "personal";
+  return (
+    <Routes>
+      <Route path="/" element={<AppShell />}>
+        <Route index element={personal ? <TodayPage /> : <NextActionsPage />} />
+        {personal && (
+          <>
+            <Route path="routine-matin" element={<MorningRoutinePage />} />
+            <Route path="fermeture-soir" element={<EveningClosurePage />} />
+            <Route path="semaine" element={<WeeklyReviewPage />} />
+            <Route path="mi-semaine" element={<MidWeekReviewPage />} />
+            <Route path="mois" element={<MonthlyReviewPage />} />
+            <Route path="objectifs-annuels" element={<AnnualGoalsPage />} />
+            <Route path="historique" element={<HistoryPage />} />
+            <Route path="journal" element={<JournalPage />} />
+          </>
+        )}
+        <Route path="inbox" element={<InboxPage />} />
+        <Route path="next-actions" element={<NextActionsPage />} />
+        <Route path="projects" element={<ProjectsPage />} />
+        <Route path="pomodoro" element={<PomodoroPage />} />
+        <Route path="recurrences" element={<RecurrencesPage />} />
+        <Route path="references" element={<ReferencesPage />} />
+        <Route path="scheduled" element={<ScheduledPage />} />
+        <Route path="waiting-for" element={<WaitingForPage />} />
+        <Route path="someday-maybe" element={<SomedayMaybePage />} />
+        {personal && (
+          <Route path="waiting-someday" element={<Navigate to="/waiting-for" replace />} />
+        )}
+        {personal && <Route path="finances/*" element={<FinanceRoutes />} />}
+        <Route path="sync" element={<SyncPage />} />
+        <Route path="parametres" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Route>
+    </Routes>
+  );
+};
+
 export const App = () => (
   <BrowserRouter>
     <AppProvider>
-      <Routes>
-        <Route path="/" element={<AppShell />}>
-          <Route index element={<TodayPage />} />
-          <Route path="routine-matin" element={<MorningRoutinePage />} />
-          <Route path="fermeture-soir" element={<EveningClosurePage />} />
-          <Route path="semaine" element={<WeeklyReviewPage />} />
-          <Route path="mi-semaine" element={<MidWeekReviewPage />} />
-          <Route path="mois" element={<MonthlyReviewPage />} />
-          <Route path="objectifs-annuels" element={<AnnualGoalsPage />} />
-          <Route path="historique" element={<HistoryPage />} />
-          <Route path="journal" element={<JournalPage />} />
-          <Route path="inbox" element={<InboxPage />} />
-          <Route path="next-actions" element={<NextActionsPage />} />
-          <Route path="projects" element={<ProjectsPage />} />
-          <Route path="pomodoro" element={<PomodoroPage />} />
-          <Route path="recurrences" element={<RecurrencesPage />} />
-          <Route path="references" element={<ReferencesPage />} />
-          <Route path="scheduled" element={<ScheduledPage />} />
-          <Route path="waiting-for" element={<WaitingForPage />} />
-          <Route path="someday-maybe" element={<SomedayMaybePage />} />
-          <Route path="waiting-someday" element={<Navigate to="/waiting-for" replace />} />
-          <Route path="finances/*" element={<FinanceRoutes />} />
-          <Route path="sync" element={<SyncPage />} />
-          <Route path="parametres" element={<SettingsPage />} />
-        </Route>
-      </Routes>
+      <AppRoutes />
     </AppProvider>
   </BrowserRouter>
 );

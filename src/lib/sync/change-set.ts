@@ -174,6 +174,8 @@ export interface SyncApplyResult {
 
 /** Options of `applySyncBundle`. */
 export interface SyncApplyOptions {
+  /** Refuse atomically if the database stopped being empty before this apply. */
+  requireEmptyDatabase?: boolean;
   /**
    * When the merge changed anything (`applied + tombstonesApplied > 0`), bump `change_counter` in the
    * SAME transaction, so the merged state is published at the next publish and survives a restart

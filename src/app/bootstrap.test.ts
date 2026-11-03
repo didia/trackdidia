@@ -341,3 +341,18 @@ describe("bootstrapApplication with the multi-device sync pull", () => {
     expect(reconcile).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("work profile bootstrap", () => {
+  it("runs GTD reconciliation but skips personal and finance generators even when finance is enabled", async () => {
+    const repository = await createRepository({ syncProfile: "work", financeEnabled: true });
+    const reconcile = vi.spyOn(repository, "reconcileDay");
+    const draws = vi.spyOn(repository, "generateDailyRelationshipTasks");
+    const seed = vi.spyOn(repository, "seedFinanceDefaultCategories");
+    const result = await bootstrapApplication(repository);
+    expect(reconcile).toHaveBeenCalledOnce();
+    expect(draws).not.toHaveBeenCalled();
+    expect(seed).not.toHaveBeenCalled();
+    expect(result.aiMaxTokensUpgradeDoneAt).toBe("");
+    expect(result.gtdScheduledNormalizationDoneAt).not.toBe("");
+  });
+});

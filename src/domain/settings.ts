@@ -93,6 +93,7 @@ export const defaultAppSettings = (): AppSettings => ({
   launchAtLogin: false,
   multiDeviceSyncEnabled: false,
   syncProfile: "personal",
+  profileDecisionMadeAt: "",
   syncGtdFolderDir: "",
   syncDeviceName: DEFAULT_SYNC_DEVICE_NAME,
 });
@@ -157,6 +158,8 @@ export const normalizeAppSettings = (
     settings.syncProfile === "personal" || settings.syncProfile === "work"
       ? settings.syncProfile
       : defaults.syncProfile,
+  profileDecisionMadeAt:
+    typeof settings.profileDecisionMadeAt === "string" ? settings.profileDecisionMadeAt : "",
   syncGtdFolderDir:
     typeof settings.syncGtdFolderDir === "string"
       ? settings.syncGtdFolderDir.trim()

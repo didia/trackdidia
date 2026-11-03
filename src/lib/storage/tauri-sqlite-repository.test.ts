@@ -231,3 +231,26 @@ describe("TauriSqliteRepository sync identity and status", () => {
     await expect(repository.getSyncStatus()).resolves.toMatchObject({ pendingChanges: 0 });
   });
 });
+
+describe("work profile initialization", () => {
+  it("does not relocate Sunday notes or stamp its marker until a personal startup", async () => {
+    const database = createNodeSqliteDatabase();
+    const open = () => new TauriSqliteRepository("sqlite::memory:", async () => database);
+    const first = open();
+    await first.initialize();
+    await first.updateSettings((settings) => ({
+      ...settings,
+      syncProfile: "work",
+      dimancheNotesRelocatedAt: "",
+    }));
+    const work = open();
+    await work.initialize();
+    expect((await work.getSettings()).dimancheNotesRelocatedAt).toBe("");
+    await work.updateSettings((settings) => ({ ...settings, syncProfile: "personal" }));
+    const personal = open();
+    await personal.initialize();
+    expect((await personal.getSettings()).dimancheNotesRelocatedAt).toBe("");
+    await personal.relocateDimancheNotesOnce();
+    expect((await personal.getSettings()).dimancheNotesRelocatedAt).not.toBe("");
+  });
+});

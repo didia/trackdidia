@@ -362,3 +362,18 @@ describe("SettingsPage backup folder picker and the shared GTD folder", () => {
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(1));
   });
 });
+
+describe("work profile settings", () => {
+  it("hides personal and finance controls while keeping backup and the LLM bridge", async () => {
+    await renderWithApp(<SettingsPage />, {
+      contextOverrides: { deviceProfile: "work", debugEnabled: true },
+    });
+    expect(screen.queryByLabelText("Clé API OpenRouter")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Clé API RescueTime")).not.toBeInTheDocument();
+    expect(screen.queryByText("Aperçu du payload IA (debug)")).not.toBeInTheDocument();
+    expect(screen.getByText("Sauvegarde")).toBeInTheDocument();
+    expect(screen.getByText("Connexion LLM (MCP)")).toBeInTheDocument();
+    expect(screen.getByText(/Profil travail : seules/)).toBeInTheDocument();
+    expect(screen.queryByText(/Profil personnel : tout/)).not.toBeInTheDocument();
+  });
+});

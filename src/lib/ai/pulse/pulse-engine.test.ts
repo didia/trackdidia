@@ -392,3 +392,95 @@ describe("pulse-engine integration", () => {
     await expect(repository.listAiMessagesForDate("2026-08-30")).resolves.toHaveLength(0);
   });
 });
+
+describe("work profile cancellation", () => {
+  it("does not persist a model response after switching to work", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = {
+      ...defaultAppSettings(),
+      aiPulseEnabled: true,
+      aiEnabled: true,
+      aiApiKey: "test",
+    };
+    await repository.saveSettings(settings);
+    let release!: () => void;
+    let entered!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const provider: AiProvider = {
+      generateStructured: async () => {
+        entered();
+        await blocked;
+        return {
+          text: JSON.stringify({ stance: "open", headline: "test", read: "test", move: null }),
+          model: "test",
+          usage: { tokensPrompt: 0, tokensCompletion: 0, latencyMs: 0 },
+        };
+      },
+    };
+    const run = runPulseEngine({
+      repository,
+      coachService: new CoachPulseService(provider),
+      settings,
+      updateSettings: (updater) => repository.updateSettings(updater),
+      nowIso: `${weekday}T08:00:00`,
+      appOpenIntervals: [],
+      focusSessionActive: false,
+      isAuthorized: async () => (await repository.getSettings()).syncProfile === "personal",
+    });
+    await started;
+    await repository.updateSettings((current) => ({ ...current, syncProfile: "work" }));
+    release();
+    await expect(run).rejects.toThrow("Pulse evaluation cancelled");
+    expect(await repository.listAiMessagesForDate(weekday)).toEqual([]);
+  });
+
+  it("does not call the coach after a suspended snapshot resolves in work mode", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const settings = {
+      ...defaultAppSettings(),
+      aiPulseEnabled: true,
+      aiEnabled: true,
+      aiApiKey: "test",
+    };
+    await repository.saveSettings(settings);
+    let release!: () => void;
+    let entered!: () => void;
+    const blocked = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      entered = resolve;
+    });
+    const original = preview.resolveDailySnapshotInputs;
+    vi.spyOn(preview, "resolveDailySnapshotInputs").mockImplementation(async (...args) => {
+      entered();
+      await blocked;
+      return original(...args);
+    });
+    const coach = new CoachPulseService({ generateStructured: vi.fn() });
+    const build = vi.spyOn(coach, "buildPulse");
+    const run = runPulseEngine({
+      repository,
+      coachService: coach,
+      settings,
+      updateSettings: (updater) => repository.updateSettings(updater),
+      nowIso: `${weekday}T08:00:00`,
+      appOpenIntervals: [],
+      focusSessionActive: false,
+      isAuthorized: async () => (await repository.getSettings()).syncProfile === "personal",
+    });
+    await started;
+    await repository.updateSettings((current) => ({ ...current, syncProfile: "work" }));
+    release();
+    await expect(run).rejects.toThrow("Pulse evaluation cancelled");
+    expect(build).not.toHaveBeenCalled();
+    vi.restoreAllMocks();
+  });
+});

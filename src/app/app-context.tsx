@@ -9,7 +9,8 @@ import {
   type PropsWithChildren,
 } from "react";
 import { useTranslation } from "react-i18next";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
+import { FirstRunProfileChoice } from "../components/FirstRunProfileChoice";
 import { BackupOverlapBanner } from "../components/BackupOverlapBanner";
 import { DebugPanel } from "../components/DebugPanel";
 import type { SettingsUpdater } from "../domain/settings";
@@ -42,6 +43,7 @@ import { usePulseScheduler } from "./use-pulse-scheduler";
 export interface AppContextValue {
   repository: AppRepository;
   settings: AppSettings;
+  deviceProfile: AppSettings["syncProfile"];
   updateSettings: (updater: SettingsUpdater) => Promise<AppSettings>;
   coachService: CoachPulseService;
   browserPreview: boolean;
@@ -75,8 +77,17 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   const { t: tSettings } = useTranslation("settings");
   // Backups and automatic multi-device syncs (the startup pull included) take turns in this lane.
   const [syncLane] = useState(createSerialQueue);
-  const { repository, settings, setSettings, loading, startupError, startupStage, startupSync } =
-    useBootstrap({ runExclusive: syncLane.run });
+  const {
+    repository,
+    settings,
+    setSettings,
+    loading,
+    startupError,
+    startupStage,
+    startupSync,
+    profileChoice,
+  } = useBootstrap({ runExclusive: syncLane.run });
+  const navigate = useNavigate();
   const [debugEnabled, setDebugEnabledState] = useState(getDebugEnabled);
   const [syncRevision, setSyncRevision] = useState(0);
   const coachService = useMemo(() => new CoachPulseService(new OpenRouterProvider()), []);
@@ -85,8 +96,8 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   settingsRef.current = settings;
   const calendarDay = useLocalDayReconciliation(
     repository,
-    settings.financeEnabled,
-    settings.financeNotifyRunout,
+    settings.syncProfile === "personal" && settings.financeEnabled,
+    settings.syncProfile === "personal" && settings.financeNotifyRunout,
   );
   const pomodoro = usePomodoroController(repository, calendarDay, syncRevision);
   const pomodoroRef = useRef(pomodoro);
@@ -183,11 +194,16 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     });
   }, []);
 
-  const pulseRevision = usePulseScheduler(repository, coachService, getFocusSessionActive, {
-    getSettings,
-    updateSettings,
-    enqueueStartupWork,
-  });
+  const pulseRevision = usePulseScheduler(
+    settings.syncProfile === "personal" ? repository : null,
+    coachService,
+    getFocusSessionActive,
+    {
+      getSettings,
+      updateSettings,
+      enqueueStartupWork,
+    },
+  );
   useAutoBackupScheduler(repository, getSettings, publishSettings, {
     enqueueStartupWork,
     // Only a session with automatic sync has anything to take turns with; otherwise the backup runs
@@ -207,6 +223,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         ? {
             repository,
             settings,
+            deviceProfile: settings.syncProfile,
             updateSettings,
             coachService,
             browserPreview,
@@ -236,6 +253,19 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
       sync,
     ],
   );
+
+  if (profileChoice) {
+    return (
+      <FirstRunProfileChoice
+        {...profileChoice}
+        onJoin={() => {
+          void profileChoice.choose("personal").then((ok) => {
+            if (ok) navigate("/parametres");
+          });
+        }}
+      />
+    );
+  }
 
   if (loading || !value) {
     return (

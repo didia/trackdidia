@@ -1,4 +1,5 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
+import { StrictMode } from "react";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { BOOTSTRAP_TIMEOUT_MS, useBootstrap } from "./use-bootstrap";
 
@@ -57,6 +58,7 @@ describe("useBootstrap", () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.repository).toBeInstanceOf(MemoryRepository);
     expect(result.current.startupError).toBe("sqlite exploded");
+    expect(result.current.settings.syncProfile).toBe("work");
   });
 
   it("activates the fallback when a step of bootstrapApplication throws", async () => {
@@ -71,6 +73,8 @@ describe("useBootstrap", () => {
     expect(result.current.repository).toBeInstanceOf(MemoryRepository);
     expect(result.current.repository).not.toBe(repository);
     expect(result.current.startupError).toBe("step failed");
+    expect(result.current.settings.syncProfile).toBe("personal");
+    expect((await result.current.repository!.getSettings()).syncProfile).toBe("personal");
   });
 
   it("activates the fallback after the eight-second timeout and names the stage", async () => {
@@ -92,6 +96,305 @@ describe("useBootstrap", () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.repository).toBeInstanceOf(MemoryRepository);
     expect(result.current.startupError).toContain("Création du repository");
+  });
+
+  it("replaces the timeout fallback when repository startup later succeeds", async () => {
+    vi.useFakeTimers();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.updateSettings((current) => ({ ...current, syncProfile: "personal" }));
+    let resolveRepository!: (repository: MemoryRepository) => void;
+    factory.createRepository.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRepository = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useBootstrap());
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BOOTSTRAP_TIMEOUT_MS + 1);
+    });
+    expect(result.current.repository).not.toBe(repository);
+    expect(result.current.settings.syncProfile).toBe("work");
+    expect(result.current.startupError).not.toBeNull();
+
+    await act(async () => {
+      resolveRepository(repository);
+    });
+    expect(result.current.repository).toBe(repository);
+    expect(result.current.settings.syncProfile).toBe("personal");
+    expect(result.current.settings.gtdReferencesMigrationDoneAt).not.toBe("");
+    expect(result.current.startupError).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it("does not let a slow fallback overwrite a recovered repository", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    let resolveRepository!: (repository: MemoryRepository) => void;
+    factory.createRepository.mockReturnValue(
+      new Promise((resolve) => {
+        resolveRepository = resolve;
+      }),
+    );
+    let releaseFallback!: () => void;
+    const fallbackGate = new Promise<void>((resolve) => {
+      releaseFallback = resolve;
+    });
+    const original = MemoryRepository.prototype.initialize;
+    const fallbackInit = vi
+      .spyOn(MemoryRepository.prototype, "initialize")
+      .mockImplementation(async function (this: MemoryRepository) {
+        await fallbackGate;
+        await original.call(this);
+      });
+    vi.useFakeTimers();
+    try {
+      const { result } = renderHook(() => useBootstrap());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BOOTSTRAP_TIMEOUT_MS);
+      });
+      expect(fallbackInit).toHaveBeenCalled();
+      await act(async () => {
+        resolveRepository(repository);
+      });
+      expect(result.current.repository).toBe(repository);
+      expect(result.current.startupError).toBeNull();
+      await act(async () => {
+        releaseFallback();
+      });
+      expect(result.current.repository).toBe(repository);
+      expect(result.current.startupError).toBeNull();
+    } finally {
+      fallbackInit.mockRestore();
+    }
+  });
+
+  describe("first-run profile", () => {
+    const fresh = async () => {
+      const repository = new MemoryRepository();
+      await repository.initialize();
+      vi.spyOn(repository, "inspectSyncProfileData").mockResolvedValue({
+        counts: { gtd: 0, personal: 0, finance: 0 },
+        exact: false,
+        sources: [],
+      });
+      factory.createRepository.mockResolvedValue(repository);
+      return repository;
+    };
+
+    it("waits before generators, persists a personal choice, and completes", async () => {
+      const repository = await fresh();
+      const draw = vi.spyOn(repository, "generateDailyRelationshipTasks");
+      const reconcile = vi.spyOn(repository, "reconcileDay");
+      const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
+      await waitFor(() => expect(result.current.profileChoice).not.toBeNull());
+      expect(draw).not.toHaveBeenCalled();
+      expect(reconcile).not.toHaveBeenCalled();
+      await act(async () => {
+        await result.current.profileChoice!.choose("personal");
+      });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect((await repository.getSettings()).profileDecisionMadeAt).not.toBe("");
+      expect(draw).toHaveBeenCalled();
+    });
+
+    it("does not spend the startup timeout while waiting for a choice", async () => {
+      await fresh();
+      vi.useFakeTimers();
+      const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.profileChoice).not.toBeNull();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BOOTSTRAP_TIMEOUT_MS * 2);
+      });
+      expect(result.current.startupError).toBeNull();
+      expect(result.current.profileChoice).not.toBeNull();
+      await act(async () => {
+        await result.current.profileChoice!.choose("personal");
+      });
+      expect(result.current.loading).toBe(false);
+    });
+
+    it("recovers after a late repository and still asks before creating data", async () => {
+      const repository = await fresh();
+      let release!: (repository: MemoryRepository) => void;
+      factory.createRepository.mockReturnValue(
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+      );
+      vi.useFakeTimers();
+      const draw = vi.spyOn(repository, "generateDailyRelationshipTasks");
+      const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(BOOTSTRAP_TIMEOUT_MS);
+      });
+      expect(result.current.startupError).not.toBeNull();
+      expect(result.current.settings.syncProfile).toBe("work");
+      await act(async () => {
+        release(repository);
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(result.current.profileChoice).not.toBeNull();
+      expect(draw).not.toHaveBeenCalled();
+      await act(async () => {
+        await result.current.profileChoice!.choose("personal");
+      });
+      expect(result.current.repository).toBe(repository);
+      expect(result.current.startupError).toBeNull();
+    });
+
+    it("ignores the cancelled StrictMode effect when its inspection finishes last", async () => {
+      const stale = await fresh();
+      const active = await fresh();
+      let finishStale!: (repository: MemoryRepository) => void;
+      factory.createRepository
+        .mockReset()
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            finishStale = resolve;
+          }),
+        )
+        .mockResolvedValueOnce(active);
+      const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }), {
+        wrapper: StrictMode,
+      });
+      await waitFor(() => expect(result.current.profileChoice).not.toBeNull());
+      await act(async () => {
+        finishStale(stale);
+      });
+      await act(async () => {
+        expect(await result.current.profileChoice!.choose("personal")).toBe(true);
+      });
+      await waitFor(() => expect(result.current.repository).toBe(active));
+    });
+
+    it.each(["hang", "reject"] as const)(
+      "keeps fallback or retry available when a late chooser save %s",
+      async (failure) => {
+        const repository = await fresh();
+        let release!: (repository: MemoryRepository) => void;
+        factory.createRepository.mockReturnValue(
+          new Promise((resolve) => {
+            release = resolve;
+          }),
+        );
+        const original = repository.updateSettings.bind(repository);
+        vi.spyOn(repository, "updateSettings")
+          .mockImplementationOnce(() =>
+            failure === "hang"
+              ? new Promise(() => undefined)
+              : Promise.reject(new Error("disk error")),
+          )
+          .mockImplementation(original);
+        vi.useFakeTimers();
+        const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(BOOTSTRAP_TIMEOUT_MS);
+        });
+        await act(async () => {
+          release(repository);
+          await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(result.current.profileChoice).not.toBeNull();
+        if (failure === "hang") {
+          act(() => {
+            void result.current.profileChoice!.choose("personal");
+          });
+          await act(async () => {
+            await vi.advanceTimersByTimeAsync(BOOTSTRAP_TIMEOUT_MS);
+          });
+          expect(result.current.profileChoice).toBeNull();
+          expect(result.current.startupError).not.toBeNull();
+        } else {
+          await act(async () => {
+            expect(await result.current.profileChoice!.choose("personal")).toBe(false);
+          });
+          expect(result.current.profileChoice?.error).toBe("disk error");
+          expect(result.current.profileChoice?.busy).toBe(false);
+          await act(async () => {
+            expect(await result.current.profileChoice!.choose("personal")).toBe(true);
+          });
+          expect(result.current.repository).toBe(repository);
+        }
+      },
+    );
+
+    it("permits work through the test seam and skips personal jobs", async () => {
+      const repository = await fresh();
+      const draw = vi.spyOn(repository, "generateDailyRelationshipTasks");
+      const relocate = vi.spyOn(repository, "relocateDimancheNotesOnce");
+      const { result } = renderHook(() =>
+        useBootstrap({ inspectFirstRun: true, workProfileSelectable: true }),
+      );
+      await waitFor(() => expect(result.current.profileChoice).not.toBeNull());
+      await act(async () => {
+        await result.current.profileChoice!.choose("work");
+      });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.settings.syncProfile).toBe("work");
+      expect(draw).not.toHaveBeenCalled();
+      expect(relocate).not.toHaveBeenCalled();
+    });
+
+    it("does not prompt an initialized legacy user", async () => {
+      const repository = await fresh();
+      await repository.updateSettings((current) => ({
+        ...current,
+        gtdReferencesMigrationDoneAt: "legacy",
+      }));
+      const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.profileChoice).toBeNull();
+      expect(repository.inspectSyncProfileData).not.toHaveBeenCalled();
+    });
+
+    it("does not prompt when inspection finds data on an unmarked installation", async () => {
+      const repository = await fresh();
+      vi.mocked(repository.inspectSyncProfileData).mockResolvedValue({
+        counts: { gtd: 1, personal: 0, finance: 0 },
+        exact: false,
+        sources: [],
+      });
+      const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.profileChoice).toBeNull();
+    });
+
+    it("refuses work without the test seam", async () => {
+      const repository = await fresh();
+      const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
+      await waitFor(() => expect(result.current.profileChoice).not.toBeNull());
+      let selected = true;
+      await act(async () => {
+        selected = await result.current.profileChoice!.choose("work");
+      });
+      expect(selected).toBe(false);
+      expect((await repository.getSettings()).profileDecisionMadeAt).toBe("");
+      expect(result.current.profileChoice).not.toBeNull();
+    });
+
+    it("reports a failed choice and allows retry", async () => {
+      const repository = await fresh();
+      const original = repository.updateSettings.bind(repository);
+      vi.spyOn(repository, "updateSettings")
+        .mockRejectedValueOnce(new Error("disk error"))
+        .mockImplementation(original);
+      const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
+      await waitFor(() => expect(result.current.profileChoice).not.toBeNull());
+      await act(async () => {
+        await result.current.profileChoice!.choose("personal");
+      });
+      expect(result.current.profileChoice?.error).toBe("disk error");
+      await act(async () => {
+        await result.current.profileChoice!.choose("personal");
+      });
+      await waitFor(() => expect(result.current.loading).toBe(false));
+      expect(result.current.startupError).toBeNull();
+    });
   });
 
   describe("multi-device sync at startup", () => {

@@ -91,6 +91,12 @@ export const usePulseScheduler = (
           updateSettings,
           appOpenIntervals: openIntervals,
           focusSessionActive: getFocusSessionActiveRef.current(),
+          isAuthorized: async () =>
+            !cancelled &&
+            optionsRef.current.getSettings().syncProfile === "personal" &&
+            (await repository.getSettings()).syncProfile === "personal" &&
+            !cancelled &&
+            optionsRef.current.getSettings().syncProfile === "personal",
         });
 
         // Publish even if this effect was cleaned up mid-flight. Today otherwise keeps

@@ -61,6 +61,48 @@ const template: RecurringTaskTemplate = {
 };
 
 describe("edits across the folder", () => {
+  it("refuses an empty-join backup skip when a local edit arrives before apply", async () => {
+    let joiner: EngineDevice;
+    let injected = false;
+    const world = await createEngineWorld([
+      {
+        name: "A",
+        engine: {
+          beforeWrite: async (kind) => {
+            if (kind === "apply" && !injected) {
+              injected = true;
+              await joiner.repo.createTask({ id: "late-local", title: "Local", bucket: "inbox" });
+            }
+          },
+        },
+      },
+      { name: "B" },
+    ]);
+    joiner = world.device("A");
+    const peer = world.device("B");
+    await peer.repo.createTask({ id: "remote", title: "Remote", bucket: "inbox" });
+    await peer.engine.publish();
+    const report = await joiner.engine.pull({ verifiedEmptyJoiner: true });
+    expect(report.complete).toBe(false);
+    expect(report.issues.some((issue) => issue.detail === "join_database_not_empty")).toBe(true);
+    expect(await taskIds(joiner)).toContain("late-local");
+    expect(await taskIds(joiner)).not.toContain("remote");
+  });
+  it("a guided pull imports only the selected peer", async () => {
+    const world = await createEngineWorld([{ name: "A" }, { name: "B" }, { name: "C" }]);
+    const [a, b, c] = [world.device("A"), world.device("B"), world.device("C")];
+    await b.repo.createTask({ id: "from-b", title: "B", bucket: "inbox" });
+    await c.repo.createTask({ id: "from-c", title: "C", bucket: "inbox" });
+    await b.engine.publish();
+    await c.engine.publish();
+    const status = await b.repo.getSyncStatus();
+    if (!status.supported || !status.identity) throw new Error("missing identity");
+    const report = await a.engine.pull({ peerId: status.identity.deviceId });
+    expect(report.totals.bundlesApplied).toBeGreaterThan(0);
+    expect(await taskIds(a)).toContain("from-b");
+    expect(await taskIds(a)).not.toContain("from-c");
+    expect(report.peers.every((peer) => peer.peerId === status.identity?.deviceId)).toBe(true);
+  });
   it("an edit made on B while A is closed reaches A when A pulls at start", async () => {
     const { world, a, b } = await twoDevices();
     await a.repo.createTask({ id: "t1", title: "Plan", bucket: "inbox" });

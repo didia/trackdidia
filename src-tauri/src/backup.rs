@@ -169,7 +169,16 @@ fn refuse_aliased_backup_dir(root: &Path, backup_dir: &Path) -> Result<(), Strin
     }
 }
 
+#[cfg(test)]
 pub fn ensure_backup_directory(destination_dir: &str, environment: &str) -> Result<String, String> {
+    ensure_backup_directory_for_profile(destination_dir, environment, "personal")
+}
+
+fn ensure_backup_directory_for_profile(
+    destination_dir: &str,
+    environment: &str,
+    profile: &str,
+) -> Result<String, String> {
     let trimmed = destination_dir.trim().trim_end_matches(['/', '\\']);
     if trimmed.is_empty() {
         return Err("Le dossier de backup n'est pas configure.".to_string());
@@ -181,6 +190,13 @@ pub fn ensure_backup_directory(destination_dir: &str, environment: &str) -> Resu
             "Le dossier de backup {} est introuvable. Verifie que Google Drive est monte.",
             root.display()
         ));
+    }
+
+    match profile {
+        "personal" => {}
+        "work" => crate::sync_folder::refuse_personal_marker_around(&root)
+            .map_err(|error| format!("{SYNC_FOLDER_REFUSAL} {error}"))?,
+        _ => return Err("Profil de backup inconnu".into()),
     }
 
     // The shared GTD sync folder must never receive a full-database backup. A destination that is,
@@ -203,6 +219,10 @@ pub fn ensure_backup_directory(destination_dir: &str, environment: &str) -> Resu
     fs::create_dir_all(&backup_dir)
         .map_err(|error| format!("Impossible de creer le dossier de backups: {error}"))?;
     refuse_aliased_backup_dir(&root, &backup_dir)?;
+    if profile == "work" {
+        crate::sync_folder::refuse_personal_marker_around(&root)
+            .map_err(|error| format!("{SYNC_FOLDER_REFUSAL} {error}"))?;
+    }
     Ok(backup_dir.to_string_lossy().into_owned())
 }
 
@@ -264,8 +284,16 @@ pub fn prune_backup_directory_for(
 }
 
 #[tauri::command]
-pub fn ensure_backup_dir(destination_dir: String, environment: String) -> Result<String, String> {
-    ensure_backup_directory(&destination_dir, &environment)
+pub fn ensure_backup_dir(
+    destination_dir: String,
+    environment: String,
+    profile: Option<String>,
+) -> Result<String, String> {
+    ensure_backup_directory_for_profile(
+        &destination_dir,
+        &environment,
+        profile.as_deref().unwrap_or("personal"),
+    )
 }
 
 /// `device_id` is optional and absent from every current caller. Without it this prunes the legacy
@@ -275,8 +303,15 @@ pub fn prune_backups(
     destination_dir: String,
     environment: String,
     device_id: Option<String>,
+    profile: Option<String>,
 ) -> Result<PruneResult, String> {
     let dir = resolve_backup_dir(&destination_dir, &environment)?;
+    match profile.as_deref().unwrap_or("personal") {
+        "personal" => {}
+        "work" => crate::sync_folder::refuse_personal_marker_around(Path::new(&destination_dir))
+            .map_err(|error| format!("{SYNC_FOLDER_REFUSAL} {error}"))?,
+        _ => return Err("Profil de backup inconnu".into()),
+    }
     // Retention deletes files: never through an alias of the backup folder either.
     if let Some(root) = dir.parent() {
         refuse_aliased_backup_dir(root, &dir)?;
@@ -501,6 +536,7 @@ mod tests {
             personal.to_str().unwrap().to_string(),
             "production".into(),
             None,
+            None,
         );
         assert!(result.is_err());
         assert_eq!(fs::read_dir(&shared).unwrap().count(), 33);
@@ -572,6 +608,7 @@ mod tests {
                 dir.path().to_str().unwrap().to_string(),
                 environment.into(),
                 None,
+                None,
             )
             .unwrap();
             assert_eq!(pruned.kept_count, 1);
@@ -599,6 +636,63 @@ mod tests {
         fs::write(junk.join(crate::sync_folder::MARKER_FILE_NAME), "not json")
             .expect("junk marker");
         assert!(ensure_backup_directory(junk.to_str().unwrap(), "production").is_ok());
+    }
+
+    #[test]
+    fn work_backup_refuses_personal_markers_and_personal_still_accepts_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let personal = dir.path().join("personal");
+        fs::create_dir(&personal).unwrap();
+        fs::write(
+            personal.join(crate::sync_folder::MARKER_FILE_NAME),
+            r#"{"role":"personal","formatVersion":1}"#,
+        )
+        .unwrap();
+        let nested = personal.join("nested");
+        fs::create_dir(&nested).unwrap();
+        for root in [dir.path(), personal.as_path(), nested.as_path()] {
+            assert!(ensure_backup_directory_for_profile(
+                root.to_str().unwrap(),
+                "production",
+                "work"
+            )
+            .is_err());
+        }
+        assert!(ensure_backup_directory_for_profile(
+            personal.to_str().unwrap(),
+            "production",
+            "personal"
+        )
+        .is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn work_backup_refuses_personal_root_alias_and_nested_alias() {
+        let dir = tempfile::tempdir().unwrap();
+        let personal = dir.path().join("personal");
+        let work = dir.path().join("work");
+        fs::create_dir(&personal).unwrap();
+        fs::create_dir(&work).unwrap();
+        fs::write(
+            personal.join(crate::sync_folder::MARKER_FILE_NAME),
+            r#"{"role":"personal","formatVersion":1}"#,
+        )
+        .unwrap();
+        let root_alias = dir.path().join("alias");
+        std::os::unix::fs::symlink(&personal, &root_alias).unwrap();
+        assert!(ensure_backup_directory_for_profile(
+            root_alias.to_str().unwrap(),
+            "production",
+            "work"
+        )
+        .is_err());
+        std::os::unix::fs::symlink(&personal, work.join("nested")).unwrap();
+        assert!(
+            ensure_backup_directory_for_profile(work.to_str().unwrap(), "production", "work")
+                .is_err()
+        );
+        assert!(!personal.join("backups").exists());
     }
 
     #[test]

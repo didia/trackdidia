@@ -28,6 +28,7 @@ export interface PulseEngineContext {
   nowIso?: string;
   appOpenIntervals: AppOpenInterval[];
   focusSessionActive: boolean;
+  isAuthorized?: () => Promise<boolean>;
 }
 
 export interface PulseEngineResult {
@@ -142,7 +143,13 @@ export const ensureFirstOpenRecorded = async (
  * Evaluate catch-up pulse slots for today (spec §6.2).
  */
 export const runPulseEngine = async (context: PulseEngineContext): Promise<PulseEngineResult> => {
-  if (!context.settings.aiPulseEnabled) {
+  const authorized =
+    context.isAuthorized ??
+    (async () => (await context.repository.getSettings()).syncProfile === "personal");
+  const ensureAuthorized = async () => {
+    if (!(await authorized())) throw new Error("Pulse evaluation cancelled");
+  };
+  if (!context.settings.aiPulseEnabled || !(await authorized())) {
     return { ranSlot: null, result: null, recordedMissed: 0 };
   }
 
@@ -150,12 +157,12 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
   const date = toLocalDateString(atIso);
   const dayOfWeek = new Date(atIso).getDay();
 
-  const settings = await ensureFirstOpenRecorded(
-    context.settings,
-    date,
-    atIso,
-    context.updateSettings,
-  );
+  const settings = await ensureFirstOpenRecorded(context.settings, date, atIso, async (updater) => {
+    await ensureAuthorized();
+    return context.updateSettings((current) =>
+      current.syncProfile === "personal" ? updater(current) : current,
+    );
+  });
   const todayMessages = await context.repository.listAiMessagesForDate(date);
   const processedScopeKeys = processedScopeKeysFromMessages(todayMessages);
 
@@ -170,6 +177,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
   let recordedMissed = 0;
   for (const missed of missedSlots) {
     if (!processedScopeKeys.has(missed.scopeKey)) {
+      await ensureAuthorized();
       await recordMissedSlot(context.repository, missed, atIso);
       processedScopeKeys.add(missed.scopeKey);
       recordedMissed += 1;
@@ -213,6 +221,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
         ? buildLocalUnknownPulse(dueSlot.stance)
         : buildLocalCoachPulse(dueSlot.stance, [], window.deltaClass);
 
+    await ensureAuthorized();
     const result = await recordLocalPulse(
       context.repository,
       dueSlot,
@@ -227,7 +236,21 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
 
   const snapshotInputs = await resolveDailySnapshotInputs(context.repository, date);
 
-  const result = await context.coachService.buildPulse(context.repository, {
+  await ensureAuthorized();
+  const guardedRepository = new Proxy(context.repository, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      if (typeof property === "string" && /^(save|archive|delete|update|create)/.test(property)) {
+        return async (...args: unknown[]) => {
+          await ensureAuthorized();
+          return value.apply(target, args);
+        };
+      }
+      return value.bind(target);
+    },
+  });
+  const result = await context.coachService.buildPulse(guardedRepository, {
     stance: dueSlot.stance as CoachPulseStance,
     entry,
     settings,
@@ -235,6 +258,7 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
     trigger: "auto",
     deltaClass: window.deltaClass,
     slotHour: dueSlot.hour,
+    ensureAuthorized,
   });
 
   const notification = evaluatePulseNotification({
@@ -247,12 +271,14 @@ export const runPulseEngine = async (context: PulseEngineContext): Promise<Pulse
   });
 
   if (notification.shouldNotify) {
+    await ensureAuthorized();
     const notified = await notifyPomodoroCompletion(
       t("coachDayPaused", { ns: "notifications" }),
       result.pulse.headline,
     );
 
     if (notified) {
+      await ensureAuthorized();
       await context.repository.saveAiMessage({
         ...result.message,
         notified: true,

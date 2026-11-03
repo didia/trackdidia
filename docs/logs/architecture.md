@@ -1,3 +1,11 @@
+# 2026-11-03 — First-run profile decision
+
+Documented the pre-generator profile choice, legacy detection, and timeout behavior.
+
+# 2026-11-02 — Work profile routes
+
+Documented the restricted work route set and profile-dependent finance registration.
+
 # Architecture log
 
 Back to [Documentation Log](../log.md). Canonical page:

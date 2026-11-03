@@ -107,6 +107,8 @@ React page
 
 ## Route catalog
 
+The stored work profile restricts the route set and Settings independently of the sync gate; see [Work shell and jobs](multi-device-sync.md#work-profile-guards-and-shell). Its index opens Next Actions and unknown routes redirect there.
+
 All routes render under `AppShell`, which supplies the sidebar, daily quote, and
 floating Pomodoro timer. The sidebar's nav list is normally static, but a nav
 entry can carry a `flag` naming an `AppSettings` boolean; `AppShell` reads
@@ -148,7 +150,7 @@ listed only when `isSyncPageEnabled(debugEnabled, settings)` (debug mode AND
 | `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import, calendar sync, experimental multi-device sync card (debug mode only) |
 | `/waiting-someday` | Redirect | Legacy alias redirected to `/waiting-for` |
 
-`/finances/*` is always registered in `App.tsx` (a `FinanceRoutes` element reads
+`/finances/*` is registered for the personal profile in `App.tsx` (a `FinanceRoutes` element reads
 `settings.financeEnabled` and renders `<Navigate to="/" replace />` instead of
 its child routes while the flag is off), so a stale bookmark or deep link never
 404s — it just lands on Today. Every finance screen that exists ships a tab in
@@ -178,9 +180,16 @@ screen.
 2. In desktop mode, call the native `resolve_storage_paths` command.
 3. Create and initialize the SQLite repository; otherwise initialize memory storage.
    SQLite is therefore ready before any settings or GTD read.
-4. `bootstrapApplication(repository, { onStage })` then runs, in order:
+4. For a new, empty desktop database without a profile decision, show a profile choice before
+   mounting the application or running generators. Existing startup markers and a registry-based
+   inspection identify initialized installations; a known work profile remains work. Personal can
+   be selected without sync, or the user can continue to Settings to configure sync. The work
+   choice is disabled in this release. The saved `profileDecisionMadeAt` is device-local. Waiting
+   for the person does not consume the eight-second startup budget; saving the choice and the
+   remaining startup do. Browser preview skips the choice.
+5. `bootstrapApplication(repository, { onStage })` then runs, in order:
    1. Load settings.
-   2. One-time steps through `runOnceWithSettingsMarker(repository, settings,
+   2. On personal devices, relocate legacy Dimanche notes, then run one-time steps through `runOnceWithSettingsMarker(repository, settings,
       markerKey, work)`. Each is skipped when its settings marker is set; otherwise
       the work runs first and the marker is stamped afterwards (never overwriting an
       existing value), so a failed step is retried on the next boot:
@@ -216,8 +225,8 @@ screen.
       current local date, promote active Scheduled tasks whose local `scheduledFor`
       date is today or earlier to Next Actions, apply weekly carryover for the most
       recent Sunday (back-filling a missed one), and complete expired Pomodoro sessions.
-   5. Generate enabled relationship activity tasks for the current local date.
-   6. If `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
+   5. On personal devices, generate enabled relationship activity tasks for the current local date.
+   6. On personal devices, if `settings.financeEnabled` is true and `settings.financeCategoriesSeededAt`
       is empty, seed the default finance category taxonomy
       (`seedFinanceDefaultCategories()`, idempotent `INSERT OR IGNORE`) and set the
       marker through the same helper. This step is wrapped in its own `try`/`catch`
@@ -226,11 +235,11 @@ screen.
       also runs from `SettingsPage` when a user flips `financeEnabled` from false
       to true there, so whichever path flips the flag first does the seeding and
       the other is a no-op.
-5. Expose the repository and settings to the UI.
-6. After a successful bootstrap (not browser preview and not the startup
+6. Expose the repository and settings to the UI.
+7. After a successful bootstrap (not browser preview and not the startup
    fallback), re-apply the saved tray and launch-at-login preferences to the native
    host (`useDesktopShell`; see [LLM bridge](llm-bridge.md#keeping-the-app-running)).
-7. After bootstrap, the calendar sync hook mounts (repository present, not browser
+8. After bootstrap, the calendar sync hook mounts (repository present, not browser
    preview, startup settled) and runs one reconcile pass; it still no-ops while the
    feature is disabled or disconnected. See [Calendar sync](calendar-sync.md).
 

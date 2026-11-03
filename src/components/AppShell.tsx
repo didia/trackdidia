@@ -35,7 +35,7 @@ const navigation = [
 export const AppShell = () => {
   const { t } = useTranslation("nav");
   const { t: tCommon } = useTranslation("common");
-  const { pomodoro, settings, debugEnabled } = useAppContext();
+  const { pomodoro, settings, debugEnabled, deviceProfile } = useAppContext();
   const { pathname } = useLocation();
   const hasActivePomodoroSession = Boolean(pomodoro.state.activeSession);
   const [idleNowMs, setIdleNowMs] = useState<number>(() => Date.now());
@@ -71,6 +71,23 @@ export const AppShell = () => {
 
         <nav className="nav">
           {navigation
+            .filter(
+              (item) =>
+                deviceProfile === "personal" ||
+                [
+                  "/inbox",
+                  "/next-actions",
+                  "/projects",
+                  "/pomodoro",
+                  "/recurrences",
+                  "/references",
+                  "/scheduled",
+                  "/waiting-for",
+                  "/someday-maybe",
+                  "/sync",
+                  "/parametres",
+                ].includes(item.to),
+            )
             .filter((item) => !("flag" in item) || settings[item.flag])
             // The experimental sync page is listed only with debug mode AND sync enabled.
             .filter((item) => !("gate" in item) || isSyncPageEnabled(debugEnabled, settings))

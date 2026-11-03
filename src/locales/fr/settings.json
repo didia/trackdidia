@@ -3,7 +3,8 @@
   "hero": {
     "eyebrow": "Configuration",
     "title": "Paramètres de Trackdidia",
-    "copy": "Gère l'activation de l'IA, le mode debug et les options du coach."
+    "copy": "Gère l'activation de l'IA, le mode debug et les options du coach.",
+    "workCopy": "Gère la synchronisation, la connexion LLM, le calendrier et les sauvegardes."
   },
   "ai": {
     "title": "Paramètres IA",

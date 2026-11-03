@@ -155,6 +155,8 @@ export interface PomodoroStartOptions {
 }
 
 export interface AppRepository {
+  /** Run the idempotent personal weekly-note migration after profile selection. */
+  relocateDimancheNotesOnce(): Promise<void>;
   initialize(): Promise<void>;
   /**
    * Daily entry reads (`getDailyEntry`, `listDailyEntries*`) all return entries decorated once with

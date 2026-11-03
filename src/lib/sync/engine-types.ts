@@ -220,6 +220,8 @@ export interface PullReport {
 }
 
 export interface PullOptions {
+  /** Restrict a guided join to the peer the user selected. */
+  peerId?: string;
   /**
    * Stop starting new peer/domain work once this many milliseconds (on the engine's clock) have
    * passed since the pull began. An apply that has begun always finishes: it is one transaction. A
@@ -235,7 +237,7 @@ export interface PullOptions {
   approveStalePeers?: readonly string[];
   /**
    * The join flow verified that this database holds nothing but migration and seed rows: the safety
-   * backup is skipped (and the skip recorded). The engine does not check this itself.
+   * backup is skipped (and the skip recorded). The first apply rechecks emptiness atomically.
    */
   verifiedEmptyJoiner?: boolean;
 }

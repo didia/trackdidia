@@ -32,6 +32,9 @@ import {
   syncEngineKeyOf,
 } from "../lib/sync/sync-service";
 import type { AppRepository } from "../lib/storage/repository";
+import { confirmJoin, inspectJoin, type JoinPreview } from "../lib/sync/join-service";
+import type { DeviceProfile } from "../lib/sync/profile";
+import type { PullReport } from "../lib/sync/engine-types";
 import { useSyncAutomation } from "./use-sync-automation";
 
 /**
@@ -118,6 +121,8 @@ export interface MultiDeviceSyncController {
   refresh(): Promise<void>;
   /** Re-prepares both folders (after the backup folder or the shared folder was changed). */
   recheckFolders(): Promise<void>;
+  inspectJoin(settings: AppSettings, profile: DeviceProfile): Promise<JoinPreview | null>;
+  join(settings: AppSettings, profile: DeviceProfile, peerId: string): Promise<PullReport | null>;
 }
 
 /** A controller that does nothing: tests that do not care about sync, and the browser preview. */
@@ -139,6 +144,8 @@ export const inertSyncController: MultiDeviceSyncController = {
   syncNow: async () => undefined,
   refresh: async () => undefined,
   recheckFolders: async () => undefined,
+  inspectJoin: async () => null,
+  join: async () => null,
 };
 
 export const toSyncUiError = (error: unknown): SyncUiError => {
@@ -426,6 +433,47 @@ export const useMultiDeviceSync = (
     [exclusive, ensureEngine, readStatus],
   );
 
+  const inspectJoinAction = useCallback(
+    async (settings: AppSettings, profile: DeviceProfile) => {
+      let result: JoinPreview | null = null;
+      await exclusive("checking", async () => {
+        const current = latest.current;
+        if (!current.repository) throw new SyncSetupError("unsupported_preview", "No repository");
+        result = await current.runExclusive(() =>
+          inspectJoin({ repository: current.repository!, settings, profile, deps: current.deps }),
+        );
+      });
+      return result;
+    },
+    [exclusive],
+  );
+
+  const join = useCallback(
+    async (settings: AppSettings, profile: DeviceProfile, peerId: string) => {
+      let result: PullReport | null = null;
+      await automation.lifecycle.current?.whenIdle();
+      await exclusive("syncing", async () => {
+        const current = latest.current;
+        if (!current.repository) throw new SyncSetupError("unsupported_preview", "No repository");
+        result = await current.runExclusive(() =>
+          confirmJoin({
+            repository: current.repository!,
+            settings,
+            profile,
+            peerId,
+            getSettings: current.getSettings,
+            updateSettings: current.updateSettings,
+            deps: current.deps,
+          }),
+        );
+        built.current = null;
+        if (result.totals.applied > 0 || result.totals.tombstonesApplied > 0) dataChanged();
+      });
+      return result;
+    },
+    [exclusive, automation.lifecycle, dataChanged],
+  );
+
   const syncNow = useCallback(
     async (syncOptions: { approveStalePeers?: readonly string[] } = {}) => {
       // An automatic run in flight finishes first: the engine runs one thing at a time.
@@ -510,6 +558,8 @@ export const useMultiDeviceSync = (
       syncNow,
       refresh,
       recheckFolders,
+      inspectJoin: inspectJoinAction,
+      join,
     }),
     [
       supported,
@@ -529,6 +579,8 @@ export const useMultiDeviceSync = (
       syncNow,
       refresh,
       recheckFolders,
+      inspectJoinAction,
+      join,
     ],
   );
 };

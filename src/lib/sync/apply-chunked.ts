@@ -1,4 +1,4 @@
-import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "./change-set";
+import type { SyncApplyResult, SyncChangeSet } from "./change-set";
 import type { AppRepository } from "../storage/repository";
 import type { SyncDomain } from "./registry";
 import { type ApplyLimits, planChangeSet } from "./split-change-set";
@@ -40,6 +40,7 @@ export interface ChunkProgress {
 }
 
 export interface ApplyChunkedOptions {
+  requireEmptyDatabase?: boolean;
   limits?: Partial<ApplyLimits>;
   republish?: boolean;
   /** Called after every piece. */
@@ -101,7 +102,6 @@ export const applyChunked = async (
   const plan = planChangeSet(changeSet, options.limits);
   const clock = options.now ?? (() => performance.now());
   const startAt = Math.max(0, options.startAt ?? 0);
-  const applyOptions: SyncApplyOptions = options.republish === true ? { republish: true } : {};
   const yieldNow = options.yieldBetweenChunks ?? macrotask;
 
   const total: ChunkedApplyResult = {
@@ -132,11 +132,12 @@ export const applyChunked = async (
     const started = clock();
     let result: SyncApplyResult;
     try {
-      result = await repository.applySyncBundle(
-        domain,
-        plan.chunks[index] as SyncChangeSet,
-        applyOptions,
-      );
+      result = await repository.applySyncBundle(domain, plan.chunks[index] as SyncChangeSet, {
+        ...(options.republish ? { republish: true } : {}),
+        ...(options.requireEmptyDatabase && index === startAt
+          ? { requireEmptyDatabase: true }
+          : {}),
+      });
     } catch (error) {
       total.nextChunk = index;
       throw new ChunkedApplyError(error, index, plan.chunks.length, total);

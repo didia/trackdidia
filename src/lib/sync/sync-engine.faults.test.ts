@@ -586,7 +586,14 @@ describe("a peer whose clock is ahead", () => {
     await publishedByB(world);
     const report = await a.engine.pull();
     expect(issuesOf(report, "clock_skew")).toHaveLength(1);
-    expect(issuesOf(report, "bundle_rejected")).toMatchObject([{ detail: "remote_too_far_ahead" }]);
+    expect(issuesOf(report, "bundle_rejected")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ detail: "remote_too_far_ahead", domain: "gtd" }),
+      ]),
+    );
+    expect(
+      issuesOf(report, "bundle_rejected").every((issue) => issue.detail === "remote_too_far_ahead"),
+    ).toBe(true);
     expect(await hasTask(a, "from-b")).toBe(false);
   });
 });

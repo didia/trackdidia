@@ -19,6 +19,7 @@ export const SyncErrorMessage = ({ error }: { error: SyncUiError }) => {
     "capture_failed",
     "backfill_incomplete",
     "no_folders",
+    "peer_incomplete",
     "already_running",
   ] as const;
   const text = (known as readonly string[]).includes(error.code)

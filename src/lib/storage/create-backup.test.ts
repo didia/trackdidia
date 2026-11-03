@@ -73,6 +73,17 @@ describe("createBackup names and prunes per device", () => {
     expect(pruneCall()).toEqual({ destinationDir: "/Drive/Perso", environment: "development" });
   });
 
+  it("passes the work profile to native validation and retention", async () => {
+    const { repository } = await open();
+    await repository.updateSettings((current) => ({ ...current, syncProfile: "work" }));
+    await repository.createBackup("manual");
+    const ensure = vi
+      .mocked(invoke)
+      .mock.calls.find(([command]) => command === "ensure_backup_dir");
+    expect(ensure?.[1]).toMatchObject({ profile: "work" });
+    expect(pruneCall()).toMatchObject({ profile: "work" });
+  });
+
   it("tags the file and passes the same device id to prune_backups when one is given", async () => {
     const { repository, vacuums } = await open();
     const backup = await repository.createBackup("auto", { deviceId: DEVICE });
