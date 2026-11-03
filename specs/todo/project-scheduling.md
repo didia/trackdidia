@@ -411,7 +411,7 @@ Additive only (the bridge surface is append-only and the
 
 - [`mobile-and-sync.md`](mobile-and-sync.md) merges the task lifecycle tuple
   `{status, bucket, completedAt, scheduledFor, plannedOrder}` as one unit;
-  [`multi-laptop-sync.md`](multi-laptop-sync.md) classifies `gtd_projects` as field-clock.
+  [`multi-laptop-sync.md`](../done/multi-laptop-sync.md) classifies `gtd_projects` as field-clock.
   For projects, `{status, scheduledFor}` should be one merge unit, and
   `normalizeProjectSchedule` plus the containment sweep are re-run after a merge (mirroring
   the `adjustPlannedFieldsForSave` re-run).

@@ -179,7 +179,7 @@ may carry a one-line "duplication is not exposed" note.
 
 - Calendar sync: `scheduledFor` is cleared, so copies are never calendar-eligible; a later change
   that copied dates would adopt copies as new links through the normal create path.
-- Multi-laptop and mobile sync ([`multi-laptop-sync.md`](multi-laptop-sync.md),
+- Multi-laptop and mobile sync ([`multi-laptop-sync.md`](../done/multi-laptop-sync.md),
   [`mobile-and-sync.md`](mobile-and-sync.md)): copies get fresh `createEntityId` ids and go through the
   same creation path as `createTask`, so they are ordinary creates for the merge engine.
   Nulling `sourceExternalId` avoids canonical-identity collisions. Nothing else is needed.

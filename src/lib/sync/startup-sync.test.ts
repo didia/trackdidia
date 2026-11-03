@@ -63,7 +63,6 @@ describe("the startup pull when the gate is closed", () => {
     host.calls.length = 0;
     const exclusive = countingLane();
     for (const [debugEnabled, multiDeviceSyncEnabled] of [
-      [false, true],
       [true, false],
       [false, false],
     ] as const) {
@@ -84,13 +83,13 @@ describe("the startup pull when the gate is closed", () => {
 });
 
 describe("the startup pull when sync is on", () => {
-  it("merges the other laptop's work before returning when the folder answers in time", async () => {
+  it("merges the other laptop's work before returning even when debug mode is off", async () => {
     const { a, settingsA } = await world();
     const exclusive = countingLane();
     const startup = await startStartupSyncPull({
       repository: a.repository,
       settings: settingsA,
-      debugEnabled: true,
+      debugEnabled: false,
       runExclusive: exclusive.run,
       deps: a.deps,
     });

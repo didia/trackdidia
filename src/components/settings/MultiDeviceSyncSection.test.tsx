@@ -38,10 +38,11 @@ beforeEach(() => {
 });
 
 describe("MultiDeviceSyncSection visibility", () => {
-  it("renders nothing without debug mode", async () => {
-    const view = await render(syncController(), withBackup(), { debugEnabled: false });
-    expect(view.container).toBeEmptyDOMElement();
-    expect(screen.queryByText("Synchronisation multi-ordinateurs (expérimental)")).toBeNull();
+  it("renders without debug mode", async () => {
+    await render(syncController(), withBackup(), { debugEnabled: false });
+    expect(
+      screen.getByText("Synchronisation multi-ordinateurs (expérimental)"),
+    ).toBeInTheDocument();
   });
 
   it("explains scope and risks with debug mode on", async () => {
@@ -231,4 +232,13 @@ describe("enabling and disabling", () => {
     expect(screen.getByText(/Statut : désactivée/)).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Ouvrir la page Synchronisation" })).toBeNull();
   });
+});
+
+it("requires confirmation before stopping change tracking", async () => {
+  const uninstall = vi.fn(async () => undefined);
+  await render(syncController({ uninstall }));
+  fireEvent.click(screen.getByRole("button", { name: "Arrêter le suivi des changements…" }));
+  expect(uninstall).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Confirmer l’arrêt du suivi" }));
+  expect(uninstall).toHaveBeenCalledTimes(1);
 });

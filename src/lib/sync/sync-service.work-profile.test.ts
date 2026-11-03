@@ -85,12 +85,12 @@ const setupCode = async (promise: Promise<unknown>): Promise<SyncSetupError> => 
 const hasTask = async (laptop: FakeLaptop, id: string) =>
   (await laptop.repository.listTasks({ includeCompleted: true })).some((task) => task.id === id);
 
-describe("the work profile is not selectable in this release", () => {
-  it("is off by default", () => {
-    expect(WORK_PROFILE_SELECTABLE).toBe(false);
+describe("the work profile selectability gate", () => {
+  it("is on by default", () => {
+    expect(WORK_PROFILE_SELECTABLE).toBe(true);
   });
 
-  it("enabling, building and changing to it are refused as unsupported without the test seam", async () => {
+  it("enabling, building and changing to it are refused when selectability is explicitly disabled", async () => {
     const fake = host();
     const laptop = await openWorkLaptop(fake, 0);
     const settings = await laptop.settings();
@@ -101,7 +101,7 @@ describe("the work profile is not selectable in this release", () => {
             repository: laptop.repository,
             settings,
             updateSettings: (u) => laptop.repository.updateSettings(u),
-            deps: laptop.deps,
+            deps: { ...laptop.deps, workProfileSelectable: false },
           }),
         )
       ).code,
@@ -113,7 +113,7 @@ describe("the work profile is not selectable in this release", () => {
             repository: laptop.repository,
             settings,
             getSettings: () => settings,
-            deps: laptop.deps,
+            deps: { ...laptop.deps, workProfileSelectable: false },
           }),
         )
       ).code,
@@ -127,7 +127,7 @@ describe("the work profile is not selectable in this release", () => {
             settings: await personal.settings(),
             to: "work",
             updateSettings: (u) => personal.repository.updateSettings(u),
-            deps: personal.deps,
+            deps: { ...personal.deps, workProfileSelectable: false },
           }),
         )
       ).code,

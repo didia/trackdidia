@@ -162,7 +162,7 @@ describe("edits across the folder", () => {
     const lost = (await readConflicts(a)).filter((row) => row.kind === "overwritten_edit");
     expect(lost).toHaveLength(1);
     expect(String(lost[0]?.local_json)).toContain("From A");
-    expect((await readConflicts(b)).filter((row) => row.kind === "overwritten_edit")).toEqual([]);
+    expect((await readConflicts(b)).filter((row) => row.kind === "overwritten_edit")).toEqual(lost);
   });
 
   it("delete on A and edit on B: the edit resurrects the task", async () => {

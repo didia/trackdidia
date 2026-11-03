@@ -7,6 +7,7 @@ import type {
   SyncCaptureEnableResult,
 } from "../sync/backfill-state";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncConflict, SyncConflictResolution } from "../sync/conflicts";
 import type { ProfileDataInspection } from "../sync/profile-data";
 import type { InspectProfileDataOptions } from "../sync/profile-data-sql";
 import type { SyncDomain } from "../sync/registry";
@@ -625,6 +626,10 @@ export interface AppRepository {
    * browser preview.
    */
   enableSyncCapture(options?: SyncBackfillOptions): Promise<SyncCaptureEnableResult>;
+  /** Uninstalls capture while preserving application rows and sync history for a later backfill. */
+  uninstallSyncChangeTracking(): Promise<void>;
+  listSyncConflicts(): Promise<SyncConflict[]>;
+  resolveSyncConflict(id: string, resolution: SyncConflictResolution): Promise<void>;
   /**
    * Runs further chunks of the capture backfill (default one; `maxChunks` and `deadlineMs` bound a
    * longer call), each in its own writer slot with the queue free to serve other writes in between.

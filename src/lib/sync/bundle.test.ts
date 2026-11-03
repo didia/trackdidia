@@ -154,11 +154,11 @@ describe("tombstones with values", () => {
     });
   }
 
-  it("writes format 2, and names it in the preamble and in the header", async () => {
+  it("writes format 3, and names it in the preamble and in the header", async () => {
     const { bytes } = await encodeBundle(withValues(), { compression: "none" });
     const lines = textOf(bytes).split("\n");
-    expect(lines[0]).toBe(`${BUNDLE_MAGIC} 2 none`);
-    expect(JSON.parse(lines[1] as string)).toMatchObject({ kind: "header", formatVersion: 2 });
+    expect(lines[0]).toBe(`${BUNDLE_MAGIC} 3 none`);
+    expect(JSON.parse(lines[1] as string)).toMatchObject({ kind: "header", formatVersion: 3 });
   });
 
   it("still reads a format 1 bundle: the same records, tombstones without values", async () => {
@@ -268,7 +268,7 @@ describe("bundle round trip", () => {
     const second = await encodeBundle(rich(), { compression: "none" });
     expect(textOf(first.bytes)).toBe(textOf(second.bytes));
     const lines = textOf(first.bytes).split("\n");
-    expect(lines[0]).toBe(`${BUNDLE_MAGIC} 2 none`);
+    expect(lines[0]).toBe(`${BUNDLE_MAGIC} 3 none`);
     expect(JSON.parse(lines[1] as string)).toMatchObject({
       kind: "header",
       domain: "gtd",
@@ -276,7 +276,7 @@ describe("bundle round trip", () => {
     });
     expect(lines.at(-1)).toBe("");
     const gzip = await encodeBundle(rich());
-    expect(textOf(gzip.bytes.subarray(0, 40))).toContain(`${BUNDLE_MAGIC} 2 gzip\n`);
+    expect(textOf(gzip.bytes.subarray(0, 40))).toContain(`${BUNDLE_MAGIC} 3 gzip\n`);
   });
 
   it("writes uncompressed when the runtime has no CompressionStream, and refuses gzip it cannot read", async () => {
@@ -409,7 +409,7 @@ describe("decodeBundle rejects hostile input", () => {
   });
 
   it("an unknown format version, in the preamble or the header", async () => {
-    expect(await codeOf(decodeBundle(bytesOf(`${preamble("none", 3)}${header()}\n`)))).toBe(
+    expect(await codeOf(decodeBundle(bytesOf(`${preamble("none", 4)}${header()}\n`)))).toBe(
       "unknown_version",
     );
     expect(

@@ -10,7 +10,7 @@ import { SectionCard } from "../SectionCard";
 import { SyncErrorMessage } from "../sync/SyncErrorMessage";
 
 /**
- * The Settings card of the EXPERIMENTAL multi-device sync. Rendered only with debug mode on. It
+ * The Settings card of multi-device sync. It
  * chooses the shared GTD folder (refusing the backup folder, or one inside or around it, before the
  * native host is even asked), names this laptop, and enables or disables sync. The personal folder
  * is the existing backup destination.
@@ -22,6 +22,7 @@ export const MultiDeviceSyncSection = () => {
   const [nameDraft, setNameDraft] = useState(settings.syncDeviceName);
   const [message, setMessage] = useState("");
   const [choosing, setChoosing] = useState(false);
+  const [confirmUninstall, setConfirmUninstall] = useState(false);
 
   const visible = isSyncCardVisible(debugEnabled);
   const reachable = visible && !browserPreview && sync.supported;
@@ -197,6 +198,45 @@ export const MultiDeviceSyncSection = () => {
             onClick={() => void enable()}
           >
             {sync.phase === "enabling" ? t("card.enabling") : t("card.enable")}
+          </button>
+        )}
+      </div>
+
+      <div className="form-actions">
+        {confirmUninstall ? (
+          <div role="alert">
+            <p>
+              Arrêter le suivi des changements ? Les données, l’historique et les fichiers partagés
+              seront conservés. La synchronisation sera désactivée.
+            </p>
+            <button
+              className="button"
+              type="button"
+              disabled={unavailable || busy}
+              onClick={() => {
+                setConfirmUninstall(false);
+                void sync.uninstall();
+              }}
+            >
+              Confirmer l’arrêt du suivi
+            </button>
+            <button
+              className="button"
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirmUninstall(false)}
+            >
+              Annuler
+            </button>
+          </div>
+        ) : (
+          <button
+            className="button"
+            type="button"
+            disabled={unavailable || busy}
+            onClick={() => setConfirmUninstall(true)}
+          >
+            Arrêter le suivi des changements…
           </button>
         )}
       </div>

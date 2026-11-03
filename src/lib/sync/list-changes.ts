@@ -1,7 +1,9 @@
 import type { Database } from "../storage/sqlite-db";
 import { AliasIndex } from "./aliases";
-import { loadAliasRecords } from "./alias-store";
+import { loadAliasRecords, loadAliases } from "./alias-store";
 import { capturedSettingKeys, fetchMeta, parseClocks } from "./capture-stamp";
+import { canonicalConflictEntityId } from "./conflict-resolution";
+import { conflictPayloadIsPublishable } from "./conflict-privacy";
 import { SyncClockError } from "./clock-store";
 import {
   clocksOfChangeSet,
@@ -9,6 +11,7 @@ import {
   SYNC_FORMAT_VERSION,
   type SyncAlias,
   type SyncChangeSet,
+  type SyncConflictRow,
   type SyncEntity,
   type SyncRecurrence,
   type SyncRow,
@@ -20,6 +23,7 @@ import { getOwn } from "./field-clocks";
 import { encodeHlc, maxHlcOf } from "./hlc";
 import { supportedEntityTables, supportedUnionTables, tableOrder } from "./merge-strategies";
 import { assertEntitiesPublishable, publishFilterSql, rowPassesFilter } from "./row-filter";
+import { rewriteSyncRow } from "./reference-rewrite";
 import { type ClearRow, type OccurrenceRow, occurrenceFromRow } from "./recurrence-store";
 import {
   assertTablePublishable,
@@ -236,6 +240,123 @@ const readAliases = async (db: Database, domain: SyncDomain): Promise<SyncAlias[
       recorded_hlc: record.recordedHlc,
     }));
 
+/** Conflicts follow their entity's domain and the same row filter as the published row. */
+const readConflicts = async (
+  db: Database,
+  domain: SyncDomain,
+  entities: SyncEntity[],
+): Promise<SyncConflictRow[]> => {
+  const rows = await db.select<SyncConflictRow[]>(
+    "SELECT id, entity_type, entity_id, kind, local_json, remote_json, detected_at, resolved_at, resolution, resolution_hlc FROM sync_conflicts ORDER BY id",
+  );
+  const aliases = (await loadAliases(db)).index;
+  const resolve = (type: string, id: string) => aliases.resolve(type, id);
+  // A replica can retain a different observation of the same conflict. Publish the evidence that
+  // accompanied the winning decision so receivers can verify it, while keeping local history intact.
+  const decisionEvidence = (row: SyncConflictRow): SyncConflictRow => {
+    if (row.resolution === null) return row;
+    try {
+      const decision: unknown = JSON.parse(row.resolution);
+      if (typeof decision !== "object" || decision === null || Array.isArray(decision)) return row;
+      const value = decision as Record<string, unknown>;
+      if (
+        value.action === "choose" &&
+        typeof value.local === "object" &&
+        value.local !== null &&
+        typeof value.remote === "object" &&
+        value.remote !== null
+      ) {
+        return {
+          ...row,
+          local_json: JSON.stringify(value.local),
+          remote_json: JSON.stringify(value.remote),
+        };
+      }
+      if (
+        value.action === "rename" &&
+        (value.row === null || (typeof value.row === "object" && !Array.isArray(value.row)))
+      ) {
+        const remote: unknown = JSON.parse(row.remote_json);
+        if (typeof remote === "object" && remote !== null && !Array.isArray(remote)) {
+          return { ...row, remote_json: JSON.stringify({ ...remote, row: value.row }) };
+        }
+      }
+    } catch {
+      /* Invalid persisted evidence fails validation on the receiver. */
+    }
+    return row;
+  };
+  const canonicalize = (row: SyncConflictRow): SyncConflictRow => {
+    if (row.entity_type === SETTING_ENTITY_TYPE || publishFilterSql(row.entity_type) === null)
+      return row;
+    const rewriteSnapshot = (value: unknown): unknown => {
+      if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+      const obj = value as Record<string, unknown>;
+      if (typeof obj.row === "object" && obj.row !== null && !Array.isArray(obj.row)) {
+        return {
+          ...obj,
+          row:
+            rewriteSyncRow(row.entity_type, obj.row as Record<string, unknown>, resolve) ?? obj.row,
+        };
+      }
+      return rewriteSyncRow(row.entity_type, obj, resolve) ?? obj;
+    };
+    const rewriteJson = (text: string): string => {
+      try {
+        return JSON.stringify(rewriteSnapshot(JSON.parse(text)));
+      } catch {
+        return text;
+      }
+    };
+    let resolution = row.resolution;
+    if (resolution !== null) {
+      try {
+        const decision = JSON.parse(resolution) as Record<string, unknown>;
+        if (decision && decision.action === "choose")
+          resolution = JSON.stringify({
+            ...decision,
+            value: rewriteSnapshot(decision.value),
+            local: rewriteSnapshot(decision.local),
+            remote: rewriteSnapshot(decision.remote),
+          });
+      } catch {
+        /* Invalid evidence stays unchanged and will fail the privacy check. */
+      }
+    }
+    return {
+      ...row,
+      entity_id: canonicalConflictEntityId(row.entity_type, row.entity_id, resolve),
+      local_json: rewriteJson(row.local_json),
+      remote_json: rewriteJson(row.remote_json),
+      resolution,
+    };
+  };
+  const eligible = new Set(
+    entities
+      .filter((entity) => entity.row !== null)
+      .map((entity) => `${entity.table}\0${entity.entityId}`),
+  );
+  const terminalSessionIds = new Set(
+    entities
+      .filter((entity) => entity.table === "pomodoro_sessions" && entity.row !== null)
+      .map((entity) => entity.entityId),
+  );
+  return rows
+    .filter((row) => isSidecarPublishable("sync_conflicts", domain, row.entity_type, row.entity_id))
+    .map(decisionEvidence)
+    .map(canonicalize)
+    .filter(
+      (row) =>
+        row.entity_type === SETTING_ENTITY_TYPE ||
+        publishFilterSql(row.entity_type) === null ||
+        eligible.has(`${row.entity_type}\0${row.entity_id}`),
+    )
+    .map((row) =>
+      row.resolution_hlc === null ? { ...row, resolved_at: null, resolution: null } : row,
+    )
+    .filter((row) => conflictPayloadIsPublishable(row, terminalSessionIds));
+};
+
 const readSettings = async (
   db: Database,
   domain: SyncDomain,
@@ -289,6 +410,7 @@ export const readChangeSet = async (
     recurrence: await readRecurrence(db, domain),
     aliases: await readAliases(db, domain),
   };
+  draft.conflicts = await readConflicts(db, domain, draft.entities);
   // The newest clock included; an empty change set reports the clock the device itself has reached.
   draft.hlcHigh =
     maxHlcOf(clocksOfChangeSet(draft)) ??

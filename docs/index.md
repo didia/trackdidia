@@ -27,7 +27,7 @@ Chronological documentation activity is recorded in domain logs under
 | [calendar-sync.md](calendar-sync.md) | Disabled-by-default one-way TrackDidia → Google Calendar sync (promotion capture, reconciler, Settings card) |
 | [llm-bridge.md](llm-bridge.md) | Disabled-by-default local MCP endpoint (`127.0.0.1`, bearer token) that lets an LLM client list projects/contexts and add tasks to the Inbox or a project; Rust transport, TypeScript tools, Settings card, stdio adapter |
 | [finance.md](finance.md) | Household finance domain: schema, import/dedupe/transfer detection, the classification pipeline (rules/memory/seeds/AI), the zero-based envelope budget model, net worth/cash flow/reports/recurring-bill detection/daily balance snapshots, proactive runout/cash-flow forecasting and alerts with a rate-limited desktop notification, optional AI merchant categorization (`finance_categorization`), repository contract, and the accounts/import/transactions/budget/reports/review/rules screens behind `financeEnabled` (all 8 phases shipped) |
-| [multi-device-sync.md](multi-device-sync.md) | Experimental, opt-in, debug-gated, manual-only sync of two personal laptops through two shared folders: the gate, the four device-local settings, the enable flow (folders, identity, capture backfill, safety backup), the `/sync` page, error kinds, limits; links to the engine, bundle format and folder transport in storage-and-backups.md |
+| [multi-device-sync.md](multi-device-sync.md) | Opt-in desktop folder sync: profiles, setup, automatic and manual synchronization, conflict handling, safety and limits; links to the engine, bundle format and folder transport |
 
 ## Source map
 

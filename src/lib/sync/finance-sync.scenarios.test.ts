@@ -230,7 +230,7 @@ describe("plain finance rows converge through the real methods", () => {
     const lostAtA = await overwrittenRows(a, "finance_accounts");
     expect(lostAtA).toHaveLength(1);
     expect(JSON.parse(String(lostAtA[0]?.local_json))["(row)"].value.name).toBe("Renamed at A");
-    expect(await overwrittenRows(b, "finance_accounts")).toEqual([]);
+    expect(await overwrittenRows(b, "finance_accounts")).toEqual(lostAtA);
     await sim.expectConverged("finance", { snapshots: true, exact: true });
   });
 
@@ -531,12 +531,12 @@ describe("category suggestions: terminal beats pending, one pending per transact
       expect(await statusOf(device, "s-b")).toBe("pending");
       expect(await statusOf(device, "s-a")).toBe("expired");
     }
-    // The replica that meets both rows logs it (here B, which received A's earlier suggestion
-    // first); the other learns of the expiry as an ordinary terminal status.
+    // The detecting replica records the collision; its peer receives the same conflict.
     const collisions = [...(await readConflicts(a)), ...(await readConflicts(b))].filter(
       (row) => row.kind === "pending_collision",
     );
-    expect(collisions).toHaveLength(1);
+    expect(collisions).toHaveLength(2);
+    expect(new Set(collisions.map((row) => row.id)).size).toBe(1);
     expect(JSON.parse(String(collisions[0]?.local_json))).toEqual({ expired: "s-a", kept: "s-b" });
     expect(JSON.parse(String(collisions[0]?.remote_json))).toMatchObject({
       transactionId: alpha.id,

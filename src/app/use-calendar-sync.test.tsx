@@ -13,12 +13,16 @@ const Mount = ({
   repository,
   browserPreview,
   allowStart,
+  checkPeers,
+  onBlocked,
 }: {
   repository: MemoryRepository | null;
   browserPreview: boolean;
   allowStart: boolean;
+  checkPeers?: () => Promise<string | null>;
+  onBlocked?: (warning: string | null) => void;
 }) => {
-  useCalendarSync(repository, { browserPreview, allowStart });
+  useCalendarSync(repository, { browserPreview, allowStart, checkPeers, onBlocked });
   return null;
 };
 
@@ -47,6 +51,28 @@ describe("useCalendarSync", () => {
 
     expect(reconcileMock).toHaveBeenCalledTimes(1);
     expect(reconcileMock).toHaveBeenCalledWith(repository, "automatic");
+  });
+
+  it("blocks automatic reconciliation and reports a peer warning", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+    });
+    const onBlocked = vi.fn();
+    render(
+      <Mount
+        repository={repository}
+        browserPreview={false}
+        allowStart={true}
+        checkPeers={async () => "Maison is active"}
+        onBlocked={onBlocked}
+      />,
+    );
+    await flush();
+    expect(onBlocked).toHaveBeenCalledWith("Maison is active");
+    expect(reconcileMock).not.toHaveBeenCalled();
   });
 
   it("never mounts under browser preview (zero reconcile calls)", async () => {

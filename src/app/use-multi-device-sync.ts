@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { calendarPeerWarning } from "../lib/sync/calendar-peer-guard";
+import type { SyncConflict, SyncConflictResolution } from "../lib/sync/conflicts";
 import type { AppSettings } from "../domain/types";
 import { logDebug } from "../lib/debug";
 import { backfillPercent, runSyncCaptureBackfill } from "../lib/sync/backfill-driver";
@@ -43,7 +45,7 @@ import { useSyncAutomation } from "./use-sync-automation";
  * run, and the actions the Settings card and the `/sync` page call. The automatic triggers (startup
  * pull, focus and hourly pull, debounced / blur / quit publish) are `lib/sync/lifecycle.ts`, wired to
  * the window by `use-sync-automation.ts`; they exist only while `automationKey` is non-null (debug
- * gate open AND sync enabled), share this hook's engine, and never run while a manual action does.
+ * enabled), share this hook's engine, and never run while a manual action does.
  *
  * It lives in `AppProvider`, so the last report survives navigating between Settings and `/sync`.
  */
@@ -110,6 +112,8 @@ export interface MultiDeviceSyncController {
   chip: SyncChip;
   /** The identity was rewritten to this device's id at the last engine build (a cloned database). */
   identityRepaired: boolean;
+  conflicts: SyncConflict[];
+  resolveConflict(id: string, resolution: SyncConflictResolution): Promise<void>;
   enable(): Promise<void>;
   /**
    * Continues an interrupted backfill ("Reprendre l'initialisation"). With sync not yet turned on it
@@ -117,6 +121,9 @@ export interface MultiDeviceSyncController {
    */
   resumeBackfill(): Promise<void>;
   disable(): Promise<void>;
+  uninstall(): Promise<void>;
+  checkCalendarPeers(): Promise<string | null>;
+  publishCalendarState(): Promise<boolean>;
   syncNow(options?: { approveStalePeers?: readonly string[] }): Promise<void>;
   refresh(): Promise<void>;
   /** Re-prepares both folders (after the backup folder or the shared folder was changed). */
@@ -138,9 +145,14 @@ export const inertSyncController: MultiDeviceSyncController = {
   run: null,
   chip: { state: "idle", lastOkAtMs: null, retryAtMs: null },
   identityRepaired: false,
+  conflicts: [],
+  resolveConflict: async () => undefined,
   enable: async () => undefined,
   resumeBackfill: async () => undefined,
   disable: async () => undefined,
+  uninstall: async () => undefined,
+  checkCalendarPeers: async () => null,
+  publishCalendarState: async () => true,
   syncNow: async () => undefined,
   refresh: async () => undefined,
   recheckFolders: async () => undefined,
@@ -173,7 +185,7 @@ export interface UseMultiDeviceSyncOptions {
   deps?: SyncServiceDeps;
   /**
    * `null` or absent: no automatic trigger exists. Otherwise `syncEngineKeyOf(settings)` of a
-   * session whose debug gate is open and whose sync is enabled (`isSyncAutomationEnabled`).
+   * session whose sync is enabled (`isSyncAutomationEnabled`).
    */
   automationKey?: string | null;
   /** The engine and pull started during bootstrap, adopted when its key matches. */
@@ -206,6 +218,7 @@ export const useMultiDeviceSync = (
   const [run, setRun] = useState<SyncRunRecord | null>(null);
   const [backfill, setBackfill] = useState<BackfillView | null>(null);
   const [identityRepaired, setIdentityRepaired] = useState(false);
+  const [conflicts, setConflicts] = useState<SyncConflict[]>([]);
 
   const built = useRef<{ key: string; engine: BuiltSyncEngine } | null>(null);
   const busy = useRef(false);
@@ -321,6 +334,8 @@ export const useMultiDeviceSync = (
 
   const readStatus = useCallback(async (engine: BuiltSyncEngine) => {
     setStatus(await engine.engine.getStatus());
+    if (latest.current.repository)
+      setConflicts(await latest.current.repository.listSyncConflicts());
     setIgnored(
       engine.transports
         .map((transport) => ({
@@ -415,6 +430,85 @@ export const useMultiDeviceSync = (
         setEnableResult(null);
       }),
     [exclusive],
+  );
+
+  const uninstall = useCallback(async () => {
+    await exclusive("disabling", async () => {
+      const lifecycle = automation.lifecycle.current;
+      lifecycle?.stop();
+      await lifecycle?.whenIdle();
+      const current = latest.current;
+      if (!current.repository) throw new SyncSetupError("unsupported_preview", "No repository");
+      await current.runExclusive(async () => {
+        await disableSync(current.updateSettings);
+        built.current = null;
+        await current.repository!.uninstallSyncChangeTracking();
+      });
+      setStatus(null);
+      setBackfill(null);
+    });
+  }, [exclusive, automation.lifecycle]);
+
+  const checkCalendarPeers = useCallback(async (): Promise<string | null> => {
+    if (!latest.current.getSettings().multiDeviceSyncEnabled) return null;
+    let warning: string | null = "Impossible de vérifier les autres ordinateurs. Réessayez.";
+    await exclusive("checking", async () => {
+      await automation.lifecycle.current?.whenIdle();
+      const engine = await ensureEngine();
+      const transport = engine.transports.find((item) => item.domains.includes("gtd"));
+      if (!transport) return;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const peers = await Promise.race([
+          transport.listPeers(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("timeout")), 8000);
+          }),
+        ]);
+        const ignored = transport.lastListing()?.ignored ?? [];
+        if (ignored.some((entry) => /\/manifest\.json$/.test(entry.path))) return;
+        const status = await latest.current.repository?.getSyncStatus();
+        if (!status?.supported) return;
+        warning = calendarPeerWarning(peers, status.peers, latest.current.deps.now());
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    });
+    return warning;
+  }, [ensureEngine, exclusive, automation.lifecycle]);
+
+  const publishCalendarState = useCallback(async (): Promise<boolean> => {
+    if (!latest.current.getSettings().multiDeviceSyncEnabled) return true;
+    let success = false;
+    await exclusive("syncing", async () => {
+      await automation.lifecycle.current?.whenIdle();
+      const engine = await ensureEngine();
+      const report = await latest.current.runExclusive(() =>
+        engine.engine.publish({ force: true }),
+      );
+      success =
+        report.domains.some(
+          (domain) => domain.domain === "gtd" && domain.outcome === "published",
+        ) &&
+        report.domains.every((domain) => domain.outcome === "published") &&
+        !report.issues.some(
+          (issue) => issue.code === "publish_skipped" || issue.severity === "error",
+        );
+    });
+    return success;
+  }, [exclusive, ensureEngine, automation.lifecycle]);
+
+  const resolveConflict = useCallback(
+    async (id: string, resolution: SyncConflictResolution) => {
+      await exclusive("checking", async () => {
+        const repo = latest.current.repository;
+        if (!repo) throw new SyncSetupError("unsupported_preview", "No repository");
+        await latest.current.runExclusive(() => repo.resolveSyncConflict(id, resolution));
+        setConflicts(await repo.listSyncConflicts());
+        dataChanged();
+      });
+    },
+    [exclusive, dataChanged],
   );
 
   const recheckFolders = useCallback(
@@ -552,9 +646,14 @@ export const useMultiDeviceSync = (
       run,
       chip,
       identityRepaired,
+      conflicts,
+      resolveConflict,
       enable,
       resumeBackfill,
       disable,
+      uninstall,
+      checkCalendarPeers,
+      publishCalendarState,
       syncNow,
       refresh,
       recheckFolders,
@@ -573,9 +672,14 @@ export const useMultiDeviceSync = (
       run,
       chip,
       identityRepaired,
+      conflicts,
+      resolveConflict,
       enable,
       resumeBackfill,
       disable,
+      uninstall,
+      checkCalendarPeers,
+      publishCalendarState,
       syncNow,
       refresh,
       recheckFolders,

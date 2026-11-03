@@ -364,7 +364,7 @@ describe("useBootstrap", () => {
       expect(result.current.profileChoice).toBeNull();
     });
 
-    it("refuses work without the test seam", async () => {
+    it("accepts the work profile on a fresh installation without the test seam", async () => {
       const repository = await fresh();
       const { result } = renderHook(() => useBootstrap({ inspectFirstRun: true }));
       await waitFor(() => expect(result.current.profileChoice).not.toBeNull());
@@ -372,9 +372,11 @@ describe("useBootstrap", () => {
       await act(async () => {
         selected = await result.current.profileChoice!.choose("work");
       });
-      expect(selected).toBe(false);
-      expect((await repository.getSettings()).profileDecisionMadeAt).toBe("");
-      expect(result.current.profileChoice).not.toBeNull();
+      expect(selected).toBe(true);
+      const settings = await repository.getSettings();
+      expect(settings.syncProfile).toBe("work");
+      expect(settings.profileDecisionMadeAt).not.toBe("");
+      expect(result.current.profileChoice).toBeNull();
     });
 
     it("reports a failed choice and allows retry", async () => {

@@ -1,7 +1,7 @@
 {
   "card": {
     "title": "Synchronisation multi-ordinateurs (expérimental)",
-    "subtitle": "Garde deux ordinateurs personnels à jour l'un de l'autre à travers des dossiers Google Drive. Fonction expérimentale, visible uniquement en mode debug.",
+    "subtitle": "Synchronise tes ordinateurs à travers des dossiers partagés, avec un profil personnel ou travail pour chacun.",
     "experimental": "Expérimental : la première synchronisation fait d'abord une sauvegarde de cette base, et il n'existe aucune interface de restauration. Ne l'active qu'après avoir vérifié ta sauvegarde.",
     "workScope": "Profil travail : seules les tâches GTD et les sessions Pomodoro sont synchronisées dans le dossier GTD partagé. Les sauvegardes restent propres à cet ordinateur.",
     "scope": "Profil personnel : tout est synchronisé (tâches GTD, journal, objectifs, finances, réglages partagés). Le dossier GTD est partagé ; le dossier personnel est le dossier de sauvegarde choisi plus haut. Les secrets (clé OpenRouter, clé RescueTime, jeton LLM) et les réglages propres à cet ordinateur ne sont jamais synchronisés.",
@@ -34,7 +34,7 @@
     "openPage": "Ouvrir la page Synchronisation",
     "status": {
       "off": "Statut : désactivée.",
-      "on": "Statut : activée sur ce profil personnel.",
+      "on": "Statut : activée sur cet ordinateur.",
       "pending_one": "{{count}} changement en attente de publication.",
       "pending_other": "{{count}} changements en attente de publication.",
       "unknownPending": "Changements en attente : inconnu (l'état n'a pas encore été lu)."
@@ -57,7 +57,7 @@
   },
   "errors": {
     "unsupported_preview": "Indisponible en mode aperçu navigateur : la synchronisation exige l'application de bureau.",
-    "unsupported_profile": "Ce profil de synchronisation n'est pas encore pris en charge : seul le profil personnel l'est.",
+    "unsupported_profile": "Ce profil de synchronisation ne peut pas être activé dans cette configuration.",
     "work_profile_data_present": "Cette base de données contient des données personnelles : elle ne peut pas être celle d'un ordinateur de travail. Un ordinateur de travail doit repartir d'une base vide. ({{detail}})",
     "no_backup_destination": "Aucun dossier de sauvegarde n'est défini. C'est le dossier personnel de la synchronisation et l'endroit de la sauvegarde de sécurité : choisis-le dans la section Sauvegardes.",
     "no_gtd_folder": "Choisis d'abord le dossier GTD partagé.",
@@ -89,7 +89,7 @@
   "page": {
     "eyebrow": "Expérimental",
     "title": "Synchronisation",
-    "copy": "Synchronisation entre tes ordinateurs personnels, à travers deux dossiers Drive.",
+    "copy": "Synchronisation entre tes ordinateurs, à travers des dossiers partagés.",
     "gate": {
       "debug": "Cette page expérimentale n'est disponible qu'en mode debug.",
       "disabled": "La synchronisation n'est pas activée sur cet ordinateur. Active-la dans les Paramètres.",
@@ -261,7 +261,7 @@
     "disableFirst": "Désactive la synchronisation avant de rejoindre un autre ordinateur.",
     "profile": "Profil de cet ordinateur",
     "personal": "Personnel",
-    "work": "Travail (bientôt disponible)",
+    "work": "Travail",
     "workBackup": "Dossier de sauvegarde local ou de travail (facultatif si la base est vide)",
     "chooseBackup": "Choisir le dossier de sauvegarde",
     "inspect": "Rechercher les ordinateurs",

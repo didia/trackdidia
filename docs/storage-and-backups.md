@@ -43,7 +43,7 @@ regenerated, because replacing it would orphan the device's identity. The file i
 included in backups, so restoring a backup (see [Recovery](#recovery)) leaves it untouched.
 It is the authority for the device id kept in the `sync_identity` row (see
 [Multi-device sync sidecar tables](#multi-device-sync-sidecar-tables)); only the
-debug-gated sync enable flow and the engine construction call `ensureSyncIdentity` (never
+opt-in sync enable or join flow and the engine construction call `ensureSyncIdentity` (never
 startup; see [Multi-device sync](multi-device-sync.md)).
 
 The live database resolves beneath:
@@ -421,10 +421,9 @@ edit on an event that already exists becomes a planner update (not a create).
 
 ### Multi-device sync sidecar tables
 
-Migration 42 (`add_multi_device_sync_sidecars`) adds the storage foundation for the planned
-multi-laptop sync (design: [`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)).
-**Multi-device sync is experimental** ([Multi-device sync](multi-device-sync.md): opt-in,
-debug-gated, manual only). The tables are created empty on every database and
+Migration 42 (`add_multi_device_sync_sidecars`) adds the storage foundation for
+multi-laptop sync (design: [`specs/done/multi-laptop-sync.md`](../specs/done/multi-laptop-sync.md)).
+**Multi-device sync is experimental and opt-in** ([Multi-device sync](multi-device-sync.md)). The tables are created empty on every database and
 nothing reads or writes them except the repository methods below and, once a database has
 change capture enabled (see [Multi-device sync change capture](#multi-device-sync-change-capture)),
 the capture stamper and `applySyncBundle`; no existing table was altered, the only switch is the
@@ -473,8 +472,7 @@ exactly what the repair rule above exists for.
 ### Multi-device sync change capture
 
 Migration 43 (`add_sync_capture_state`) adds three device-local tables and
-`AppRepository.enableSyncCapture()` turns capture on. **Capture is enabled only by the opt-in,
-debug-gated enable flow** of the Settings sync card ([Multi-device sync](multi-device-sync.md#enabling-settings-card)):
+`AppRepository.enableSyncCapture()` turns capture on. **Capture is enabled by the opt-in enable or join flow** of the Settings sync card ([Multi-device sync](multi-device-sync.md#enabling-settings-card)):
 on every database where that was never run the tables stay empty, no trigger exists, and no write
 path runs any sync query.
 
@@ -650,8 +648,7 @@ up:
 
 `AppRepository.listSyncChanges(domain)` and `AppRepository.applySyncBundle(domain, changeSet)`
 are the read and write halves of multi-laptop sync (design:
-[`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)). **Sync is experimental and
-manual**: only the sync engine calls either method, and only from the debug-gated "Synchroniser maintenant"
+[`specs/done/multi-laptop-sync.md`](../specs/done/multi-laptop-sync.md)). **Sync is experimental and opt-in**: the sync engine calls these methods during manual and automatic runs
 ([Multi-device sync](multi-device-sync.md)); `MemoryRepository` rejects both with the browser-preview error.
 The tests exercise them through a two-laptop harness (`src/lib/sync/test-support/`) built from
 independent `TauriSqliteRepository` instances over real in-memory SQLite.
@@ -660,7 +657,7 @@ independent `TauriSqliteRepository` instances over real in-memory SQLite.
 
 ```text
 SyncChangeSet = {
-  formatVersion: 2, deviceId, domain: "gtd" | "personal" | "finance",
+  formatVersion: 3, deviceId, domain: "gtd" | "personal" | "finance",
                             // 2 is written, 1 and 2 are read (see "Tombstones carry the last field values")
   schemaVersion,            // highest applied migration id of the sender
   hlcHigh,                  // an upper bound of every clock carried
@@ -673,6 +670,8 @@ SyncChangeSet = {
     clears:      [{ template_id, cleared_through_date }],
   },
   aliases: [{ entity_type, alias_id, canonical_id, recorded_hlc }],   // always present
+  conflicts: [{ id, entity_type, entity_id, kind, local_json, remote_json, detected_at,
+                resolved_at, resolution, resolution_hlc }], // format 3
 }
 ```
 
@@ -978,7 +977,7 @@ local name stays (with the local clock of the `name` field), every other field o
 applied, a context that would have to be inserted under a taken name is not inserted, and an
 unresolved `name_collision` conflict with a deterministic id records who holds the name
 (`apply-names.ts`). The bundle is never aborted for it; the two laptops keep different names until
-the user settles it (conflict resolution is a later slice).
+the user settles it. A rename must be unique; the discarded incoming context row is retained in the conflict so a blocked insertion can be restored.
 
 **`resolveAlias(db, entityType, id)`** (`alias-store.ts`) follows the alias table for an id read from a
 payload that predates an alias. Sync code rewrites references eagerly, so it has no consumer of its
@@ -1086,7 +1085,7 @@ the laptop it runs on and never leaves it, and neither do its segments or their 
   terminals keep the smaller status (`mergeTerminalBeatsPending`: `accepted` before `dismissed` before
   `expired`) and write an unresolved `terminal_divergence` conflict (`entity_type = 'ai_proposals'`)
   with an id derived from the proposal alone. The replica that first meets both rows logs it (usually
-  the one that adopts the winner); the other learns of it when conflicts travel, in a later slice.
+  the one that adopts the winner); the other learns of it when conflicts travel in the personal bundle. An explicit user choice takes precedence over that provisional terminal tie-break.
   The same status on both sides, or two pending rows: the later clock.
 - The registry's two partial unique indexes allow one pending proposal per message and type (and per
   message and goal for `goal_evaluation`). Two pending proposals for one key created on two laptops are
@@ -1330,8 +1329,7 @@ random states).
   every replica, and `completed_at` is the winner's (a cancelled task has none). Each device also writes
   a `sync_conflicts` row `kind = 'terminal_divergence'` (`entity_type = 'gtd_tasks'`) with both tuples,
   unresolved. Its id is derived from the task alone (and the due date for an occurrence), so re-applying,
-  republishing, or resolving later never creates a second one. Resolving it is UI (a later slice); a
-  resolution must write a newer tuple.
+  republishing, or resolving later never creates a second one. The user can select either recorded outcome; the concrete decision and its HLC travel with the conflict, and the chosen tuple is applied on peers. Recurring conflicts retain the matching task snapshot when available so the chosen completion timestamp is preserved.
 - **Normalization.** After the merge the row gets the save-time invariants of the app, as a pure function
   of the merged row so every replica agrees; it writes no clock and is re-derived by every merge: an
   active `planned` task needs a `project_id` that is not known to be deleted (a tombstone in
@@ -1468,25 +1466,12 @@ table is far below it and has no BLOB column, both pinned by `capture-install.te
 - a mark without a row (made before migration 48, or by the verifying scan for a delete no trigger saw: the scan
   only upserts the mark's `op`, it no longer replaces a pending mark) stamps a tombstone of unknown values.
 
-**Change set and bundle: format version 2, read-compatible with 1.** `SYNC_FORMAT_VERSION` is 2. An entity of
-format 2 may carry `deletedRow` (only a tombstone of a field-clock table; validation rejects it on a live entity,
-on another class, in a format 1 change set, with a key that disagrees with the entity id, or with a nested value).
-A tombstone without it is a tombstone of unknown values, which is all a format 1 tombstone ever was. Decision:
-
-| Reader | Format 1 bundle / manifest | Format 2 bundle / manifest |
-|---|---|---|
-| This build (schema 48) | read; its tombstones have no values and merge as before | read and written (always written) |
-| An older build (schema 47, format 1 only) | read | **refused at the manifest gate** with `format_version_unsupported` ("update TrackDidia"), before anything of it is read; the schema gate (`update_required`, 48 > 47) says the same |
-
-Why a bump and not an unversioned optional key: format 1 validation is strict about the keys of an entity, so a
-v47 build handed a `deletedRow` would otherwise reject the bundle as malformed (`bundle_invalid`, an error that
-suggests a corrupt peer) instead of asking for an update. Why read-compat and not a coordinated bump: the peers
-of an updated laptop may stay on 47 for a while; their manifests and bundles are format 1 and keep merging.
-The writer always writes 2 (even a bundle without any tombstone), the preamble and the header of a bundle must
-name the same format (`unknown_version` otherwise), and the manifest says 2. A domain a laptop has not republished
-since the update keeps its format 1 bundle on disk until it changes; readers take the format from each bundle's
-own preamble, so a manifest of format 2 may list format 1 bundles. The bundle-level `schemaVersion` the laptop
-reports is 48 from its next publish.
+**Change set and bundle versions.** This build writes format 3 and reads formats 1, 2 and 3.
+Format 2 added `deletedRow` for field-clock tombstones; a format 1 tombstone has unknown deleted
+values. Format 3 adds the per-domain conflict sidecar, including the HLC of a resolution. Older
+builds reject the new format at the manifest gate and ask for an update. An updated manifest can
+still reference older domain bundles, each decoded by its own preamble. The sender reports schema
+49 after migration; migration 49 adds the nullable resolution clock without changing existing rows.
 
 **Merge** (`merge-entity.ts`, `merge-task.ts`). The live-live join of two versions of an entity is one function
 (`joinFieldClockRows`); a tombstone's values and clocks feed it exactly like a live row's:
@@ -1566,10 +1551,8 @@ arrival orders), `sync-engine.test.ts` (three laptops through the folder), the s
 
 ### Work-profile guards in the repository
 
-The data-layer guards keep personal and finance rows off a `work` database; work selection remains disabled, with the join path available through test seams.
-`work` is still not selectable (`WORK_PROFILE_SELECTABLE` is `false`; tests switch it on through
-`SyncServiceDeps.workProfileSelectable`). The user-facing summary is in
-[Multi-device sync](multi-device-sync.md#the-work-profile-guards-data-layer-only).
+The data-layer guards keep personal and finance rows off a `work` database; the work profile is selectable during setup and join. The user-facing summary is in
+[Multi-device sync](multi-device-sync.md#work-profile-guards-and-shell).
 
 **`inspectSyncProfileData(options?)`** (`AppRepository`, `TauriSqliteRepository` implements it, `MemoryRepository`
 rejects like every sync entry point). What the database holds per domain (`gtd`, `personal`, `finance`), seed rows
@@ -1620,8 +1603,7 @@ is decided by the engine and the transport routing.
 **Row filters cover sidecar metadata.** A table's `rowFilter` is applied to the rows in the `SELECT`, and a row's
 `sync_entity_meta` is published only together with its row, so a running or paused Pomodoro session and its segments leave no
 clock, id or tombstone in a bundle, on either profile (`sync-engine.work-profile.test.ts`, `pomodoro-sync.test.ts`).
-`sync_conflicts` is not published in this build, and an alias row of a table without aliased natural keys is not loaded, so it
-cannot travel.
+Conflict rows travel only in the owning entity or setting domain. Filtered tables publish a conflict only when its owner and both historical payloads can be shown to satisfy the row filter; receiving checks the same boundary. Alias rows of tables without aliased natural keys are not loaded.
 
 **Engine re-check** (`engine-profile.ts`). A `work` engine looks (`exact: false`) before every pull and publish, memoized
 for 10 minutes while the database is clean and repeated by every run while it is not. Personal rows pause the run
@@ -1633,13 +1615,12 @@ folder and applies nothing, a paused publish reads and writes nothing. `getStatu
 
 `src/lib/sync/sync-engine.ts` is the orchestration layer of multi-laptop sync: pull, then merge and
 apply through `applySyncBundle`, then publish through `readSyncSnapshot` (`listSyncChanges` plus the covered counter). **Sync is
-experimental, opt-in and manual** ([Multi-device sync](multi-device-sync.md)): the app constructs the engine only in
-`src/lib/sync/sync-service.ts` (folder transports, per-device safety backup), and only the debug-gated
-"Synchroniser maintenant" runs it. There is no startup, focus, timer or quit trigger yet. Tests construct it against the
+experimental and opt-in** ([Multi-device sync](multi-device-sync.md)): the app constructs the engine in
+`src/lib/sync/sync-service.ts` (folder transports, per-device safety backup). Manual and automatic
+startup, focus, periodic and quit triggers run it as described on that page. Tests construct it against the
 in-memory folders of `src/lib/sync/test-support/memory-transport.ts` or the fake host of
 `test-support/fake-folder-host.ts`. The `work` device profile is enforced by the engine, the repository and a
-startup re-check ([Work-profile guards in the repository](#work-profile-guards-in-the-repository)) but is not
-selectable anywhere (`syncProfile: "work"` is refused unless a test passes the seam).
+startup re-check ([Work-profile guards in the repository](#work-profile-guards-in-the-repository)) and can be selected during setup or join.
 
 **Modules.** `sync-engine.ts` (the `SyncEngine` class and `createSyncEngine`), `engine-pull.ts`,
 `engine-publish.ts`, `engine-gates.ts` (pure manifest gates), `engine-support.ts` (options, timeouts,
@@ -1897,9 +1878,8 @@ heartbeat, the backup taken once over budgeted pulls and over a restart), `migra
 ### Chunked capture backfill and chunked apply
 
 Two operations used to be one long writer slot each: the capture backfill done by `enableSyncCapture`
-and the apply of a large incoming bundle. Both are now bounded so that an automatic trigger (a later
-slice) can call them without blocking the app. **A backfill chunk is still started only by the manual, debug-gated
-enable (or its "Reprendre")**. A chunked apply is also run by the automatic pulls of the
+and the apply of a large incoming bundle. Both are bounded to avoid blocking the app. Backfill starts
+during enable or join and can be resumed explicitly. A chunked apply is also run by the automatic pulls of the
 [lifecycle](multi-device-sync.md#automatic-triggers) (startup, focus, hourly).
 
 #### Why the slot length matters
@@ -1932,6 +1912,7 @@ backfill pass. The two facts that used to be one are now separate:
   rows) is complete when it returns, which keeps every small-database caller unchanged. A pass that is
   `running` is resumed, not restarted; a call after a `complete` pass starts a new verifying one (the old
   behaviour of every enable).
+- `uninstallSyncChangeTracking()` removes capture triggers, pending marks and backfill progress in the writer queue after the sync controller has stopped. Application rows, databases, backups, folder files, entity clocks and snapshots remain. Re-enabling performs a verifying backfill of edits made while capture was off. Browser preview rejects this operation.
 - `continueSyncCaptureBackfill({ maxChunks?, deadlineMs?, limits? })` runs further chunks, each in its own
   writer slot, and resolves with `{ complete, chunks, stamped, scanned, maxChunkStatements, remaining,
   cursor, progress }`. It is a no-op once complete and rejects when capture is not enabled. The
@@ -2243,7 +2224,7 @@ ships is expensive. The manifest's `deviceId` stays `dev:<uuid>`. Listing and re
 directory name to the id, and the manifest's `deviceId` must equal that mapped id. The parse is
 strict (exactly `dev-` plus a lowercase UUID v4); anything else, including a `dev:<uuid>` directory,
 is an invalid entry reported in `ignored`. **This deliberately differs from the spec text**
-(`specs/todo/multi-laptop-sync.md`, "Folder protocol", which writes `<deviceId>/`); the spec's tree is
+(`specs/done/multi-laptop-sync.md`, "Folder protocol", which writes `<deviceId>/`); the spec's tree is
 updated in the final documentation slice. The root must
 already exist: an unmounted Google Drive path is `folder_not_found`, and no command ever creates it
 (or any parent). The root is canonicalized once (a `~/Google Drive` symlink is followed there);
@@ -2389,14 +2370,14 @@ mapping with a mocked `invoke`.
 `src/lib/sync/transport-folder.ts` implements `SyncTransport` over the folder commands. Both are used only by
 the experimental, manual sync ([Multi-device sync](multi-device-sync.md)).
 
-**Format** (`formatVersion` 2; format 1 is still read, see [Tombstones carry the last field values](#tombstones-carry-the-last-field-values)). One plain-ASCII preamble line, then the body:
+**Format** (`formatVersion` 3; formats 1 and 2 are still read, see [Tombstones carry the last field values](#tombstones-carry-the-last-field-values)). One plain-ASCII preamble line, then the body:
 
 ```text
-trackdidia-sync-bundle 2 gzip\n         preamble: magic, format version, compression (gzip | none)
+trackdidia-sync-bundle 3 gzip\n         preamble: magic, format version, compression (gzip | none)
 <body>                                   a gzip stream of the following lines (or the raw text with `none`)
-  {"kind":"header","formatVersion":2,"domain":"gtd","deviceId":...,"schemaVersion":43,"hlcHigh":...,
-   "counts":{"entities":n,"settings":n,"occurrences":n,"clears":n,"aliases":n,"unionTables":{"<table>":n}}}
-  ["e", <entity>]  ["u", "<table>", <row>]  ["s", <setting>]  ["o", <occurrence>]  ["c", <clear>]  ["a", <alias>]
+  {"kind":"header","formatVersion":3,"domain":"gtd","deviceId":...,"schemaVersion":49,"hlcHigh":...,
+   "counts":{"entities":n,"settings":n,"occurrences":n,"clears":n,"aliases":n,"conflicts":n,"unionTables":{"<table>":n}}}
+  ["e", <entity>]  ["u", "<table>", <row>]  ["s", <setting>]  ["o", <occurrence>]  ["c", <clear>]  ["a", <alias>]  ["x", <conflict>]
 ```
 
 One record per line, so neither side builds the whole change set as one string: encoding feeds the compressor
@@ -2530,7 +2511,7 @@ storage-layer summary.
   (unique by header signature) and one row per import run, used by
   `undoFinanceImportBatch`.
 
-Multi-device sync of these tables (experimental and debug-gated) is described in
+Multi-device sync of these tables (experimental and opt-in) is described in
 [Finance tables, the categorization unit and statement anchors](#finance-tables-the-categorization-unit-and-statement-anchors).
 
 The three system categories (`fincat:non-categorise`, `fincat:transfert`,

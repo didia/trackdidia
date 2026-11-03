@@ -84,8 +84,7 @@ services shared by the pages:
 - the global Pomodoro controller,
 - debug state,
 - the browser-preview flag,
-- the experimental multi-device sync controller (`sync`, from `useMultiDeviceSync`; idle until the user acts, no
-  startup work).
+- the opt-in multi-device sync controller (`sync`, from `useMultiDeviceSync`), which starts automatic synchronization when enabled.
 
 The application uses React hooks and this context instead of a global store.
 
@@ -115,8 +114,7 @@ entry can carry a `flag` naming an `AppSettings` boolean; `AppShell` reads
 `settings` from `useAppContext()` and filters that entry out when the flag is
 false. `finances` (`/finances`) is the first such conditional entry, gated on
 `settings.financeEnabled`. The `sync` entry (`/sync`) carries a `gate` instead: it is
-listed only when `isSyncPageEnabled(debugEnabled, settings)` (debug mode AND
-`multiDeviceSyncEnabled`; see [Multi-device sync](multi-device-sync.md#the-gate)).
+listed only when `isSyncPageEnabled(debugEnabled, settings)` (`multiDeviceSyncEnabled`; see [Multi-device sync](multi-device-sync.md#the-gate)).
 
 | Route | Screen | Purpose |
 |---|---|---|
@@ -146,8 +144,8 @@ listed only when `isSyncPageEnabled(debugEnabled, settings)` (debug mode AND
 | `/scheduled` | Scheduled | Day/week planning, deadlines, recurrence previews |
 | `/waiting-for` | Waiting For | Work awaiting external action |
 | `/someday-maybe` | Someday / Maybe | Deferred possibilities |
-| `/sync` | Synchronisation (experimental) | Peers, pending changes, "Synchroniser maintenant", last run and errors; always registered, shows a gate message unless debug mode and `multiDeviceSyncEnabled` are on ([Multi-device sync](multi-device-sync.md)) |
-| `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import, calendar sync, experimental multi-device sync card (debug mode only) |
+| `/sync` | Synchronisation (experimental) | Peers, pending changes, "Synchroniser maintenant", last run and errors; always registered, shows a gate message unless `multiDeviceSyncEnabled` is on ([Multi-device sync](multi-device-sync.md)) |
+| `/parametres` | Settings | AI, debug, relationship draws, backup, GTD import, calendar sync, multi-device sync card |
 | `/waiting-someday` | Redirect | Legacy alias redirected to `/waiting-for` |
 
 `/finances/*` is registered for the personal profile in `App.tsx` (a `FinanceRoutes` element reads
@@ -197,8 +195,7 @@ screen.
       - move the `Reading` context to References (`gtdReferencesMigrationDoneAt`),
       - move dated work to Scheduled (`gtdScheduledNormalizationDoneAt`).
 
-      **Multi-device sync (experimental, off by default).** Only when the debug gate is open
-      AND `multiDeviceSyncEnabled` is on (`isSyncPullEnabled`), `useBootstrap` runs
+      **Multi-device sync (experimental, off by default).** Only when `multiDeviceSyncEnabled` is on (`isSyncPullEnabled`), `useBootstrap` runs
       `pullBeforeGenerators`: right after the `aiMaxTokens` upgrade and before the two GTD
       normalizations and every generator, the sync engine pulls from the other laptop so
       recurrence generation, Scheduled promotion and relationship draws see its work. The
@@ -212,10 +209,9 @@ screen.
       merges nothing during bootstrap, and the generators run first (they converge with the merge).
       The one thing that can still overrun is a writer slot already running when the wait lapses
       (an apply piece, bounded, not measured with the real IPC cost). An unreachable folder or a
-      failed pull is logged and never throws into bootstrap. A `work` engine (not selectable in
-      this release) also looks at its own database inside this same pull and pauses with a
+      failed pull is logged and never throws into bootstrap. A `work` engine also looks at its own database inside this same pull and pauses with a
       `/sync` error when personal or finance rows exist
-      ([Multi-device sync](multi-device-sync.md#the-work-profile-guards-data-layer-only)); it adds
+      ([Multi-device sync](multi-device-sync.md#work-profile-guards-and-shell)); it adds
       no step to bootstrap. The settings are read again when
       the pull finished in time. With the gate closed this step does not exist: no stage label,
       no engine, no timer, no folder call. See
@@ -395,8 +391,8 @@ default core access, notifications, and dialogs.
 
 ## Current limitations
 
-- No cloud sync, accounts, or shared data. The one exception is the experimental, debug-gated, manual
-  two-laptop folder sync described in [Multi-device sync](multi-device-sync.md); it is not on by default.
+- No built-in cloud service or accounts. Optional desktop folder sync is described in
+  [Multi-device sync](multi-device-sync.md).
 - No background recurrence generation while the application is closed.
 - Browser preview has no persistence or backups.
 - Backup creation exists, but restore is manual and has no UI.

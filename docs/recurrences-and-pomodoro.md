@@ -70,7 +70,7 @@ Completing the current recurring task resets the template's pending missed count
 Cancelling it also clears that count. The task card can explicitly clear the task's
 displayed past count.
 
-### Occurrence sidecars (groundwork for multi-device sync)
+### Occurrence sidecars for multi-device sync
 
 Because the generated task is one row advanced in place, its id is not an occurrence. On a
 database with sync change capture enabled, each write of that row also records what happened to
@@ -78,8 +78,7 @@ its occurrences in the `gtd`-domain sidecars `sync_recurrence_occurrences` (outc
 `missed`, `completed` or `cancelled` per due date) and `sync_recurrence_clears` (the latest due date
 whose missed backlog the user cleared). The records are derived from the row's change, not from the
 generators, and generation behavior is unchanged: the missed dates between two generated due dates
-are the template's due dates strictly between them. Sync is not user-enabled, so on a normal
-install the sidecars stay empty. How they merge, and how the row and the template's
+are the template's due dates strictly between them. How they merge, and how the row and the template's
 `lastGeneratedForDate` are recomputed from them, is described in
 [Storage and backups](storage-and-backups.md#gtd-task-and-recurring-template-rules).
 
@@ -250,12 +249,10 @@ these writes inside its writer queue.
 Eligible GTD tasks are active Next Actions. Scheduled tasks stay off the picker
 until they are promoted to Next Actions.
 
-### Multi-device sync (terminal sessions only; not user-enabled)
+### Multi-device sync (terminal sessions only)
 
-Groundwork for the multi-laptop sync (design:
-[`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md)). Sync is not user-enabled, so
-none of this changes behavior on a normal install; it is exercised by tests that move change sets
-between simulated laptops.
+When multi-device sync is enabled, terminal history is shared through the GTD domain. See
+[Multi-device sync](multi-device-sync.md) for setup and limits.
 
 - Only **terminal** sessions (`completed` or `cancelled`) and the segments of a terminal session are
   published. A running or paused timer belongs to the laptop it runs on: neither it, nor its

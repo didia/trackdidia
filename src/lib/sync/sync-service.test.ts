@@ -393,9 +393,6 @@ describe("enableSync", () => {
     await a.update((current) => ({ ...current, backupDestinationDir: "" }));
     expect(await setupCode(enable(a))).toBe("no_backup_destination");
     await a.update((current) => ({ ...current, backupDestinationDir: PERSONAL }));
-    await a.update((current) => ({ ...current, syncProfile: "work" }));
-    expect(await setupCode(enable(a))).toBe("unsupported_profile");
-    await a.update((current) => ({ ...current, syncProfile: "personal" }));
     expect(
       await setupCode(
         enableSync({
@@ -513,12 +510,14 @@ describe("buildSyncEngine", () => {
     }
   });
 
-  it("refuses the work profile and browser preview", async () => {
+  it("builds a GTD-only work engine and refuses browser preview", async () => {
     const { laptops } = await world();
     const [a] = laptops as [Laptop];
     await enable(a);
     await a.update((current) => ({ ...current, syncProfile: "work" }));
-    expect(await setupCode(build(a))).toBe("unsupported_profile");
+    const work = await build(a);
+    expect(work.transports.map((transport) => transport.id)).toEqual(["folder:gtd"]);
+    expect(work.transports[0]?.domains).toEqual(["gtd"]);
     const memory = new MemoryRepository();
     await memory.initialize();
     expect(

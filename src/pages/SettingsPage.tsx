@@ -99,6 +99,7 @@ export const SettingsPage = () => {
     setDebugEnabled,
     browserPreview,
     deviceProfile,
+    sync,
   } = useAppContext();
   const goalsService = useMemo(() => new RescueTimeGoalsService(repository), [repository]);
   const [draftSettings, setDraftSettings] = useState<AppSettings>(settings);
@@ -317,6 +318,13 @@ export const SettingsPage = () => {
     setCalendarSavingSettings(true);
     setCalendarSettingsMessage("");
     try {
+      if (calendarEnabledDraft && !calendarSettings.enabled) {
+        const warning = await sync.checkCalendarPeers();
+        if (warning) {
+          setCalendarSettingsMessage(warning);
+          return;
+        }
+      }
       const saved = await saveCalendarSyncPreferences(repository, {
         enabled: calendarEnabledDraft,
         oauthClientId: calendarClientIdDraft.trim(),
@@ -324,7 +332,13 @@ export const SettingsPage = () => {
       setCalendarSettings(saved);
       setCalendarEnabledDraft(saved.enabled);
       setCalendarClientIdDraft(saved.oauthClientId);
-      setCalendarSettingsMessage(t("calendar.saved"));
+      const published =
+        calendarSettings.enabled === saved.enabled || (await sync.publishCalendarState());
+      setCalendarSettingsMessage(
+        published
+          ? t("calendar.saved")
+          : "Réglage enregistré, mais son état n’a pas pu être publié. Synchronisez cet ordinateur avant de configurer un autre calendrier.",
+      );
     } catch (error) {
       setCalendarSettingsMessage(error instanceof Error ? error.message : t("calendar.saveError"));
     } finally {
@@ -338,12 +352,22 @@ export const SettingsPage = () => {
     calendarActionRef.current = true;
     setCalendarConnecting(true);
     setCalendarActionError(null);
+    setCalendarSettingsMessage("");
     try {
+      const warning = await sync.checkCalendarPeers();
+      if (warning) {
+        setCalendarSettingsMessage(warning);
+        return;
+      }
       const connectFn = reconnect ? reconnectCalendarSyncAccount : connectCalendarSyncAccount;
       const result = await connectFn(repository, { clientId: calendarClientIdDraft });
       setCalendarActionError(
         result.ok ? null : `connectErrors.${result.error ?? "connect_failed"}`,
       );
+      if (result.ok && !(await sync.publishCalendarState()))
+        setCalendarSettingsMessage(
+          "Connexion enregistrée, mais son état n’a pas pu être publié. Synchronisez cet ordinateur avant de configurer un autre calendrier.",
+        );
     } catch {
       setCalendarActionError("connectErrors.connect_failed");
     } finally {
@@ -358,8 +382,13 @@ export const SettingsPage = () => {
     calendarActionRef.current = true;
     setCalendarConnecting(true);
     setCalendarActionError(null);
+    setCalendarSettingsMessage("");
     try {
       await disconnectCalendarSyncAccount(repository);
+      if (!(await sync.publishCalendarState()))
+        setCalendarSettingsMessage(
+          "Déconnexion enregistrée, mais son état n’a pas pu être publié. Synchronisez cet ordinateur avant de configurer un autre calendrier.",
+        );
     } catch {
       setCalendarActionError("connectErrors.disconnect_failed");
     } finally {
@@ -374,8 +403,14 @@ export const SettingsPage = () => {
 
   const handleSyncCalendarNow = async () => {
     setCalendarSyncRunning(true);
+    setCalendarSettingsMessage("");
     setCalendarActionError(null);
     try {
+      const warning = await sync.checkCalendarPeers();
+      if (warning) {
+        setCalendarSettingsMessage(warning);
+        return;
+      }
       const result = await syncCalendarSyncNow(repository);
       setCalendarActionError(result.ok ? null : `syncErrors.${result.reason ?? "sync_failed"}`);
     } catch {
@@ -391,8 +426,14 @@ export const SettingsPage = () => {
       return;
     }
     setCalendarSyncRunning(true);
+    setCalendarSettingsMessage("");
     setCalendarActionError(null);
     try {
+      const warning = await sync.checkCalendarPeers();
+      if (warning) {
+        setCalendarSettingsMessage(warning);
+        return;
+      }
       const result = await confirmCalendarSyncMassDelete(repository, calendarMassDeleteCount);
       setCalendarActionError(result.ok ? null : `syncErrors.${result.reason ?? "sync_failed"}`);
     } catch {
@@ -1075,7 +1116,7 @@ export const SettingsPage = () => {
                 </>
               )}
             </div>
-            {calendarSettingsMessage ? <p>{calendarSettingsMessage}</p> : null}
+            {calendarSettingsMessage ? <p role="alert">{calendarSettingsMessage}</p> : null}
             {calendarActionError ? (
               <p>
                 {t(`calendar.${calendarActionError}`, {

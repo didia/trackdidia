@@ -104,11 +104,6 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
   pomodoroRef.current = pomodoro;
   const browserPreview = !isTauriRuntime();
   useDesktopShell({ browserPreview, allowStart: !loading && !startupError, settings });
-  // Never mounted under the startup fallback or browser preview: zero API/vault access.
-  useCalendarSync(repository, {
-    browserPreview,
-    allowStart: !loading && !startupError,
-  });
 
   const { status: llmBridgeStatus, retry: retryLlmBridge } = useLlmBridge(repository, {
     browserPreview,
@@ -169,7 +164,7 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     notifyGtdExternalChange();
     setSyncRevision((current) => current + 1);
   }, []);
-  // Anything automatic exists only with the debug gate open AND sync enabled, on the desktop storage.
+  // Automatic sync runs only when enabled on desktop storage.
   const syncAutomationKey = syncAutomationKeyFor({
     browserPreview,
     startupError,
@@ -184,6 +179,15 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
     startupSync,
     runExclusive: syncLane.run,
     onDataChanged: onSyncDataChanged,
+  });
+
+  const [calendarPeerWarning, setCalendarPeerWarning] = useState<string | null>(null);
+  useCalendarSync(repository, {
+    browserPreview,
+    allowStart: !loading && !startupError,
+    checkPeers: sync.checkCalendarPeers,
+    syncEnabled: settings.multiDeviceSyncEnabled,
+    onBlocked: setCalendarPeerWarning,
   });
 
   useEffect(() => {
@@ -301,6 +305,11 @@ export const AppProvider = ({ children }: PropsWithChildren) => {
         </div>
       ) : null}
       {isTauriRuntime() ? <BackupOverlapBanner settings={settings} /> : null}
+      {calendarPeerWarning ? (
+        <div className="banner banner--danger" role="alert">
+          {calendarPeerWarning} <Link to="/parametres">Calendrier et synchronisation</Link>
+        </div>
+      ) : null}
       {children}
       <DebugPanel enabled={debugEnabled} forced={Boolean(startupError)} />
     </AppContext.Provider>

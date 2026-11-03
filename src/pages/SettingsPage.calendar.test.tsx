@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { vi } from "vitest";
 import { MemoryRepository } from "../lib/storage/memory-repository";
 import { renderWithApp } from "../test/test-utils";
+import { syncController } from "../test/sync-fixtures";
 import { SettingsPage } from "./SettingsPage";
 
 const connectCalendarSyncAccountMock = vi.fn();
@@ -70,6 +71,58 @@ describe("SettingsPage calendar sync card", () => {
       const saved = await repository.getCalendarSyncSettings();
       expect(saved.enabled).toBe(true);
     });
+  });
+
+  it("blocks enabling when a peer runs the calendar and allows it after resolution", async () => {
+    const user = userEvent.setup();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    const checkCalendarPeers = vi
+      .fn()
+      .mockResolvedValueOnce("Le calendrier est actif sur Maison.")
+      .mockResolvedValueOnce(null);
+    const publishCalendarState = vi.fn().mockResolvedValue(true);
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: {
+        browserPreview: false,
+        sync: syncController({ checkCalendarPeers, publishCalendarState }),
+      },
+    });
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Activer la synchronisation du calendrier" }),
+    );
+    const section = screen.getByRole("region", { name: "Calendrier Google" });
+    await user.click(within(section).getByRole("button", { name: "Enregistrer" }));
+    expect(within(section).getByRole("alert")).toHaveTextContent("Maison");
+    expect((await repository.getCalendarSyncSettings()).enabled).toBe(false);
+    expect(publishCalendarState).not.toHaveBeenCalled();
+    await user.click(within(section).getByRole("button", { name: "Enregistrer" }));
+    await waitFor(() => expect(publishCalendarState).toHaveBeenCalledTimes(1));
+    expect((await repository.getCalendarSyncSettings()).enabled).toBe(true);
+  });
+
+  it("visibly reports when the saved calendar state could not be published", async () => {
+    const user = userEvent.setup();
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: {
+        browserPreview: false,
+        sync: syncController({
+          checkCalendarPeers: vi.fn().mockResolvedValue(null),
+          publishCalendarState: vi.fn().mockResolvedValue(false),
+        }),
+      },
+    });
+    await user.click(
+      await screen.findByRole("checkbox", { name: "Activer la synchronisation du calendrier" }),
+    );
+    const section = screen.getByRole("region", { name: "Calendrier Google" });
+    await user.click(within(section).getByRole("button", { name: "Enregistrer" }));
+    expect(await within(section).findByText(/état n’a pas pu être publié/)).toBeInTheDocument();
+    expect((await repository.getCalendarSyncSettings()).enabled).toBe(true);
   });
 
   it("disables connect without an OAuth client id, enables it once one is entered", async () => {
@@ -197,6 +250,24 @@ describe("SettingsPage calendar sync card", () => {
     expect(await repository.listCalendarSyncLinks()).toEqual([link]);
   });
 
+  it("blocks account connection when another laptop reconciles", async () => {
+    const repository = new MemoryRepository();
+    await repository.initialize();
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+      oauthClientId: "client",
+    });
+    const checkCalendarPeers = vi.fn().mockResolvedValue("Le calendrier est actif sur Maison.");
+    await renderWithApp(<SettingsPage />, {
+      repository,
+      contextOverrides: { browserPreview: false, sync: syncController({ checkCalendarPeers }) },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "Connecter" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Maison");
+    expect(connectCalendarSyncAccountMock).not.toHaveBeenCalled();
+  });
+
   it("guards rapid Connect clicks and disables every preference control until completion", async () => {
     const repository = new MemoryRepository();
     await repository.initialize();
@@ -222,7 +293,7 @@ describe("SettingsPage calendar sync card", () => {
       fireEvent.click(connect);
       fireEvent.click(connect);
     });
-    expect(connectCalendarSyncAccountMock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(connectCalendarSyncAccountMock).toHaveBeenCalledOnce());
     expect(within(section).getByRole("button", { name: "Enregistrer" })).toBeDisabled();
     expect(within(section).getByRole("checkbox")).toBeDisabled();
     expect(within(section).getByLabelText("Identifiant client OAuth (avancé)")).toBeDisabled();

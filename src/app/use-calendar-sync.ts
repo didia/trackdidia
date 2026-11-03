@@ -27,9 +27,15 @@ export const requestCalendarSync = (): void => {
  */
 export const useCalendarSync = (
   repository: AppRepository | null,
-  options: { browserPreview: boolean; allowStart: boolean },
+  options: {
+    browserPreview: boolean;
+    allowStart: boolean;
+    checkPeers?: () => Promise<string | null>;
+    onBlocked?: (warning: string | null) => void;
+    syncEnabled?: boolean;
+  },
 ): void => {
-  const { browserPreview, allowStart } = options;
+  const { browserPreview, allowStart, checkPeers, onBlocked, syncEnabled } = options;
 
   useEffect(() => {
     if (!repository || browserPreview || !allowStart) {
@@ -44,9 +50,14 @@ export const useCalendarSync = (
       if (cancelled) {
         return;
       }
-      void reconcile(repository, "automatic").catch(() => {
-        // Never log the raw error object: it could carry a title or token in its message
-        // on an unexpected throw path. Only a safe, fixed code reaches the debug log.
+      void (async () => {
+        const enabled = (await repository.getCalendarSyncSettings()).enabled;
+        const warning = enabled && checkPeers ? await checkPeers() : null;
+        if (cancelled) return;
+        onBlocked?.(warning);
+        if (warning) return;
+        await reconcile(repository, "automatic");
+      })().catch(() => {
         logDebug("error", "calendar.sync", "Echec de la reconciliation du calendrier", {
           code: "calendar_sync_reconcile_failed",
         });
@@ -75,5 +86,5 @@ export const useCalendarSync = (
         requestFn = null;
       }
     };
-  }, [repository, browserPreview, allowStart]);
+  }, [repository, browserPreview, allowStart, checkPeers, onBlocked, syncEnabled]);
 };

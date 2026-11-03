@@ -20,6 +20,44 @@ const shortId = (deviceId: string): string => deviceId.replace(/^dev:/, "").slic
 
 const timeOf = (ms: number): string => formatDateTimeShort(new Date(ms).toISOString());
 
+const conflictTitles = new Map<string, string>(
+  Object.entries({
+    terminal_divergence: "Décisions différentes",
+    name_collision: "Nom déjà utilisé",
+    overwritten_edit: "Modification remplacée",
+    orphaned_child: "Élément associé indisponible",
+    pending_collision: "Éléments en attente en double",
+  }),
+);
+const conflictTitle = (kind: string): string =>
+  conflictTitles.get(kind) ?? "Conflit de synchronisation";
+
+const conflictValues = new Map<string, string>(
+  Object.entries({
+    completed: "Terminée",
+    cancelled: "Annulée",
+    accepted: "Acceptée",
+    dismissed: "Écartée",
+    expired: "Expirée",
+    corrected: "Corrigée",
+  }),
+);
+
+const conflictValue = (value: unknown): string => {
+  if (value === null || value === undefined) return "—";
+  if (typeof value === "string") return conflictValues.get(value) ?? value;
+  if (typeof value !== "object") return String(value);
+  if (Array.isArray(value)) return value.map(conflictValue).join(", ");
+  const record = value as Record<string, unknown>;
+  for (const key of ["status", "outcome", "name", "value"]) {
+    if (record[key] !== undefined) return conflictValue(record[key]);
+  }
+  const values = Object.entries(record)
+    .filter(([key]) => !/clock|hlc|(^|_)id$/.test(key))
+    .map(([, item]) => conflictValue(item));
+  return values.length ? values.join(" · ") : "Voir les détails techniques";
+};
+
 const IssueItem = ({ issue }: { issue: SyncIssue }) => {
   const { t } = useTranslation("sync");
   const described = describeIssue(t, issue);
@@ -189,13 +227,18 @@ const PullSummary = ({ pull }: { pull: PullReport }) => {
 export const SyncPage = () => {
   const { t } = useTranslation("sync");
   const { sync, settings, debugEnabled, browserPreview } = useAppContext();
+  const [rename, setRename] = useState<Map<string, string>>(() => new Map());
+  const [confirmConflict, setConfirmConflict] = useState<{
+    id: string;
+    side: "local" | "remote";
+  } | null>(null);
   const [approving, setApproving] = useState<string | null>(null);
   const open = isSyncPageEnabled(debugEnabled, settings) && sync.supported && !browserPreview;
   const busy = sync.phase !== "idle";
 
   // Also while sync is not turned on yet: an enable that was interrupted (the app quit during the
   // first pass) left a stored backfill that this page offers to resume.
-  const reachable = debugEnabled && sync.supported && !browserPreview;
+  const reachable = sync.supported && !browserPreview;
   const { refresh } = sync;
   useEffect(() => {
     if (reachable) void refresh();
@@ -216,16 +259,6 @@ export const SyncPage = () => {
         {header()}
         <div className="banner" role="status">
           {t("page.gate.preview")}
-        </div>
-      </div>
-    );
-  }
-  if (!debugEnabled) {
-    return (
-      <div className="page">
-        {header()}
-        <div className="banner" role="status">
-          {t("page.gate.debug")}
         </div>
       </div>
     );
@@ -408,6 +441,151 @@ export const SyncPage = () => {
             ))}
           </SectionCard>
         </>
+      ) : null}
+
+      <SectionCard title="Conflits et modifications remplacées">
+        {sync.conflicts.filter((conflict) => !conflict.resolvedAt).length === 0 ? (
+          <p>Aucun conflit en attente.</p>
+        ) : (
+          <ul>
+            {sync.conflicts
+              .filter((conflict) => !conflict.resolvedAt)
+              .map((conflict) => (
+                <li key={conflict.id}>
+                  <strong>{conflictTitle(conflict.kind)}</strong>
+                  <p>
+                    Valeur locale : <span>{conflictValue(conflict.local)}</span>
+                  </p>
+                  <p>
+                    Valeur reçue : <span>{conflictValue(conflict.remote)}</span>
+                  </p>
+                  <details>
+                    <summary>Détails techniques</summary>
+                    <code>
+                      {conflict.entityType} / {conflict.entityId}
+                    </code>
+                    <pre>
+                      {JSON.stringify({ local: conflict.local, remote: conflict.remote }, null, 2)}
+                    </pre>
+                  </details>
+                  {conflict.kind === "terminal_divergence" ? (
+                    confirmConflict?.id === conflict.id ? (
+                      <div role="alert">
+                        <p>
+                          Confirmer le choix de la valeur{" "}
+                          {confirmConflict.side === "local" ? "locale" : "reçue"} ?
+                        </p>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => {
+                            void sync.resolveConflict(conflict.id, {
+                              action: "choose",
+                              side: confirmConflict.side,
+                            });
+                            setConfirmConflict(null);
+                          }}
+                        >
+                          Confirmer
+                        </button>
+                        <button type="button" onClick={() => setConfirmConflict(null)}>
+                          Annuler
+                        </button>
+                      </div>
+                    ) : (
+                      <div>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setConfirmConflict({ id: conflict.id, side: "local" })}
+                        >
+                          Choisir : {conflictValue(conflict.local)} (cet ordinateur)
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => setConfirmConflict({ id: conflict.id, side: "remote" })}
+                        >
+                          Choisir : {conflictValue(conflict.remote)} (reçue)
+                        </button>
+                      </div>
+                    )
+                  ) : conflict.kind === "name_collision" ? (
+                    <div>
+                      <label>
+                        Nouveau nom{" "}
+                        <input
+                          value={rename.get(conflict.id) ?? ""}
+                          onChange={(event) => {
+                            const name = event.target.value;
+                            setRename((current) => new Map(current).set(conflict.id, name));
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        disabled={busy || !(rename.get(conflict.id) ?? "").trim()}
+                        onClick={() =>
+                          void sync.resolveConflict(conflict.id, {
+                            action: "rename",
+                            name: (rename.get(conflict.id) ?? "").trim(),
+                          })
+                        }
+                      >
+                        Renommer et résoudre
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void sync.resolveConflict(conflict.id, { action: "dismiss" })}
+                    >
+                      J’ai pris connaissance
+                    </button>
+                  )}
+                </li>
+              ))}
+          </ul>
+        )}
+      </SectionCard>
+
+      {sync.conflicts.some((conflict) => conflict.resolvedAt) ? (
+        <details>
+          <summary>Historique des conflits résolus</summary>
+          <ul>
+            {sync.conflicts
+              .filter((conflict) => conflict.resolvedAt)
+              .map((conflict) => (
+                <li key={conflict.id}>
+                  <strong>{conflictTitle(conflict.kind)}</strong>
+                  <p>
+                    Valeur locale : <span>{conflictValue(conflict.local)}</span>
+                  </p>
+                  <p>
+                    Valeur reçue : <span>{conflictValue(conflict.remote)}</span>
+                  </p>
+                  <details>
+                    <summary>Détails techniques</summary>
+                    <code>
+                      {conflict.entityType} / {conflict.entityId}
+                    </code>
+                    <pre>
+                      {JSON.stringify(
+                        {
+                          local: conflict.local,
+                          remote: conflict.remote,
+                          resolution: conflict.resolution,
+                        },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </details>
+                </li>
+              ))}
+          </ul>
+        </details>
       ) : null}
 
       <SectionCard title={t("page.last.title")}>

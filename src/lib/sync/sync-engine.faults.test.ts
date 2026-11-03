@@ -352,7 +352,7 @@ describe("what a manifest may claim", () => {
     await publishedByB(world, "from-b");
     await c.repo.createTask({ id: "from-c", title: "from-c", bucket: "inbox" });
     await c.engine.publish();
-    world.folders.patchManifest("gtd", b.deviceId, { formatVersion: 3 });
+    world.folders.patchManifest("gtd", b.deviceId, { formatVersion: 4 });
     const report = await a.engine.pull();
     expect(issuesOf(report, "format_version_unsupported")).toMatchObject([
       { severity: "warning", peerName: "B" },

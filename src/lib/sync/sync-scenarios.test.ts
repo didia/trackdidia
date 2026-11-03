@@ -241,8 +241,8 @@ describe("concurrent edits of the same field", () => {
     expect(remote.title.value).toBe("B's title");
     expect(compareHlc(local.title.clock, remote.title.clock)).toBe(-1);
     expect(lost[0]?.resolved_at).toBeNull();
-    // The winner has nothing to report: its value was never replaced.
-    expect(await readConflicts(b)).toEqual([]);
+    // The winner also receives the losing device's conflict record.
+    expect(await readConflicts(b)).toEqual(lost);
   });
 
   it("logs the overwrite once, however often the bundles are exchanged again", async () => {
@@ -514,8 +514,10 @@ describe("deletes", () => {
       const bare = JSON.parse(JSON.stringify(bundles.A)) as {
         formatVersion: number;
         entities: { deletedRow?: unknown }[];
+        conflicts?: unknown;
       };
       bare.formatVersion = 1;
+      delete bare.conflicts;
       for (const entity of bare.entities) entity.deletedRow = undefined;
       await replica.repo.applySyncBundle("personal", JSON.parse(JSON.stringify(bare)));
       await replica.repo.applySyncBundle(

@@ -2,6 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { createEmptyDailyEntry } from "../../domain/daily-entry";
 import { assertRouted, routeDomain } from "./engine-publish";
+import { calendarPeerWarning } from "./calendar-peer-guard";
 import { createSyncEngine, SyncEngineError } from "./sync-engine";
 import { createEngineWorld, type EngineDevice } from "./test-support/engine-harness";
 import type { SyncTransport } from "./transport";
@@ -154,7 +155,7 @@ describe("what a device profile publishes", () => {
 });
 
 describe("a broken settings reader", () => {
-  it("does not stop a publish: the manifest says off and the report says why", async () => {
+  it("publishes a conservative calendar state and blocks another device", async () => {
     const world = await createEngineWorld([
       {
         name: "A",
@@ -164,6 +165,7 @@ describe("a broken settings reader", () => {
           },
         },
       },
+      { name: "B" },
     ]);
     const a = world.device("A");
     await a.repo.createTask({ id: "t1", title: "Plan", bucket: "inbox" });
@@ -172,6 +174,11 @@ describe("a broken settings reader", () => {
     expect(report.issues).toContainEqual(
       expect.objectContaining({ code: "publish_skipped", detail: "settings unreadable" }),
     );
-    expect(world.folders.manifestFor("gtd", a.deviceId)?.calendarSyncEnabled).toBe(false);
+    expect(world.folders.manifestFor("gtd", a.deviceId)?.calendarSyncEnabled).toBe(true);
+    const b = world.device("B");
+    const peers = await b.transports
+      .find((transport) => transport.domains.includes("gtd"))!
+      .listPeers();
+    expect(calendarPeerWarning(peers, [], b.clock.now)).toContain("active sur");
   });
 });

@@ -41,6 +41,7 @@ import { type RowClockRule, rowClockRuleOf } from "./merge-strategies";
 import { isTerminalSessionStatus } from "./row-filter";
 import { readTableInfo } from "./table-info";
 import { overwrittenConflictId } from "./merge-entity";
+import { resolvedTerminalStatuses, rulesWithResolvedStatus } from "./conflict-resolution";
 
 /**
  * Applying the row-clock tables this build merges: the two Pomodoro tables, `ai_proposals`, the
@@ -220,6 +221,10 @@ export const applyRowClockTable = async (
     throw new SyncApplyError("unsupported_merge_class", `"${table}" has no row codec`, { table });
   }
   const rules = RULES[rule];
+  const resolved =
+    rule === "ai-proposal" || rule === "finance-suggestion"
+      ? await resolvedTerminalStatuses(db, table)
+      : new Map<string, string>();
   const localDeviceId = await readLocalDeviceId(db);
   // Pending rows look at rows an earlier pending row of the same batch wrote or expired, so these
   // tables are applied one entity at a time, reading the database again for each.
@@ -263,7 +268,7 @@ export const applyRowClockTable = async (
               : null,
           },
           remote: entity,
-          rules,
+          rules: rulesWithResolvedStatus(rules, resolved.get(entity.entityId)),
           localDeviceId,
         });
       } catch (error) {

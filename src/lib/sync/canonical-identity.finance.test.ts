@@ -954,6 +954,47 @@ describe("rows that still carry an alias id", () => {
 });
 
 describe("statement balance anchors of two accounts that become one", () => {
+  it("publishes filtered conflict evidence after its account becomes an alias", async () => {
+    const sim = await createSyncHarness(["A", "B", "C"]);
+    const a = sim.device("A"),
+      b = sim.device("B"),
+      c = sim.device("C");
+    await a.repo.saveFinanceAccount(financeAccount({ id: "account-a", externalKey: "VISA" }));
+    await b.repo.saveFinanceAccount(financeAccount({ id: "account-b", externalKey: "VISA" }));
+    await b.repo.applyFinanceStatementBalance({
+      accountId: "account-b",
+      statementDate: "2026-10-31",
+      balanceMinor: 120_000,
+    });
+    const snapshot = (
+      await b.db.select<Record<string, unknown>[]>(
+        "SELECT * FROM finance_account_balance_snapshots WHERE account_id = 'account-b' AND source = 'statement'",
+      )
+    )[0];
+    expect(snapshot).toBeDefined();
+    await b.db.execute(
+      "INSERT INTO sync_conflicts (id, entity_type, entity_id, kind, local_json, remote_json, detected_at) VALUES ($1, $2, $3, $4, $5, $5, $6)",
+      [
+        "snapshot-conflict",
+        "finance_account_balance_snapshots",
+        JSON.stringify(["account-b", "2026-10-31"]),
+        "overwritten_edit",
+        JSON.stringify(snapshot),
+        "2026-10-31T00:00:00.000Z",
+      ],
+    );
+    await sim.exchange(a, b, "finance");
+    const bundle = await b.repo.listSyncChanges("finance");
+    const conflict = bundle.conflicts?.find((item) => item.id === "snapshot-conflict");
+    expect(conflict?.entity_id).toBe(JSON.stringify(["account-a", "2026-10-31"]));
+    expect(JSON.parse(conflict!.local_json).account_id).toBe("account-a");
+    await c.repo.applySyncBundle("finance", jsonRoundTrip(bundle));
+    const received = (await c.repo.listSyncConflicts()).find(
+      (item) => item.id === "snapshot-conflict",
+    );
+    expect(received?.entityId).toBe(JSON.stringify(["account-a", "2026-10-31"]));
+    expect(received?.local).toMatchObject({ account_id: "account-a", source: "statement" });
+  });
   it("keeps one standing anchor under the canonical account", async () => {
     const sim = await createSyncHarness(["A", "B"]);
     const [a, b] = [sim.device("A"), sim.device("B")];

@@ -1,6 +1,6 @@
 import { fireEvent, screen, within } from "@testing-library/react";
 import { Route, Routes } from "react-router-dom";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { defaultAppSettings } from "../domain/settings";
 import type { PeerState, SyncIssueCode } from "../lib/sync/engine-types";
 import {
@@ -43,14 +43,11 @@ describe("SyncPage gates", () => {
     expect(sync.refresh).not.toHaveBeenCalled();
   });
 
-  it("is a gate message without debug mode, even when sync is enabled", async () => {
+  it("is available without debug mode when enabled", async () => {
     const sync = syncController();
     await renderPage(sync, { debugEnabled: false });
-    expect(
-      screen.getByText("Cette page expérimentale n'est disponible qu'en mode debug."),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Synchroniser maintenant" })).toBeNull();
-    expect(sync.refresh).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Synchroniser maintenant" })).toBeInTheDocument();
+    expect(sync.refresh).toHaveBeenCalled();
   });
 
   it("is a gate message with a link to Settings while sync is not enabled", async () => {
@@ -791,5 +788,98 @@ describe("pending work and superseded publishes", () => {
     ).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.queryByText("Erreur")).toBeNull();
+  });
+});
+
+describe("conflict queue", () => {
+  it("renders and resolves prototype-named conflict ids and values safely", async () => {
+    const resolveConflict = vi.fn(async () => undefined);
+    const base = {
+      entityType: "gtd_contexts",
+      entityId: "ctx",
+      kind: "name_collision",
+      local: "__proto__",
+      remote: "constructor",
+      detectedAt: "2026-11-03",
+      resolvedAt: null,
+      resolution: null,
+    };
+    await renderPage(
+      syncController({
+        resolveConflict,
+        conflicts: [
+          { ...base, id: "__proto__" },
+          { ...base, id: "constructor" },
+          { ...base, id: "other", kind: "toString" },
+        ],
+      }),
+    );
+    expect(screen.getByText("Conflit de synchronisation")).toBeInTheDocument();
+    expect(screen.getAllByText("__proto__").length).toBeGreaterThan(0);
+    const names = screen.getAllByLabelText("Nouveau nom");
+    fireEvent.change(names[0], { target: { value: "Maison" } });
+    fireEvent.click(screen.getAllByRole("button", { name: "Renommer et résoudre" })[0]);
+    expect(resolveConflict).toHaveBeenCalledWith("__proto__", { action: "rename", name: "Maison" });
+    expect(names[1]).toHaveValue("");
+  });
+  it("shows both values and confirms a terminal choice before resolving", async () => {
+    const resolveConflict = vi.fn(async () => undefined);
+    const sync = syncController({
+      resolveConflict,
+      conflicts: [
+        {
+          id: "c1",
+          entityType: "gtd_tasks",
+          entityId: "task1",
+          kind: "terminal_divergence",
+          local: "completed",
+          remote: "cancelled",
+          detectedAt: "2026-11-03",
+          resolvedAt: null,
+          resolution: null,
+        },
+      ],
+    });
+    await renderPage(sync);
+    expect(screen.getByText("Terminée")).toBeInTheDocument();
+    expect(screen.getByText("Annulée")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Choisir : Annulée (reçue)" }));
+    expect(resolveConflict).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Confirmer" }));
+    expect(resolveConflict).toHaveBeenCalledWith("c1", { action: "choose", side: "remote" });
+  });
+  it("renames collisions, acknowledges information and retains resolved values", async () => {
+    const resolveConflict = vi.fn(async () => undefined);
+    const base = {
+      entityType: "gtd_contexts",
+      entityId: "ctx",
+      local: "old",
+      remote: "new",
+      detectedAt: "2026-11-03",
+      resolution: null,
+    };
+    await renderPage(
+      syncController({
+        resolveConflict,
+        conflicts: [
+          { ...base, id: "name", kind: "name_collision", resolvedAt: null },
+          { ...base, id: "info", kind: "overwritten_edit", resolvedAt: null },
+          {
+            ...base,
+            id: "done",
+            kind: "overwritten_edit",
+            resolvedAt: "2026-11-03",
+            resolution: "dismiss",
+          },
+        ],
+      }),
+    );
+    fireEvent.change(screen.getByLabelText("Nouveau nom"), { target: { value: "Maison" } });
+    fireEvent.click(screen.getByRole("button", { name: "Renommer et résoudre" }));
+    expect(resolveConflict).toHaveBeenCalledWith("name", { action: "rename", name: "Maison" });
+    fireEvent.click(screen.getByRole("button", { name: "J’ai pris connaissance" }));
+    expect(resolveConflict).toHaveBeenCalledWith("info", { action: "dismiss" });
+    expect(screen.getByText("Historique des conflits résolus")).toBeInTheDocument();
+    expect(screen.getAllByText("old")).toHaveLength(3);
   });
 });

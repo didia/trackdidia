@@ -108,6 +108,20 @@ export const assertChangeSetAllowedForProfile = (
   for (const alias of changeSet.aliases) {
     check(domainOfEntityType(alias.entity_type), "an alias", alias.entity_type, alias.alias_id);
   }
+  for (const conflict of changeSet.conflicts ?? []) {
+    const domain =
+      conflict.entity_type === "setting"
+        ? isRegisteredSetting(conflict.entity_id)
+          ? settingRule(conflict.entity_id).scope
+          : null
+        : domainOfEntityType(conflict.entity_type);
+    check(
+      domain === "device" ? null : domain,
+      "a conflict",
+      conflict.entity_type,
+      conflict.entity_id,
+    );
+  }
   for (const entry of changeSet.settings) {
     const scope = isRegisteredSetting(entry.key) ? settingRule(entry.key).scope : "device";
     check(scope === "device" ? null : scope, "a setting", "app_settings", entry.key);

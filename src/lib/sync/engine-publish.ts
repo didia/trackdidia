@@ -187,13 +187,16 @@ export const runPublish = async (
   let superseded = false;
   let calendarSyncEnabled = false;
   try {
-    calendarSyncEnabled = Boolean(await ctx.calendarSyncEnabled());
+    const state = await ctx.calendarSyncEnabled();
+    if (typeof state !== "boolean") throw new Error("calendar state is not a boolean");
+    calendarSyncEnabled = state;
   } catch (error) {
-    // A broken settings reader must not stop the publish: the manifest says "off" and the report why.
+    // Unknown must not authorize another device to start a calendar reconciler.
+    calendarSyncEnabled = true;
     issues.push({
       severity: "warning",
       code: "publish_skipped",
-      message: `Could not read whether calendar sync is on (${messageOf(error)}); published as off`,
+      message: `Could not read whether calendar sync is on (${messageOf(error)}); published conservatively as on`,
       detail: messageOf(error),
     });
   }

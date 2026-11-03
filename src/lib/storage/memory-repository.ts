@@ -150,6 +150,7 @@ import type {
   SyncCaptureEnableResult,
 } from "../sync/backfill-state";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncConflict, SyncConflictResolution } from "../sync/conflicts";
 import type { ProfileDataInspection } from "../sync/profile-data";
 import type { InspectProfileDataOptions } from "../sync/profile-data-sql";
 import type { SyncDomain } from "../sync/registry";
@@ -2228,6 +2229,18 @@ export class MemoryRepository implements AppRepository {
   }
 
   async enableSyncCapture(_options?: SyncBackfillOptions): Promise<SyncCaptureEnableResult> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async uninstallSyncChangeTracking(): Promise<void> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async listSyncConflicts(): Promise<SyncConflict[]> {
+    throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
+  }
+
+  async resolveSyncConflict(_id: string, _resolution: SyncConflictResolution): Promise<void> {
     throw new Error(SYNC_UNAVAILABLE_IN_PREVIEW_MESSAGE);
   }
 

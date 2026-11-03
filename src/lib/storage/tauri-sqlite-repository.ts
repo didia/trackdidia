@@ -185,9 +185,11 @@ import {
   runBackfillChunk,
   startOrResumeBackfill,
 } from "../sync/backfill-run";
-import { ensureSyncCapture, installSyncCapture } from "../sync/capture-install";
+import { disableSyncCapture, ensureSyncCapture, installSyncCapture } from "../sync/capture-install";
 import { stampDirtyEntities } from "../sync/capture-stamp";
 import type { SyncApplyOptions, SyncApplyResult, SyncChangeSet } from "../sync/change-set";
+import type { SyncConflict, SyncConflictResolution } from "../sync/conflicts";
+import { resolveConflict } from "../sync/conflict-resolution";
 import { getDeviceId } from "../sync/device-id";
 import {
   bumpChangeCounterSql,
@@ -199,7 +201,8 @@ import { readChangeSet } from "../sync/list-changes";
 import { isVerifiedEmptyDatabase, type ProfileDataInspection } from "../sync/profile-data";
 import { type InspectProfileDataOptions, inspectProfileData } from "../sync/profile-data-sql";
 import { assertChangeSetAllowedForProfile, readStoredProfile } from "../sync/profile-guard";
-import { SYNC_DOMAINS, type SyncDomain } from "../sync/registry";
+import { publishDomainOfEntityType, SYNC_DOMAINS, type SyncDomain } from "../sync/registry";
+import { domainsReadable } from "../sync/profile";
 import {
   assertValidDeviceId,
   buildSupportedSyncStatus,
@@ -3454,6 +3457,75 @@ export class TauriSqliteRepository implements AppRepository {
     };
   }
 
+  async uninstallSyncChangeTracking(): Promise<void> {
+    await this.writeQueue.run(async () => {
+      const db = await this.getDb();
+      await runSqliteTransaction(
+        db,
+        async (tx) => {
+          await disableSyncCapture(transactionDb(tx));
+        },
+        (rollbackError) => {
+          logDebug("error", "storage.sqlite", "Echec ROLLBACK (ignore)", rollbackError);
+        },
+      );
+      this.captureEnabled = false;
+    });
+  }
+
+  async listSyncConflicts(): Promise<SyncConflict[]> {
+    return this.writeQueue.run(async () => {
+      const db = await this.getDb();
+      const allowedDomains = domainsReadable(await readStoredProfile(db));
+      const rows = await db.select<
+        {
+          id: string;
+          entity_type: string;
+          entity_id: string;
+          kind: string;
+          local_json: string;
+          remote_json: string;
+          detected_at: string;
+          resolved_at: string | null;
+          resolution: string | null;
+        }[]
+      >(
+        "SELECT id, entity_type, entity_id, kind, local_json, remote_json, detected_at, resolved_at, resolution FROM sync_conflicts ORDER BY detected_at DESC, id",
+      );
+      return rows
+        .filter((row) => {
+          try {
+            return allowedDomains.includes(
+              publishDomainOfEntityType(row.entity_type, row.entity_id),
+            );
+          } catch {
+            return false;
+          }
+        })
+        .map((row) => ({
+          id: row.id,
+          entityType: row.entity_type,
+          entityId: row.entity_id,
+          kind: row.kind,
+          local: JSON.parse(row.local_json),
+          remote: JSON.parse(row.remote_json),
+          detectedAt: row.detected_at,
+          resolvedAt: row.resolved_at,
+          resolution: row.resolution,
+        }));
+    });
+  }
+
+  async resolveSyncConflict(id: string, resolution: SyncConflictResolution): Promise<void> {
+    await this.writeTransaction(async (tx) => {
+      if (!this.captureEnabled)
+        throw new SyncApplyError("capture_disabled", "Change capture is not enabled");
+      const db = transactionDb(tx);
+      await assertBackfillComplete(db);
+      await resolveConflict(db, id, resolution, this.now());
+    });
+  }
+
   /**
    * Must run inside a write transaction; never re-enters the writer queue. Installs (or repairs)
    * the capture triggers and starts a backfill pass, or keeps the one that is running. Returns
@@ -3503,9 +3575,10 @@ export class TauriSqliteRepository implements AppRepository {
     while (outcome.chunks < maxChunks) {
       // One writer slot per chunk. The queue is FIFO: a write queued while a chunk runs is served
       // before the next chunk, which only joins the queue after this one has finished.
-      const chunk = await this.writeTransaction((tx) =>
-        runBackfillChunk(transactionDb(tx), this.now(), limits),
-      );
+      const chunk = await this.writeTransaction((tx) => {
+        if (!this.captureEnabled) throw new Error("Change capture was uninstalled during backfill");
+        return runBackfillChunk(transactionDb(tx), this.now(), limits);
+      });
       if (chunk.ran) outcome.chunks += 1;
       outcome.stamped += chunk.stamped;
       outcome.scanned += chunk.scanned;
@@ -3558,6 +3631,9 @@ export class TauriSqliteRepository implements AppRepository {
     // One transaction, internal helpers only: re-entering the writer queue from inside it would
     // deadlock. Any error rolls back every row, meta, snapshot, conflict and the `applying` flag.
     return this.writeTransaction(async (tx) => {
+      if (!this.captureEnabled) {
+        throw new SyncApplyError("capture_disabled", "Change capture was uninstalled before apply");
+      }
       if (
         options.requireEmptyDatabase &&
         !isVerifiedEmptyDatabase(await inspectProfileData(transactionDb(tx)))

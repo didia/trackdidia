@@ -1,5 +1,5 @@
 import type { Database } from "../storage/sqlite-db";
-import type { SyncRecurrence } from "./change-set";
+import type { SyncEntity, SyncRecurrence } from "./change-set";
 import {
   type ExtraConflict,
   instanceEntityId,
@@ -41,6 +41,7 @@ const recordOf = (row: SyncRecurrence["occurrences"][number]): OccurrenceRecord 
 export const applyRecurrenceSidecars = async (
   db: Database,
   recurrence: SyncRecurrence,
+  entities: readonly SyncEntity[] = [],
 ): Promise<RecurrenceApplyResult> => {
   const result: RecurrenceApplyResult = {
     templates: new Set(),
@@ -74,13 +75,23 @@ export const applyRecurrenceSidecars = async (
       // The user completed the occurrence on one laptop and cancelled it on another. The merge
       // picks the later decision for now; settling it is the user's.
       const entityId = instanceEntityId(record.templateId);
+      const localTask = (
+        await db.select<Record<string, unknown>[]>("SELECT * FROM gtd_tasks WHERE id = $1", [
+          entityId,
+        ])
+      )[0];
+      const remoteTask = entities.find(
+        (entity) => entity.table === TASK_TABLE && entity.entityId === entityId,
+      )?.row;
+      const matchingTask = (row: Record<string, unknown> | null | undefined, outcome: string) =>
+        row?.recurrence_due_date === record.dueDate && row.status === outcome ? row : null;
       result.conflicts.push({
         id: terminalDivergenceId(TASK_TABLE, entityId, record.dueDate),
         kind: "terminal_divergence",
         entityType: TASK_TABLE,
         entityId,
-        local: occurrenceToRow(local),
-        remote: occurrenceToRow(record),
+        local: { ...occurrenceToRow(local), task: matchingTask(localTask, local.outcome) },
+        remote: { ...occurrenceToRow(record), task: matchingTask(remoteTask, record.outcome) },
       });
     }
     if (local === undefined || compareOccurrence(record, local) > 0) {

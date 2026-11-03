@@ -54,7 +54,13 @@ export const keepLocalNameOnCollision = async (
     entityType: CONTEXTS,
     entityId: entry.entityId,
     local: { holder: holder.id, name },
-    remote: { id: entry.entityId, name, rowHlc: remote.rowHlc },
+    remote: {
+      id: entry.entityId,
+      name,
+      rowHlc: remote.rowHlc,
+      row: remote.row,
+      fieldClocks: remote.fieldClocks,
+    },
   };
 
   if (outcome.rowAction === "insert") {

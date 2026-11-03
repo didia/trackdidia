@@ -4,6 +4,7 @@ import { financeContextForRound, splitIntoRounds } from "./alias-decode";
 import type { ApplyEntities, ApplyScope } from "./alias-context";
 import { resolveCanonicalIdentity } from "./apply-aliases";
 import { appendTo } from "./collections";
+import { mergeIncomingConflicts } from "./conflict-resolution";
 import { applyFinanceSplits, applyFinanceTransactions, buildFinanceContext } from "./apply-finance";
 import { CONTEXTS, keepLocalNameOnCollision } from "./apply-names";
 import { orderByReferences, type ParentStatus, ReferenceGuard } from "./apply-references";
@@ -695,7 +696,7 @@ const mergeAll = async (
   // The recurrence sidecars merge next: the instance rows and templates are recomputed from them.
   let gtd: GtdApplyState | null = null;
   if (changeSet.domain === "gtd") {
-    const sidecars = await applyRecurrenceSidecars(db, changeSet.recurrence);
+    const sidecars = await applyRecurrenceSidecars(db, changeSet.recurrence, changeSet.entities);
     totals.applied += sidecars.applied;
     totals.skipped += sidecars.skipped;
     conflicts.push(...sidecars.conflicts.map(extraConflictOf));
@@ -755,6 +756,12 @@ const mergeAll = async (
 
   await applySettings(db, changeSet, context, totals);
   const conflictsLogged = await insertConflicts(db, conflicts, context.nowMs);
+  totals.applied += await mergeIncomingConflicts(
+    db,
+    changeSet.conflicts ?? [],
+    changeSet.domain,
+    context.nowMs,
+  );
   return { ...totals, conflictsLogged };
 };
 
@@ -806,7 +813,10 @@ export const applyChangeSet = async (
   }
   // Not best effort: if this fails the transaction must not commit with the flag raised.
   await db.execute("UPDATE sync_identity SET applying = 0 WHERE id = 1");
-  if (context.republish === true && merged.applied + merged.tombstonesApplied > 0) {
+  if (
+    context.republish === true &&
+    merged.applied + merged.tombstonesApplied + merged.conflictsLogged > 0
+  ) {
     // The merged state is something the other laptops may not hold yet: make it pending, in this
     // transaction, so a crash between the apply and the next publish cannot lose the obligation.
     await db.execute(bumpChangeCounterSql([changeSet.domain], "1"));

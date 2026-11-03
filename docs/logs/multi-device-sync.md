@@ -1,5 +1,9 @@
 # 2026-11-02 — Work-profile shell and startup gates
 
+- 2026-11-03: Documented activated personal/work profiles, conflict transport and queue, filtered-conflict privacy, sync tracking uninstall, calendar peer protection and the remaining real-device and recovery limits. The approved design moved to `specs/done/multi-laptop-sync.md`.
+
+- 2026-11-03: Documented committed-counter publication and the finance categorization total order, and clarified the native menu/Cmd+Q quit limitation. See [Multi-device sync](../multi-device-sync.md#backups-the-safety-backup-and-per-domain-publishing).
+
 - 2026-11-03: Guided join stages profile and folder choices, displays domain counts and imports only the confirmed peer. A transactional empty-database guard protects a skipped backup; nonempty joins back up first. Work selection remains disabled.
 
 The stored work profile now restricts routes and Settings and skips personal and finance startup and runtime jobs, while retaining GTD and Pomodoro. Profile selection and guided join remain unavailable.

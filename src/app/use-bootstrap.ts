@@ -25,7 +25,7 @@ export interface BootstrapState {
   startupStage: string;
   /**
    * The sync engine and the pull started during bootstrap (see `lib/sync/startup-sync.ts`); `null`
-   * when sync is off, the debug gate is closed, or the fallback is active. `useMultiDeviceSync`
+   * when sync is off or the fallback is active. `useMultiDeviceSync`
    * adopts it.
    */
   startupSync: StartupSync | null;
@@ -200,7 +200,7 @@ export const useBootstrap = (options: UseBootstrapOptions = {}): BootstrapState 
           onSettingsLoaded: (loaded) => {
             knownProfile = loaded.syncProfile;
           },
-          // Sync off or the debug gate closed: the step does not exist (no stage, no call).
+          // Sync off: the step does not exist (no stage, no call).
           isSyncPullEnabled: (current) => isSyncAutomationEnabled(getDebugEnabled(), current),
           pullBeforeGenerators: async (current) => {
             started = await startStartupSyncPull({

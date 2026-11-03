@@ -44,11 +44,11 @@ describe("AppShell sync nav gating", () => {
       contextOverrides,
     );
 
-  it("lists Synchronisation only with debug mode AND sync enabled", async () => {
+  it("lists Synchronisation only when sync is enabled", async () => {
     for (const [debugEnabled, multiDeviceSyncEnabled, shown] of [
       [true, true, true],
       [true, false, false],
-      [false, true, false],
+      [false, true, true],
       [false, false, false],
     ] as const) {
       const view = await shell({
@@ -77,11 +77,11 @@ describe("AppShell sync nav gating", () => {
 });
 
 describe("AppShell sync status chip", () => {
-  it("shows the chip beside the brand only with debug mode AND sync enabled", async () => {
+  it("shows the chip beside the brand only when sync is enabled", async () => {
     for (const [debugEnabled, multiDeviceSyncEnabled, shown] of [
       [true, true, true],
       [true, false, false],
-      [false, true, false],
+      [false, true, true],
     ] as const) {
       const view = await renderWithApp(
         <Routes>

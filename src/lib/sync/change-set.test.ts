@@ -119,7 +119,7 @@ describe("validateChangeSet accepts", () => {
     expect(codeOf(input)).toBe("no error");
     expect(validateChangeSet(input).formatVersion).toBe(1);
     expect(validateChangeSet(base()).formatVersion).toBe(SYNC_FORMAT_VERSION);
-    expect(SYNC_FORMAT_VERSION).toBe(2);
+    expect(SYNC_FORMAT_VERSION).toBe(3);
   });
 
   it("a composite primary key written canonically", () => {
@@ -223,7 +223,7 @@ describe("validateChangeSet rejects", () => {
     ["a missing top-level key", variant((d) => delete d.settings), "invalid_shape"],
     [
       "an unknown format version",
-      variant((d) => (d.formatVersion = 3)),
+      variant((d) => (d.formatVersion = 4)),
       "unsupported_format_version",
     ],
     [

@@ -3,9 +3,17 @@
 One-way, desktop-only mirroring of dated TrackDidia tasks into a dedicated Google
 Calendar. Disabled by default. Calendar edits never flow back into TrackDidia.
 
+When folder sync is enabled, only one peer may reconcile a Google Calendar. The app blocks a
+second enable and pauses both manual and automatic reconciliation if a peer reports it enabled, is
+missing, invalid, or has a stale manifest (older than 24 hours); an app-wide warning names the peer.
+Changing the local setting forces a fresh manifest publication. If the publishing device cannot
+read its calendar state, its manifest conservatively reports calendar sync as on and Settings
+reports the publication problem; skipped or incomplete publications also report failure. See
+[Multi-device sync](multi-device-sync.md).
+
 ## Design
 
-TrackDidia is local-first (one SQLite database, no cloud sync, no accounts). Dated
+TrackDidia is local-first, with a local SQLite database and optional folder-based multi-device sync. Dated
 work lives in two GTD buckets — `scheduled` tasks (`scheduledFor`, auto-promoted to
 Next Actions on the local day) and `planned` tasks (a project-only queue that reuses
 `scheduledFor` as an optional planned date); see [GTD](gtd.md). Calendar sync mirrors
