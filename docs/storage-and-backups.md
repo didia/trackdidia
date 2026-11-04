@@ -507,7 +507,9 @@ All four are classified device-local in `src/lib/sync/registry.ts` and never lea
   operation on an entity wins: a delete after an upsert is `delete`, a re-insert after a delete is
   `upsert`; an update that rewrites the key marks the old key deleted.
 - The entity id is the primary key as text for a single-column key and a JSON array of the key
-  values (registry order, integers as numbers) for a composite one, built by `entityIdOf`
+  values (registry order, integers as numbers) for a composite one (an empty string is a valid
+  column of a composite key, e.g. `finance_merchant_memory.account_id = ""` for an entry scoped to
+  every account; a single-column key must be non-empty), built by `entityIdOf`
   (`src/lib/sync/entity-id.ts`) and by the triggers in SQL; a test checks the two agree on
   awkward strings.
 - The installed set is identified by a hash of the generated SQL plus the live column lists and

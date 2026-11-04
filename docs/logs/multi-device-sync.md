@@ -1,5 +1,7 @@
 # 2026-11-02 — Work-profile shell and startup gates
 
+- 2026-11-04: Fixed a finance publish failure (`invalid_row: ... primary key columns do not match entityId`). Change-set validation treated an empty-string column of a composite key as missing, so AI-learned merchant memory (`account_id = ""`) could never be published. Empty strings are now accepted in composite keys only. See [Storage and backups](../storage-and-backups.md#multi-device-sync-change-capture).
+
 - 2026-11-03: Documented activated personal/work profiles, conflict transport and queue, filtered-conflict privacy, sync tracking uninstall, calendar peer protection and the remaining real-device and recovery limits. The approved design moved to `specs/done/multi-laptop-sync.md`.
 
 - 2026-11-03: Documented committed-counter publication and the finance categorization total order, and clarified the native menu/Cmd+Q quit limitation. See [Multi-device sync](../multi-device-sync.md#backups-the-safety-backup-and-per-domain-publishing).
