@@ -274,9 +274,14 @@ const expectRow = (value: unknown, path: string): SyncRow => {
 /** The primary-key values of a row in registry order, or `null` if a key column is unusable. */
 const primaryKeyValues = (table: string, row: SyncRow): (string | number)[] | null => {
   const values: (string | number)[] = [];
-  for (const column of getTableRegistration(table).primaryKey) {
+  const { primaryKey } = getTableRegistration(table);
+  // An empty string is a legitimate part of a composite key (`finance_merchant_memory` scopes an
+  // entry to every account with `account_id = ""`), and `entityIdOf` encodes it. A single-column
+  // key is the whole entity id and must not be empty.
+  const emptyAllowed = primaryKey.length > 1;
+  for (const column of primaryKey) {
     const cell = getOwn(row, column);
-    if (typeof cell === "string" ? cell.length === 0 : typeof cell !== "number") {
+    if (typeof cell === "string" ? cell.length === 0 && !emptyAllowed : typeof cell !== "number") {
       return null;
     }
     values.push(cell as string | number);

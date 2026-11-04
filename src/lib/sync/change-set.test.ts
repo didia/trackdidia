@@ -110,6 +110,33 @@ describe("validateChangeSet accepts", () => {
     });
   });
 
+  it("a composite key with an empty-string column (merchant memory scoped to every account)", () => {
+    // `buildAiMemoryEntry` stores `account_id = ""`; the entity id is `["CAFE","",-1]`.
+    const input = variant((d) => {
+      d.domain = "finance";
+      d.entities[0] = {
+        table: "finance_merchant_memory",
+        entityId: JSON.stringify(["CAFE", "", -1]),
+        row: { merchant_key: "CAFE", account_id: "", sign: -1, category_id: "cat-1" },
+        fieldClocks: {},
+        rowHlc: hlc(1000),
+        deletedAt: null,
+      };
+    });
+    expect(codeOf(input)).toBe("no error");
+  });
+
+  it("an empty single-column key is still refused", () => {
+    expect(
+      codeOf(
+        variant((d) => {
+          d.entities[0].entityId = "";
+          d.entities[0].row.id = "";
+        }),
+      ),
+    ).not.toBe("no error");
+  });
+
   it("a format 1 change set, whose tombstones have no values", () => {
     const input = variant((d) => {
       d.formatVersion = 1;
