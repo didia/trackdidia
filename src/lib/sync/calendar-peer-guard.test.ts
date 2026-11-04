@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarPeerWarning } from "./calendar-peer-guard";
+import { CALENDAR_PEER_MAX_AGE_MS, calendarPeerWarning } from "./calendar-peer-guard";
 import { encodeHlc } from "./hlc";
 import type { PeerManifest } from "./transport";
 
@@ -21,17 +21,22 @@ describe("calendar peer guard", () => {
   it("permits a fresh peer with calendar disabled", () => {
     expect(calendarPeerWarning([peer], [], now)).toBeNull();
   });
-  it("blocks enabled, stale, invalid and missing peers by name", () => {
+  it("permits an idle peer whose calendar-off manifest is days old", () => {
+    for (const days of [2, 10, 29]) {
+      const writtenAt = new Date(now - days * 24 * 3600_000).toISOString();
+      expect(calendarPeerWarning([{ ...peer, writtenAt }], [], now)).toBeNull();
+    }
+  });
+  it("blocks peers older than the heartbeat window or dated in the future", () => {
+    const stale = new Date(now - CALENDAR_PEER_MAX_AGE_MS - 1000).toISOString();
+    expect(calendarPeerWarning([{ ...peer, writtenAt: stale }], [], now)).toContain("Maison");
+    const future = new Date(now + 10 * 60_000).toISOString();
+    expect(calendarPeerWarning([{ ...peer, writtenAt: future }], [], now)).toContain("Maison");
+  });
+  it("blocks enabled, invalid and missing peers by name", () => {
     expect(calendarPeerWarning([{ ...peer, calendarSyncEnabled: true }], [], now)).toContain(
       "Maison",
     );
-    expect(
-      calendarPeerWarning(
-        [{ ...peer, writtenAt: new Date(now - 25 * 3600_000).toISOString() }],
-        [],
-        now,
-      ),
-    ).toContain("Maison");
     expect(
       calendarPeerWarning(
         [{ ...peer, calendarSyncEnabled: undefined } as unknown as PeerManifest],

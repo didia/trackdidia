@@ -5,6 +5,7 @@ Back to [Documentation Log](../log.md). Canonical page:
 
 | Date | Change | Canonical pages | Evidence |
 |---|---|---|---|
+| 2026-11-03 | Peer guard no longer treats a manifest older than 24 hours as stale; it rejects only future-dated manifests and those older than the publish heartbeat plus one day. | [calendar-sync.md](../calendar-sync.md) | `src/lib/sync/calendar-peer-guard.ts` |
 | 2026-11-03 | Unreadable calendar state is published conservatively as on; skipped or incomplete publication reports failure. | [calendar-sync.md](../calendar-sync.md) | `src/lib/sync/engine-publish.ts` |
 | 2026-11-03 | Documented the single-reconciler peer guard for folder sync. | [calendar-sync.md](../calendar-sync.md) | `src/lib/sync/calendar-peer-guard.ts` |
 | 2026-10-12 | Shared HTTP, PKCE, token-cache and Google token helpers moved out of the removed `email-triage` directory (`src/lib/provider-http.ts`, `src/lib/oauth/`, `src/lib/token-cache.ts`); the loopback guard now has the calendar as its only owner. | `docs/calendar-sync.md` | `src/lib/oauth/`, `src/lib/oauth-loopback-guard.ts` |

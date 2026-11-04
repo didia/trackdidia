@@ -5,7 +5,10 @@ Calendar. Disabled by default. Calendar edits never flow back into TrackDidia.
 
 When folder sync is enabled, only one peer may reconcile a Google Calendar. The app blocks a
 second enable and pauses both manual and automatic reconciliation if a peer reports it enabled, is
-missing, invalid, or has a stale manifest (older than 24 hours); an app-wide warning names the peer.
+missing, invalid, or has an unmaintained manifest (dated in the future or older than the 30-day publish heartbeat plus one
+day); an app-wide warning names the peer. An idle peer's manifest keeps its old `writtenAt` because
+manifests are rewritten only on change or by the heartbeat, and calendar changes force a publication,
+so a days-old manifest still reports the calendar setting accurately.
 Changing the local setting forces a fresh manifest publication. If the publishing device cannot
 read its calendar state, its manifest conservatively reports calendar sync as on and Settings
 reports the publication problem; skipped or incomplete publications also report failure. See
