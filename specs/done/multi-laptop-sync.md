@@ -1,6 +1,8 @@
 # Spec — Multi-laptop sync (personal + work) through shared Drive folders
 
-**Status:** draft, awaiting review (not approved, nothing implemented).
+**Status:** implemented as experimental, opt-in desktop sync. Automatic triggers and work-profile
+isolation have simulation coverage; a real multi-laptop desktop smoke test remains outstanding. The
+current behavior and known limits are maintained in [Multi-device sync](../../docs/multi-device-sync.md).
 **Scope:** let several TrackDidia desktops share data without a server. **Personal** laptops
 share everything. A **work** laptop shares only GTD and Pomodoro: the complete task list,
 projects, contexts, recurrences and focus history, and nothing else. Each laptop reads and writes
@@ -9,10 +11,8 @@ server, no account, no Drive API, no OAuth.
 
 ## Context
 
-Today there is exactly one database per machine and
-[`docs/architecture.md`](../../docs/architecture.md) states "No cloud sync, accounts, or shared
-data". The only cross-machine artifact is the backup folder (`{destination}/backups/`), written
-with `VACUUM INTO` and pruned to 30 files by
+At the time this spec was drafted there was exactly one database per machine and the only
+cross-machine artifact was the backup folder (`{destination}/backups/`), written with `VACUUM INTO` and pruned to 30 files by
 [`src-tauri/src/backup.rs`](../../src-tauri/src/backup.rs). Both laptops can already reach that
 folder, which makes it the natural transport.
 
@@ -59,7 +59,7 @@ clocks and tombstones. Because every bundle has a single writer, Google Drive ca
 order-independent, so a missed, repeated or late bundle cannot corrupt anything.
 
 This is the same *delta-state with per-field hybrid logical clocks in a sidecar table* engine
-already approved in [`mobile-and-sync.md`](mobile-and-sync.md) (Phase 4). This spec reuses that
+already approved in [`mobile-and-sync.md`](../todo/mobile-and-sync.md) (Phase 4). This spec reuses that
 engine and changes the transport, the scope, and the authority model; see the next section.
 
 ## Decisions
@@ -393,7 +393,7 @@ data model, not from a leader:
 |---|---|
 | Scheduled promotion | Pure and idempotent over `(tasks, today, now)`. Both sides compute the same result. |
 | Recurrence generation | One row per template (`recurring-task:<templateId>`) advanced in place, so the row id is not an occurrence. Sync merges per **occurrence**, never by independent max/LWW on the row's fields; see [Recurring occurrences](#recurring-occurrences). |
-| Relationship draws (personal devices only) | New draws are deterministic. The task id is derived from the `source_external_id` (category + date), and the activity is chosen with a seed of `(category, date)` over the synced activity list. Two personal laptops therefore normally create the identical row, and merging it is a no-op. If the lists differed at draw time, or for draws made before this change, the rows collide on `source_external_id` and go through [canonical identity](#natural-keys-and-canonical-identity): one id by total order, events and segments remapped, lifecycle and edits merged, so a completion on either copy survives. `createdAt` is never the tiebreaker, because the planner stamps every draw `${date}T00:00:00.000Z` and concurrent draws always tie on it. No row carrying user state is dropped. |
+| Relationship draws (personal devices only) | New draws are deterministic. The task id is derived from the `source_external_id` (category + date), and the activity is chosen with a seed of `(category, date)` over the synced activity list. Two personal laptops therefore normally create the identical row, and merging it is a no-op. If the lists differed at draw time, the deterministic ids still match and field clocks merge the rows. A pre-change random-id draw meeting a deterministic one collides on `source_external_id` and goes through [canonical identity](#natural-keys-and-canonical-identity), with references remapped and lifecycle merged. `createdAt` is never the tiebreaker, because the planner stamps every draw `${date}T00:00:00.000Z` and concurrent draws always tie on it. No row carrying user state is dropped. |
 
 Reads are already pure (`listTasks` no longer runs the generators; `generateDueRecurringTasks` and
 `promoteDueScheduledTasks` are explicit calls), so merely viewing a list never stamps clocks or
@@ -784,34 +784,9 @@ no restore UI.
    test. The residual risk is a user later sharing the personal folder with the work account by
    hand.
 
-## Open questions
+## Resolved decisions
 
-Resolved: work laptop scope is `gtd` only (entire GTD list + Pomodoro, no work/personal split
-inside GTD); reviews, journals, goals, AI and finance stay on personal laptops; secrets are
-device-local.
-
-1. **Drive setup on the work laptop.** Is the work laptop's Drive for Desktop signed into the same
-   personal Google account (then selective sync, a weaker boundary because the browser still
-   reaches everything) or a separate account with only the GTD folder shared to it (recommended)?
-   Or is Drive for Desktop not allowed on the work laptop at all, which would need another
-   transport?
-2. **Work tasks and the AI coach.** On personal laptops, should tasks created on the work laptop be
-   excluded from OpenRouter payloads (for example tasks under a `Work` context or project), or is
-   sending their titles acceptable? This touches employer confidentiality, not just personal
-   privacy.
-3. **Triggers versus explicit writes** for change capture. Recommendation above is hybrid; Phase 1
-   spikes it against the finance import path and the transaction/writer-queue rules before locking
-   it.
-4. **Encryption.** With folder separation, is a plaintext `gtd` bundle in the shared folder
-   acceptable (it holds work tasks and personal tasks alike), or should v1 add a passphrase-derived
-   key for that folder?
-5. **Calendar sync.** Is "one reconciler laptop, warn on the second" enough, or should link rows sync
-   so either laptop can run it? Which laptop should own it?
-6. **Relationship-draw tasks at work.** They are GTD tasks and therefore appear on the work laptop,
-   per the "entire GTD list" decision. Confirm, or exclude tasks whose `source_external_id` marks them
-   as relationship draws.
-7. **Are the laptops ever used at the same time?** If never (one at a time, quit before switching),
-   publish-on-quit plus pull-at-start is sufficient and the debounced mid-session publish can wait.
-8. **More than one personal laptop?** The design supports any number; if there is only one personal
-   laptop today, the personal folder's `sync/` stays empty until a second one joins, and only the
-   per-device backup naming matters now.
+- Keep `aiBaseUrl` device-local. Version 1 uses plaintext bundles and folder separation; no envelope encryption.
+- Allow any number of personal peers. A separate Google account with only the GTD folder shared is recommended for a work device.
+- Work devices receive the entire GTD list, including relationship-draw tasks; draw lists and bookkeeping remain personal. Work tasks can reach the personal coach under the full payload scope.
+- One laptop reconciles Google Calendar; enabling a second is blocked with a warning. Keep the two-minute mid-session debounce and blur/quit publishes.

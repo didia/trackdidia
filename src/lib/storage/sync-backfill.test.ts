@@ -41,6 +41,27 @@ const stateRow = async (database: Database) =>
   (await database.select<Record<string, unknown>[]>("SELECT * FROM sync_backfill_state"))[0];
 
 describe("the chunked capture backfill through the repository", () => {
+  it("uninstalls capture without losing rows or history and reconciles edits when re-enabled", async () => {
+    const database = openDatabase();
+    const repository = await openRepository(database);
+    await repository.createTask({ id: "kept", title: "Before", bucket: "inbox" });
+    await repository.enableSyncCapture();
+    await runSyncCaptureBackfill(repository);
+    const before = await readMetaOf(database, "gtd_tasks", "kept");
+    await repository.uninstallSyncChangeTracking();
+    expect(await repository.getSyncStatus()).toMatchObject({ captureEnabled: false });
+    expect(await readMetaOf(database, "gtd_tasks", "kept")).toEqual(before);
+    const task = (await repository.listTasks()).find((item) => item.id === "kept");
+    if (!task) throw new Error("task missing");
+    await repository.saveTask({ ...task, title: "While off" });
+    expect(await readMetaOf(database, "gtd_tasks", "kept")).toEqual(before);
+    await repository.enableSyncCapture();
+    await runSyncCaptureBackfill(repository);
+    expect((await repository.listTasks()).find((item) => item.id === "kept")?.title).toBe(
+      "While off",
+    );
+    expect(await readMetaOf(database, "gtd_tasks", "kept")).not.toEqual(before);
+  });
   it("installs in a short first slot, runs only the first chunk and reports what is left", async () => {
     const { database, repository } = await seeded();
     const first = await repository.enableSyncCapture({ limits: SMALL });

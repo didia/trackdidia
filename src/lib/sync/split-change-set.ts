@@ -2,6 +2,7 @@ import type { ForeignKeyEdge } from "./apply-references";
 import { orderByReferences } from "./apply-references";
 import type {
   SyncAlias,
+  SyncConflictRow,
   SyncChangeSet,
   SyncEntity,
   SyncRecurrenceClear,
@@ -141,6 +142,7 @@ interface Piece {
   entities: SyncEntity[];
   unionRows: { table: string; row: SyncRow }[];
   aliases: SyncAlias[];
+  conflicts: SyncConflictRow[];
   occurrences: SyncRecurrenceOccurrence[];
   clears: SyncRecurrenceClear[];
   settings: SyncSettingEntry[];
@@ -155,6 +157,7 @@ const piece = (position: number, sortKey: string, parts: Partial<Piece> = {}): P
   entities: [],
   unionRows: [],
   aliases: [],
+  conflicts: [],
   occurrences: [],
   clears: [],
   settings: [],
@@ -178,6 +181,7 @@ const fitsOneChunk = (changeSet: SyncChangeSet, limits: ApplyLimits): boolean =>
   changeSet.entities.length <= limits.maxEntities &&
   unionRowCount(changeSet) <= limits.maxUnionRows &&
   changeSet.aliases.length <= limits.maxAliases &&
+  (changeSet.conflicts?.length ?? 0) <= limits.maxSidecarRows &&
   sidecarRows(changeSet) <= limits.maxSidecarRows;
 
 class ChunkBuilder {
@@ -185,6 +189,7 @@ class ChunkBuilder {
   unionRows: Record<string, SyncRow[]> = {};
   unionCount = 0;
   aliases: SyncAlias[] = [];
+  conflicts: SyncConflictRow[] = [];
   occurrences: SyncRecurrenceOccurrence[] = [];
   clears: SyncRecurrenceClear[] = [];
   settings: SyncSettingEntry[] = [];
@@ -194,6 +199,7 @@ class ChunkBuilder {
       this.entities.length === 0 &&
       this.unionCount === 0 &&
       this.aliases.length === 0 &&
+      this.conflicts.length === 0 &&
       this.occurrences.length + this.clears.length === 0 &&
       this.settings.length === 0
     );
@@ -205,6 +211,8 @@ class ChunkBuilder {
         this.entities.length + next.entities.length > limits.maxEntities) ||
       (this.unionCount > 0 && this.unionCount + next.unionRows.length > limits.maxUnionRows) ||
       (this.aliases.length > 0 && this.aliases.length + next.aliases.length > limits.maxAliases) ||
+      (this.conflicts.length > 0 &&
+        this.conflicts.length + next.conflicts.length > limits.maxSidecarRows) ||
       (this.occurrences.length + this.clears.length > 0 &&
         this.occurrences.length +
           this.clears.length +
@@ -221,6 +229,7 @@ class ChunkBuilder {
     }
     this.unionCount += next.unionRows.length;
     this.aliases.push(...next.aliases);
+    this.conflicts.push(...next.conflicts);
     this.occurrences.push(...next.occurrences);
     this.clears.push(...next.clears);
     this.settings.push(...next.settings);
@@ -238,6 +247,7 @@ class ChunkBuilder {
       settings: this.settings,
       recurrence: { occurrences: this.occurrences, clears: this.clears },
       aliases: this.aliases,
+      ...(header.conflicts === undefined ? {} : { conflicts: this.conflicts }),
     };
   }
 }
@@ -493,6 +503,13 @@ export const planChangeSet = (
   // Aliases are learned before anything that names them: a chunk of its own, never shared.
   if (!current.empty) flush();
   for (const item of body) {
+    if (current.overflows(item, limits)) flush();
+    current.add(item);
+  }
+  for (let start = 0; start < (changeSet.conflicts?.length ?? 0); start += limits.maxSidecarRows) {
+    const item = piece(lastTablePosition, pad(start), {
+      conflicts: changeSet.conflicts?.slice(start, start + limits.maxSidecarRows),
+    });
     if (current.overflows(item, limits)) flush();
     current.add(item);
   }

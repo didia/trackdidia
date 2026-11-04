@@ -10,7 +10,7 @@ import type { SyncDomain } from "./registry";
  * The file format of one published bundle: a `SyncChangeSet` as gzip-compressed JSON lines.
  *
  * ```text
- * trackdidia-sync-bundle 2 gzip\n       <- preamble, plain ASCII: magic, format version, compression
+ * trackdidia-sync-bundle 3 gzip\n       <- preamble, plain ASCII: magic, format version, compression
  * <body>                                <- gzip stream (or, with `none`, the raw text) of JSON lines:
  *   {"kind":"header", formatVersion, domain, deviceId, schemaVersion, hlcHigh, counts}
  *   ["e", <entity>] ...                 entities, in change-set order (a tombstone of a field-clock
@@ -19,10 +19,11 @@ import type { SyncDomain } from "./registry";
  *   ["s", <setting>] ...                synced settings
  *   ["o", <occurrence>] ["c", <clear>]  recurrence sidecars
  *   ["a", <alias>] ...                  id aliases
+ *   ["x", <conflict>] ...               domain-scoped conflicts (format 3)
  * ```
  *
  * The preamble is outside the compressed part so a reader knows how to read the rest (and whether
- * it can) before touching it. This build writes format 2 and reads 1 and 2 ({@link SUPPORTED_FORMAT_VERSIONS});
+ * it can) before touching it. This build writes format 3 and reads 1, 2 and 3 ({@link SUPPORTED_FORMAT_VERSIONS});
  * a format 1 bundle has the same records and its tombstones have no values. `counts` in the header lets a reader prove it received everything: a
  * truncated or tampered body is a `count_mismatch`, not a smaller change set. Records are
  * one-per-line so neither side ever builds the whole change set as one string: encoding feeds the
@@ -132,6 +133,7 @@ interface BundleCounts {
   occurrences: number;
   clears: number;
   aliases: number;
+  conflicts?: number;
 }
 
 /** The rows of one union table; a descriptor read, so a table named `__proto__` is just data. */
@@ -156,6 +158,7 @@ const headerCounts = (changeSet: SyncChangeSet): BundleCounts & { unionTables: o
     occurrences: changeSet.recurrence.occurrences.length,
     clears: changeSet.recurrence.clears.length,
     aliases: changeSet.aliases.length,
+    ...(changeSet.conflicts === undefined ? {} : { conflicts: changeSet.conflicts.length }),
     unionTables,
   };
 };
@@ -198,6 +201,7 @@ function* rawBodyLines(changeSet: SyncChangeSet): Generator<string> {
   }
   for (const clear of changeSet.recurrence.clears) yield JSON.stringify(["c", clear]);
   for (const alias of changeSet.aliases) yield JSON.stringify(["a", alias]);
+  for (const conflict of changeSet.conflicts ?? []) yield JSON.stringify(["x", conflict]);
 }
 
 /** The body as byte batches of about {@link ENCODE_BATCH_CHARS}: never one string for all of it. */
@@ -287,7 +291,8 @@ export const encodeBundle = async (
     changeSet.settings.length +
     changeSet.recurrence.occurrences.length +
     changeSet.recurrence.clears.length +
-    changeSet.aliases.length;
+    changeSet.aliases.length +
+    (changeSet.conflicts?.length ?? 0);
   const preamble = new TextEncoder().encode(preambleOf(changeSet.formatVersion, compression));
   const body = compression === "gzip" ? await gzipBatches(batches) : [...batches];
   return { bytes: concat([preamble, ...body]), compression, records, uncompressedBytes };
@@ -316,6 +321,7 @@ export interface DecodedBundle {
   settings: unknown[];
   recurrence: { occurrences: unknown[]; clears: unknown[] };
   aliases: unknown[];
+  conflicts?: unknown[];
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -364,6 +370,7 @@ class BundleAssembler {
     occurrences: 0,
     clears: 0,
     aliases: 0,
+    conflicts: 0,
   };
   private readonly unionDeclared = new Map<string, number>();
   private readonly unionRows = new Map<string, unknown[]>();
@@ -432,6 +439,8 @@ class BundleAssembler {
       !isCount(record.occurrences) ||
       !isCount(record.clears) ||
       !isCount(record.aliases) ||
+      (record.conflicts !== undefined &&
+        (this.preambleVersion < 3 || !isCount(record.conflicts))) ||
       !isRecord(unionTables)
     ) {
       fail("bad_header", "The bundle header counts are malformed");
@@ -451,7 +460,9 @@ class BundleAssembler {
       occurrences: record.occurrences as number,
       clears: record.clears as number,
       aliases: record.aliases as number,
+      conflicts: (record.conflicts as number | undefined) ?? 0,
     };
+    if (record.conflicts !== undefined) this.decoded.conflicts = [];
     this.decoded.formatVersion = header.formatVersion;
     this.decoded.deviceId = header.deviceId;
     this.decoded.domain = header.domain;
@@ -508,6 +519,12 @@ class BundleAssembler {
         if (++this.seen.aliases > declared.aliases) tooMany("aliases");
         this.decoded.aliases.push(record[1]);
         return;
+      case "x":
+        if (record.length !== 2 || this.preambleVersion < 3)
+          fail("bad_line", "Malformed conflict record");
+        if (++this.seen.conflicts > (declared.conflicts ?? 0)) tooMany("conflicts");
+        this.decoded.conflicts?.push(record[1]);
+        return;
       default:
         fail("bad_line", "A bundle record has an unknown tag");
     }
@@ -524,6 +541,7 @@ class BundleAssembler {
       this.seen.occurrences === declared.occurrences &&
       this.seen.clears === declared.clears &&
       this.seen.aliases === declared.aliases &&
+      this.seen.conflicts === (declared.conflicts ?? 0) &&
       [...this.unionDeclared].every(
         ([table, count]) => this.unionRows.get(table)?.length === count,
       );

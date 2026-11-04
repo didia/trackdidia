@@ -12,6 +12,7 @@ import {
   isAliasableTable,
   isRegisteredTable,
   isSettingPublishable,
+  SETTING_ENTITY_TYPE,
   isSidecarPublishable,
   SYNC_DOMAINS,
   type SyncDomain,
@@ -49,21 +50,17 @@ import { isValidDeviceId } from "./status";
  * be synced, in that domain and not a secret.
  */
 
-/**
- * The format this build WRITES. 2 adds `deletedRow` to a tombstoned entity (the deleted row's values,
- * field-clock tables only); nothing else changed. Format 1 is still READ: its tombstones simply have
- * no values ("unknown", exactly what they meant). An older build reads neither (it refuses format 2
- * at the manifest gate, and it is behind the schema gate anyway: migration 48).
- */
-export const SYNC_FORMAT_VERSION = 2;
+/** Format 3 carries conflicts and causally ordered resolutions. Formats 1 and 2 remain readable;
+ * format 2 introduced tombstone values, which are absent in format 1. */
+export const SYNC_FORMAT_VERSION = 3;
 
 /** Every format version this build can read. */
-export const SUPPORTED_FORMAT_VERSIONS: readonly number[] = [1, 2];
+export const SUPPORTED_FORMAT_VERSIONS: readonly number[] = [1, 2, 3];
 
 export const isSupportedFormatVersion = (value: unknown): value is SyncFormatVersion =>
   typeof value === "number" && SUPPORTED_FORMAT_VERSIONS.includes(value);
 
-export type SyncFormatVersion = 1 | 2;
+export type SyncFormatVersion = 1 | 2 | 3;
 
 /** Entity ids are primary keys (ids, dates, small JSON arrays); anything longer is not one. */
 export const MAX_ENTITY_ID_LENGTH = 512;
@@ -140,8 +137,22 @@ export interface SyncAlias {
 /** Most alias rows one change set may carry (a first merge of years of statements stays far below). */
 export const MAX_ALIASES = 500_000;
 
+/** A conflict and its optional causally ordered resolution. */
+export interface SyncConflictRow {
+  id: string;
+  entity_type: string;
+  entity_id: string;
+  kind: string;
+  local_json: string;
+  remote_json: string;
+  detected_at: string;
+  resolved_at: string | null;
+  resolution: string | null;
+  resolution_hlc: string | null;
+}
+
 export interface SyncChangeSet {
-  /** The version the sender wrote: this build writes 2 and reads 1 and 2. */
+  /** The version the sender wrote: this build writes 3 and reads 1, 2 and 3. */
   formatVersion: SyncFormatVersion;
   deviceId: string;
   domain: SyncDomain;
@@ -157,6 +168,7 @@ export interface SyncChangeSet {
   recurrence: SyncRecurrence;
   /** Id aliases of the domain's aliasable tables (canonical identity). */
   aliases: SyncAlias[];
+  conflicts?: SyncConflictRow[];
 }
 
 export interface SyncApplyResult {
@@ -644,6 +656,85 @@ const validateAliases = (raw: unknown, domain: SyncDomain): SyncAlias[] => {
   });
 };
 
+const validateConflicts = (raw: unknown, domain: SyncDomain): SyncConflictRow[] => {
+  if (!Array.isArray(raw) || raw.length > 500_000)
+    return fail("invalid_shape", "conflicts", "expected a bounded array");
+  const seen = new Set<string>();
+  return raw.map((item, index) => {
+    const path = `conflicts[${index}]`;
+    const row = expectRecord(item, path, [
+      "id",
+      "entity_type",
+      "entity_id",
+      "kind",
+      "local_json",
+      "remote_json",
+      "detected_at",
+      "resolved_at",
+      "resolution",
+      "resolution_hlc",
+    ]);
+    for (const key of [
+      "id",
+      "entity_type",
+      "entity_id",
+      "kind",
+      "local_json",
+      "remote_json",
+      "detected_at",
+    ]) {
+      if (typeof row[key] !== "string" || !(row[key] as string).length)
+        fail("invalid_row", `${path}.${key}`, "expected non-empty text");
+    }
+    if (
+      (row.id as string).length > MAX_ENTITY_ID_LENGTH ||
+      (row.entity_id as string).length > MAX_ENTITY_ID_LENGTH
+    )
+      fail("entity_id_too_long", path, "id too long");
+    if (seen.has(row.id as string)) fail("duplicate_entity", path, "duplicate conflict id");
+    seen.add(row.id as string);
+    if (
+      !isSidecarPublishable(
+        "sync_conflicts",
+        domain,
+        row.entity_type as string,
+        row.entity_id as string,
+      )
+    )
+      fail("table_not_in_domain", path, "conflict outside domain");
+    if (row.entity_type === SETTING_ENTITY_TYPE) {
+      if (!isSettingPublishable(row.entity_id as string, domain))
+        fail("setting_not_syncable", path, "conflict setting outside domain");
+    } else {
+      expectEntityTable(row.entity_type, domain, `${path}.entity_type`);
+      const parsed = parseEntityId(row.entity_type as string, row.entity_id as string);
+      if (parsed === null || entityIdOf(row.entity_type as string, parsed) !== row.entity_id)
+        fail("invalid_entity_id", path, "invalid conflict entity id");
+    }
+    for (const key of [
+      "local_json",
+      "remote_json",
+      ...(row.resolution === null ? [] : ["resolution"]),
+    ]) {
+      try {
+        if (typeof row[key] !== "string" || !isJsonValue(JSON.parse(row[key] as string)))
+          throw new Error();
+      } catch {
+        fail("invalid_row", `${path}.${key}`, "expected JSON");
+      }
+    }
+    if (row.resolution_hlc === null) {
+      if (row.resolved_at !== null || row.resolution !== null)
+        fail("invalid_row", path, "resolution requires a clock");
+    } else {
+      expectClock(row.resolution_hlc, `${path}.resolution_hlc`);
+      if (typeof row.resolved_at !== "string" || !row.resolved_at || row.resolution === null)
+        fail("invalid_row", path, "incomplete resolution");
+    }
+    return row as unknown as SyncConflictRow;
+  });
+};
+
 /** Every clock a change set carries, `hlcHigh` excluded. */
 export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
   const clocks: string[] = [];
@@ -662,6 +753,8 @@ export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
   for (const alias of changeSet.aliases) {
     clocks.push(alias.recorded_hlc);
   }
+  for (const conflict of changeSet.conflicts ?? [])
+    if (conflict.resolution_hlc !== null) clocks.push(conflict.resolution_hlc);
   return clocks;
 };
 
@@ -684,6 +777,7 @@ export const clocksOfChangeSet = (changeSet: SyncChangeSet): string[] => {
  * kept).
  */
 export const validateChangeSet = (input: unknown): SyncChangeSet => {
+  const hasConflicts = isRecord(input) && Object.hasOwn(input, "conflicts");
   const root = expectRecord(input, "changeSet", [
     "formatVersion",
     "deviceId",
@@ -695,6 +789,7 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
     "settings",
     "recurrence",
     "aliases",
+    ...(hasConflicts ? ["conflicts"] : []),
   ]);
   if (!isSupportedFormatVersion(root.formatVersion)) {
     fail(
@@ -704,6 +799,8 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
     );
   }
   const formatVersion = root.formatVersion as SyncFormatVersion;
+  if (formatVersion < 3 && hasConflicts)
+    fail("invalid_shape", "conflicts", "conflicts require format 3");
   if (!isValidDeviceId(root.deviceId)) {
     fail("invalid_shape", "deviceId", "expected dev:<uuid v4>");
   }
@@ -752,6 +849,7 @@ export const validateChangeSet = (input: unknown): SyncChangeSet => {
     settings: validateSettings(root.settings, domain),
     recurrence: validateRecurrence(root.recurrence, domain),
     aliases: validateAliases(root.aliases, domain),
+    ...(hasConflicts ? { conflicts: validateConflicts(root.conflicts, domain) } : {}),
   };
 
   for (const clock of clocksOfChangeSet(changeSet)) {

@@ -8,7 +8,7 @@ import { createNodeSqliteDatabase } from "../../test/mocks/node-sqlite-database"
 import { LATEST_MIGRATION_ID } from "../storage/migrations";
 import type { Database } from "../storage/sqlite-db";
 import { TauriSqliteRepository } from "../storage/tauri-sqlite-repository";
-import { type SyncChangeSet, validateChangeSet } from "./change-set";
+import { SYNC_FORMAT_VERSION, type SyncChangeSet, validateChangeSet } from "./change-set";
 import { SyncClockError } from "./clock-store";
 import { compareHlc, parseHlc } from "./hlc";
 import { settingsKeysInScope, SYNC_DOMAINS, tablesInDomain } from "./registry";
@@ -260,7 +260,7 @@ describe("listSyncChanges: shape and consistency", () => {
       expect(second).toEqual(first);
       expect(validateChangeSet(JSON.parse(JSON.stringify(first)))).toEqual(first);
       expect(first).toMatchObject({
-        formatVersion: 2,
+        formatVersion: SYNC_FORMAT_VERSION,
         domain,
         deviceId: a.deviceId,
         schemaVersion: LATEST_MIGRATION_ID,

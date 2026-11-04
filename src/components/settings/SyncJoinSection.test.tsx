@@ -22,7 +22,7 @@ describe("guided join", () => {
         sync: syncController({ inspectJoin, join }),
       },
     });
-    expect(screen.getByRole("option", { name: /Travail/ })).toBeDisabled();
+    expect(screen.getByRole("option", { name: /Travail/ })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: "Rechercher les ordinateurs" }));
     expect(await screen.findByText(/GTD 4, personnelles 2, finances 1/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Confirmer et importer" })).toBeDisabled();

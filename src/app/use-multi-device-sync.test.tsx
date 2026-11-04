@@ -452,6 +452,84 @@ describe("useMultiDeviceSync", () => {
     });
   });
 
+  it("uninstalls capture separately while keeping user data", async () => {
+    const { hook, settings, repository } = await setup();
+    await repository.createTask({ id: "keep", title: "Keep me", bucket: "inbox" });
+    await act(async () => {
+      await hook.result.current.enable();
+    });
+    await act(async () => {
+      await hook.result.current.uninstall();
+    });
+    expect(settings().multiDeviceSyncEnabled).toBe(false);
+    expect(await repository.getSyncStatus()).toMatchObject({ captureEnabled: false });
+    expect((await repository.listTasks()).some((task) => task.id === "keep")).toBe(true);
+  });
+
+  it("forces a manifest publication after calendar settings change", async () => {
+    const { hook, repository, host } = await setup();
+    await act(async () => {
+      await hook.result.current.enable();
+      await hook.result.current.syncNow();
+    });
+    await repository.saveCalendarSyncSettings({
+      ...(await repository.getCalendarSyncSettings()),
+      enabled: true,
+    });
+    let published = false;
+    await act(async () => {
+      published = await hook.result.current.publishCalendarState();
+    });
+    expect(published).toBe(true);
+    const listed = await host.api.listSyncPeers({
+      folderDir: GTD,
+      role: "gtd",
+      environment: "production",
+      ownDeviceId: harnessDeviceId(0),
+    });
+    expect(listed.own?.calendarSyncEnabled).toBe(true);
+  });
+
+  it("reports failure when calendar state cannot be read or publication is skipped", async () => {
+    const { hook, repository, host } = await setup();
+    await act(async () => {
+      await hook.result.current.enable();
+      await hook.result.current.syncNow();
+    });
+    const reader = vi
+      .spyOn(repository, "getCalendarSyncSettings")
+      .mockRejectedValue(new Error("unreadable"));
+    let published = true;
+    await act(async () => {
+      published = await hook.result.current.publishCalendarState();
+    });
+    expect(published).toBe(false);
+    const listed = await host.api.listSyncPeers({
+      folderDir: GTD,
+      role: "gtd",
+      environment: "production",
+      ownDeviceId: harnessDeviceId(0),
+    });
+    expect(listed.own?.calendarSyncEnabled).toBe(true);
+    reader.mockRestore();
+    const status = vi.spyOn(repository, "getSyncStatus").mockResolvedValue({ supported: false });
+    await act(async () => {
+      published = await hook.result.current.publishCalendarState();
+    });
+    expect(published).toBe(false);
+    status.mockRestore();
+  });
+
+  it("does not require a manifest when multi-device sync is off", async () => {
+    const { hook, host } = await setup();
+    let published = false;
+    await act(async () => {
+      published = await hook.result.current.publishCalendarState();
+    });
+    expect(published).toBe(true);
+    expect(host.calls.filter((call) => call.command === "publish")).toHaveLength(0);
+  });
+
   it("re-checks the folders and rebuilds the engine", async () => {
     const { hook, host } = await setup();
     await act(async () => {

@@ -58,9 +58,8 @@ describe("SyncStatusChip", () => {
     expect(screen.getByRole("link")).toHaveAccessibleName(/Ouvrir la page Synchronisation/);
   });
 
-  it("renders nothing without debug mode, with sync off, in browser preview, or when unsupported", async () => {
+  it("renders nothing with sync off, in browser preview, or when unsupported", async () => {
     for (const overrides of [
-      { debugEnabled: false },
       { multiDeviceSyncEnabled: false },
       { browserPreview: true },
       { supported: false },

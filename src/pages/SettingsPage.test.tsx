@@ -309,13 +309,11 @@ it("saves an AI edit from a stale form without resetting newer settings fields",
 });
 
 describe("SettingsPage multi-device sync card", () => {
-  it("is absent without debug mode, so sync cannot be enabled by accident", async () => {
+  it("appears without debug mode", async () => {
     await renderWithApp(<SettingsPage />, { contextOverrides: { debugEnabled: false } });
-
     expect(
-      screen.queryByText("Synchronisation multi-ordinateurs (expérimental)"),
-    ).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Activer la synchronisation" })).toBeNull();
+      screen.getByText("Synchronisation multi-ordinateurs (expérimental)"),
+    ).toBeInTheDocument();
   });
 
   it("appears with debug mode on", async () => {

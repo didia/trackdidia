@@ -1,5 +1,23 @@
 import { hash128 } from "../finance/hash";
 
+/** A decision made by the user in the conflict queue. */
+export type SyncConflictResolution =
+  | { action: "dismiss" }
+  | { action: "choose"; side: "local" | "remote" }
+  | { action: "rename"; name: string };
+
+export interface SyncConflict {
+  id: string;
+  entityType: string;
+  entityId: string;
+  kind: string;
+  local: unknown;
+  remote: unknown;
+  detectedAt: string;
+  resolvedAt: string | null;
+  resolution: string | null;
+}
+
 /**
  * Conflicts the merge rules raise besides the generic `overwritten_edit` (which `merge-entity.ts`
  * builds from a lost field). Pure data and deterministic ids, shared by every merge module.

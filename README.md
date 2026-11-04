@@ -43,7 +43,7 @@ npm run tauri dev
 ## Notes
 
 - Le mode navigateur utilise un repository memoire de previsualisation lorsque le runtime Tauri n'est pas disponible.
-- Le mode desktop reste concu pour persister en SQLite local.
+- Le mode desktop persiste en SQLite local. Une synchronisation facultative par dossiers partages est disponible ; voir [Synchronisation multi-ordinateurs](docs/multi-device-sync.md).
 
 ## Donnees locales
 

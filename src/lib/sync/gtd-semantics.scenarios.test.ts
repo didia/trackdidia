@@ -72,7 +72,7 @@ describe("lifecycle tuple through the repository", () => {
     expect(lost).toHaveLength(1);
     expect(lost[0]).toMatchObject({ entity_type: "gtd_tasks", entity_id: "t1" });
     expect(String(lost[0]?.local_json)).toContain("waiting_for");
-    expect(await kinds(a, "overwritten_edit")).toEqual([]);
+    expect(await kinds(a, "overwritten_edit")).toMatchObject([{ id: lost[0]?.id }]);
   });
 
   it("the same completion on both laptops is no conflict at all", async () => {
@@ -523,6 +523,32 @@ describe("recurring occurrences", () => {
       (await kinds(b, "terminal_divergence"))[0]?.id,
     );
     await sim.expectConverged("gtd", { snapshots: true });
+  });
+
+  it("settles the chosen recurring occurrence and does not undo it on replay", async () => {
+    const { sim, a, b } = await recurringPair();
+    a.clock.advance(1_000);
+    await a.repo.completeTask(INSTANCE_ID, "2026-03-15T20:00:00.000Z");
+    b.clock.advance(60_000);
+    await b.repo.cancelTask(INSTANCE_ID);
+    const stale = await b.repo.listSyncChanges("gtd");
+    await sim.exchange(b, a, "gtd");
+    const conflict = (await a.repo.listSyncConflicts()).find(
+      (item) => item.kind === "terminal_divergence",
+    );
+    expect(conflict).toBeDefined();
+    const side =
+      (conflict!.local as { outcome: string }).outcome === "completed" ? "local" : "remote";
+    await a.repo.resolveSyncConflict(conflict!.id, { action: "choose", side });
+    await sim.syncAll("gtd");
+    for (const device of [a, b]) {
+      expect((await occurrences(device))["2026-03-15"]).toBe("completed");
+      expect((await findTask(device, INSTANCE_ID)).status).toBe("completed");
+      expect((await findTask(device, INSTANCE_ID)).completedAt).toBe("2026-03-15T20:00:00.000Z");
+    }
+    await b.repo.applySyncBundle("gtd", stale);
+    const replay = await b.repo.applySyncBundle("gtd", stale);
+    expect(replay.applied + replay.tombstonesApplied + replay.conflictsLogged).toBe(0);
   });
 
   it("both laptops generating the same day converge on one occurrence and one instance, then stay idle", async () => {

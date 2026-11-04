@@ -15,8 +15,8 @@ through the Claude client the user connects to the bridge.
 
 ## Context
 
-The user will run TrackDidia on an employer-managed work laptop. The draft multi-laptop sync spec
-(`specs/todo/multi-laptop-sync.md`, still under review in
+The user will run TrackDidia on an employer-managed work laptop. The multi-laptop sync spec
+(`specs/done/multi-laptop-sync.md`, originally proposed in
 [didia/trackdidia#240](https://github.com/didia/trackdidia/pull/240) on branch
 `claude/trackdidia-multi-laptop-sync-fcd2ee`; see its "Work profile" section) gives that laptop a
 `work` profile. That profile holds the **entire GTD list and Pomodoro history** with no

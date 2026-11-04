@@ -204,6 +204,7 @@ describe("migration 42 add_multi_device_sync_sidecars", () => {
       { name: "detected_at", type: "TEXT", notnull: 1, dflt_value: null, pk: 0 },
       { name: "resolved_at", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
       { name: "resolution", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
+      { name: "resolution_hlc", type: "TEXT", notnull: 0, dflt_value: null, pk: 0 },
     ]);
   });
 

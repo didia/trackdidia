@@ -59,7 +59,7 @@ describe("memory folders", () => {
       profile: "personal",
       schemaVersion: changeSet.schemaVersion,
       hlcHigh: changeSet.hlcHigh,
-      formatVersion: 2,
+      formatVersion: 3,
       domains: { gtd: { generation: 1, file: "gtd-1.bundle" } },
     });
     expect(await ta.ownGeneration("gtd")).toBe(1);

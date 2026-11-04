@@ -2,37 +2,26 @@
 
 See also: [changelog](logs/multi-device-sync.md).
 
-TrackDidia can keep two **personal** laptops up to date with each other through two folders
-that Google Drive for Desktop (or any synced folder) mirrors. This page describes what is
-shipped: an **experimental, opt-in, debug-gated** build of it, with [automatic triggers](#automatic-triggers)
-on top of the manual button. The design,
-the remaining phases and the open questions live in
-[`specs/todo/multi-laptop-sync.md`](../specs/todo/multi-laptop-sync.md); the engine, change
-sets, folder commands, bundle format and transport are documented where they live, in
-[storage-and-backups.md](storage-and-backups.md) (links below). This page does not repeat them.
+TrackDidia can synchronize desktop devices through folders mirrored by Google Drive for Desktop
+or another folder service. Personal devices use separate GTD and personal folders; a work device
+uses only the GTD folder. Sync is opt-in and supports multiple personal peers. The transport, schema
+and merge details are in [storage and backups](storage-and-backups.md); the design is recorded in
+[`specs/done/multi-laptop-sync.md`](../specs/done/multi-laptop-sync.md).
 
-> **Do not rely on this yet.** There is no restore-from-backup UI, the automatic triggers have only
-> been exercised against fakes (never in a real desktop window), the `work` profile cannot be chosen (only its
-> [data-layer guards](#work-profile-guards-and-shell) exist) and a third laptop is unsupported. The "Cloud sync or multi-device conflict resolution"
-> product boundary in [`AGENTS.md`](../AGENTS.md) still applies to the product as a whole.
+Automatic triggers and the work isolation boundary are covered by simulations; a real multi-laptop
+desktop smoke test has not been performed. Keep recent backups: there is no restore UI.
 
 ## What is and is not available
 
-| Shipped | Not shipped |
-|---|---|
-| Personal profile: everything syncs (GTD, journal, reviews, goals, AI memory and proposals, finance, Pomodoro history, shared settings) | Selecting the work profile |
-| Guided second-laptop join for personal devices, with a work-profile test seam | Restore UI |
-| Manual "Synchroniser maintenant" on `/sync` | |
-| [Automatic triggers](#automatic-triggers): pull at startup (before the day's generators), on focus and hourly; publish after a 2-minute debounce, on blur and on quit; backoff; status chip; reload of open GTD / Today / Daily / Pomodoro screens | Conflict and overwritten-edit list |
-| A forced safety backup before the first merge (taken once, not on every pull; and on a schema change) | Third laptop (see [limits](#limits)) |
-| Tombstones carry the last field values of a deleted row, so a delete racing edits from other laptops loses nothing ([below](#deletes-and-tombstone-values)) | |
-| Peers table, pending count, last run report, errors, stale-peer approval | Any trigger without the debug gate and `multiDeviceSyncEnabled` |
-| Work-profile data guards, reachable only through test seams ([below](#work-profile-guards-and-shell)): the repository refuses a non-GTD change set on a `work` database, a startup re-check pauses a work device that holds personal data, profile-change rules, cloned-identity repair at every startup | |
-| Browser preview shows "unavailable" and persists nothing | Background syncing while the app is fully closed |
+Personal devices sync GTD, terminal Pomodoro history, journals, reviews, goals, AI data, finance
+and shared settings. Work devices get the whole GTD list and terminal Pomodoro history, but no
+personal or finance data. The guided join, manual sync, automatic triggers, peer status, conflict
+queue, stale-peer approval and first-merge safety backup are available on the desktop. Browser
+preview has no persistent sync. Nothing runs while the app is fully closed.
 
 ## Joining an existing laptop
 
-With debug mode enabled and sync disabled, Settings offers a guided join. Choose a profile,
+With sync disabled, Settings offers a guided join. Choose a profile,
 folders and a device name, inspect the local and peer domain counts, then explicitly select a
 peer and confirm. Only that peer is imported; normal schema and stale-peer gates still apply.
 Missing peer domains are shown as pending, not as zero; joining stays disabled until every domain
@@ -43,27 +32,16 @@ The personal profile uses the personal backup folder and the separate shared GTD
 
 A verified empty database can skip the first safety backup. The first apply checks emptiness again
 inside its write transaction; if local data appeared, it refuses the merge. A nonempty database
-requires a backup destination and a backup before any merge. Work-profile selection remains disabled
-in this release; its test seam refuses personal or finance data and uses only the GTD folder. Moving
+requires a backup destination and a backup before any merge. A work join refuses personal or finance
+data and uses only the GTD folder. Moving
 a database and its backups to a personal location before starting with a fresh work database is a
 manual operation; the app does not move, archive or delete them.
 
 ## The gate
 
-Sync must stay hard to enable by accident.
-
-- The **Settings card** ("Synchronisation multi-ordinateurs (expérimental)") renders only when
-  the app's **debug mode** is on (`debugEnabled`; always on in Vite development; otherwise
-  enabled by the Settings switch "Mode debug local", `?debug=1`, or `localStorage`
-  `trackdidia.debug.enabled`; see [AI, Settings and Privacy](ai-settings-and-privacy.md#debug-mode)).
-- The **`/sync` page content and its nav entry** need debug mode **and** the device-local
-  `multiDeviceSyncEnabled` setting. The route is always registered; without both it shows a
-  gate message (and, when sync is simply off, a link to Settings). `src/lib/sync/gate.ts` is the
-  single place both gates are decided.
-- In **browser preview** (and under the startup fallback, which has no persistent storage) the
-  card and the page say "unavailable in browser preview" and every action is disabled. Nothing is
-  persisted.
-- The final sync slice removes the debug requirement; until then it is the opt-in.
+Sync is opt-in on each desktop. The Settings card is available without debug mode; the `/sync`
+page, navigation entry and automatic triggers require `multiDeviceSyncEnabled`. In browser preview
+or startup fallback, persistent sync is unavailable and actions are disabled.
 
 ## Settings
 
@@ -74,7 +52,7 @@ bundle, never applied from one, and a registry/privacy test fails if one is clas
 | Key | Default | Meaning |
 |---|---|---|
 | `multiDeviceSyncEnabled` | `false` | Sync was enabled on this laptop (identity created, capture installed, folders prepared). |
-| `syncProfile` | `"personal"` | Only `"personal"` is supported. A stored `"work"` is kept as written but sync refuses it (`unsupported_profile`; `WORK_PROFILE_SELECTABLE` is `false`). Anything that is not a profile normalizes to `"personal"`. The repository reads this stored value when it applies a bundle ([guards](#work-profile-guards-and-shell)). |
+| `syncProfile` | `"personal"` | `"personal"` or `"work"`; an invalid value normalizes to `"personal"`. The repository reads this stored value when it applies a bundle ([guards](#work-profile-guards-and-shell)). |
 | `profileDecisionMadeAt` | `""` | Device-local marker recording the initial profile decision. |
 | `syncGtdFolderDir` | `""` | The shared GTD folder. |
 | `syncDeviceName` | `"Cet ordinateur"` | How this laptop is named to its peers (at most 100 characters). Give each laptop a different name. |
@@ -88,15 +66,14 @@ and the `sync_peers` table.
 
 `enableSync` (`src/lib/sync/sync-service.ts`), run by the card's "Activer la synchronisation":
 
-1. Refuses outside the desktop app, for a profile other than `personal`, without a device name, and
-   without **both** folders (the backup folder and the shared GTD folder). Nothing is written then.
+1. Refuses outside the desktop app or without a device name and the folders required by the profile: personal uses both the backup and shared GTD folders; work uses the GTD folder.
 2. Refuses a shared GTD folder that is the backup folder or lies inside or around it, before the native
    host is asked (`folder-paths.ts`, case-insensitive and separator-insensitive). The picker applies
    the same rule when the folder is chosen. The native host then enforces it again with canonical
    paths and role markers ([Sync folder commands](storage-and-backups.md#sync-folder-commands)).
-3. Prepares the shared folder as role `gtd` and the backup folder as role `personal` with
-   `sync_prepare_folder`, **each given the other as `otherFolderDir`** (so the nesting check always has
-   both). A rejected folder is reported with which folder it was.
+3. Prepares the shared folder as role `gtd`; a personal device also prepares its backup folder as
+   role `personal`. The other configured folder is passed to the host for the nesting check. A rejected
+   folder is reported with which folder it was.
 4. Reads the device id from the native device-id file and runs `ensureSyncIdentity`. If the stored identity
    belonged to another laptop (a cloned or restored database) it is rewritten to this device's id with its
    clock state kept, and the card says so.
@@ -120,7 +97,7 @@ nothing is merged** (`/sync` says so); the engine reports `backfill_incomplete`.
 
 **Disabling** ("Désactiver la synchronisation") only turns `multiDeviceSyncEnabled` off. The identity, change
 capture and every file already in the folders stay (nothing is deleted from Drive), edits are still captured,
-and enabling again is a catch-up. "Revérifier les dossiers" re-prepares both folders after the backup folder
+and enabling again is a catch-up. "Revérifier les dossiers" re-prepares the profile’s folders after the backup folder
 or the shared folder was changed.
 
 ## The `/sync` page
@@ -139,7 +116,7 @@ French, keyboard-operable like the other pages. It reads its state when opened a
   "Fusionner quand même", which needs a second confirming click and then approves exactly that peer for the
   next run.
 - **Dernière synchronisation**, the last "Synchroniser maintenant" (automatic runs are not listed here: the sidebar chip and the debug log carry them), kept while the app runs (not stored): applied bundles, applied and already
-  up-to-date items, tombstones, conflicts logged (there is no list of them yet), the **safety backup** result
+  up-to-date items, tombstones, conflicts logged (also listed in the conflict queue), the **safety backup** result
   with its path, skipped peers with the reason ("mets à jour TrackDidia pour synchroniser avec cet ordinateur",
   "hors ligne trop longtemps"), clock-skew notes, and per domain whether it was published, unchanged, had no
   folder, or failed.
@@ -159,11 +136,11 @@ settings merged from a peer are republished to the app's copy after a run that a
 
 ## Automatic triggers
 
-Everything below exists **only while the debug gate is open AND `multiDeviceSyncEnabled` is on**, on the desktop
-storage (`isSyncAutomationEnabled` / `syncAutomationKeyFor`, `src/lib/sync/gate.ts`). With either off, nothing is
+Everything below exists only while `multiDeviceSyncEnabled` is on, on the desktop
+storage (`isSyncAutomationEnabled` / `syncAutomationKeyFor`, `src/lib/sync/gate.ts`). When sync is off, nothing is
 built: no engine at startup, no window listener, no timer, no pull, no close handler, no status chip, and the
 backup scheduler gets no lane; the app behaves exactly as it did before sync existed (tests pin each of these).
-Turning the setting off or debug mode off in a running session tears all of it down; changing a folder, the device
+Turning the setting off in a running session tears all of it down; changing a folder, the device
 name or the profile rebuilds it.
 
 | Trigger | What happens | Limits |
@@ -249,12 +226,22 @@ still load when opened.
   recorded (`sync_identity.first_merge_backup_path`). A failed backup is retried and merges nothing meanwhile.
   The record is never cleared: a first merge that stalls for weeks (a peer that keeps failing) later continues
   against the old pre-merge backup, which is stale by then; take a manual backup before resuming such a merge.
-- **Schema version 47.** Migration 47 raises this build's schema version. A peer still on 46 is shown "Mise à jour
-  requise" by this laptop, and this laptop takes a `schema_skew` safety backup the first time it merges with a peer
-  on another schema; update both laptops.
+- **Schema skew.** A peer on a newer schema is refused until this device is updated. Merging an older
+  schema takes a `schema_skew` safety backup. This release uses schema 49 and format 3.
 - **Automatic publishing is per domain.** A task edit rebuilds the `gtd` bundle only; a periodic manifest
   heartbeat (30 days) keeps the untouched folder from looking absent
   ([details](storage-and-backups.md#per-domain-change-detection-and-the-manifest-heartbeat)).
+
+The publisher reads committed counters through the writer queue. Its per-domain cache tracks the
+counter covered by each published snapshot, and the global published mark advances only to the
+minimum covered counter. A rolled-back write therefore cannot make a later edit look published;
+an edit made during publication remains pending for the next run.
+
+Finance categorization and its splits merge as one unit. Versions are ordered by the latest user
+choice in their history (`p`), then their write clock (`c`), then canonical payload as a deterministic
+tie-break. A pairwise causal/source comparison can cycle: user Y at 10, automatic X at 20 based on Y,
+and automatic Z at 30 based on 5 would give X > Y, Y > Z, and Z > X. The total `(p, c)` order
+avoids arrival-order-dependent results.
 
 ### What was not measured
 
@@ -265,6 +252,8 @@ the debug log under `sync.lifecycle`, so a session on a real laptop can read the
 inside the real webview (the 350 to 450 MB read of a very large `finance` domain is a Node figure; per-domain
 detection only makes it rarer); and the close handler and the tray-quit handshake in a real Tauri window (they are tested against a fake window and a fake event bus; the Rust half of the handshake, `desktop_shell.rs`, is written to mirror the existing tray code but could not be compiled offline: CI's `cargo check` and `clippy` are its first compile).
 One more limit of the close handler: in tray mode it decides from the JavaScript copy of `runInTray`, while the native close handler keeps its own state; if they ever diverge (the native `desktop_set_run_in_tray` call failed), the window is kept alive by the handler and not hidden by the host, and cannot be closed by the window button until the setting is fixed.
+The native application-menu quit and Cmd+Q paths are not intercepted by the current tray/window handshake.
+
 Manual check on a desktop: edit a task and quit within seconds (the other laptop should receive it), close with
 the Drive folder unmounted (the window must still close within about 3 s), and watch the debug log lines above.
 With **Réduire dans la barre système** on, repeat both through the tray's **Quitter** (the app must exit within
@@ -273,12 +262,11 @@ about 4 s, and the other laptop must receive the edit), and with sync off check 
 ## What "Synchroniser maintenant" does
 
 `engine.syncNow()` ([Sync engine](storage-and-backups.md#sync-engine-transport-seam-and-device-profile)): pull every
-peer of both folders, then publish. Before the first merge (and when the database schema changed since the last
+peer of each folder available to the profile, then publish. Before the first merge (and when the database schema changed since the last
 merge with a peer) the engine requires a **safety backup**, taken by `createBackup("auto", { deviceId })`
 into this laptop's backup folder with the per-device name `trackdidia-auto-backup-<deviceTag>-<timestamp>.db`
 (retention per device, `prune_backups` given the same id; see
-[Backup behavior](storage-and-backups.md#backup-behavior)). With no backup folder the backup is refused and
-**nothing is merged**. The backup path is shown in the run report and recorded as `lastBackupPath`. There is
+[Backup behavior](storage-and-backups.md#backup-behavior)). A verified empty joiner may skip the first backup; otherwise a missing backup folder prevents the merge. The backup path is shown in the run report and recorded as `lastBackupPath`. There is
 no restore UI: recovery stays the manual procedure in [Recovery](storage-and-backups.md#recovery).
 
 While sync is enabled, every backup of this laptop (manual, automatic, safety) is named and pruned per device, using the
@@ -316,24 +304,22 @@ values of the deleted row** next to its clocks. Consequences you can rely on:
   Before this change the completion (or an edit to another field) could be lost depending on the order.
 - **What is logged.** When a later edit replaces a value that the other laptop had not seen, an *overwritten edit*
   is written to `sync_conflicts` with the real values of both sides (before, a tombstone could only log "unknown").
-  There is still no list of them in the UI.
-- **Old tombstones stay valid.** A tombstone made before this update, or by a laptop that has not been updated, has
+  The conflict queue shows them.
+- **Old tombstones stay valid.** A tombstone made before the tombstone update, or by an older laptop, has
   no values; it merges exactly as before. A deleted row cannot be recovered after the fact.
 - **Row-clock data** (finance, Pomodoro history, AI proposals) keeps a tombstone without values: they are compared
   as whole rows, which needs none. Pomodoro tombstones are still never published.
 
-**Updating the two laptops.** The update raises the database version to 48 and the sync format to 2. A laptop that is
-already on the new version reads everything the old one wrote (format 1 bundles and manifests). A laptop still on the
-old version shows **"Mise à jour requise"** for the updated one and merges nothing from it until it is updated (its own
+**Updating devices.** Tombstone values arrived in schema 48 and format 2; this release writes format 3 and schema 49. A laptop that is
+already on the new version reads format 1 and 2 bundles and manifests. An older laptop refuses format 3 and shows an update warning and merges nothing from it until it is updated (its own
 changes keep being published and the updated laptop keeps reading them); update both within the same few days. The first
 merge after the update takes the usual safety backup because the schema differs. Details and the format decision:
 [Tombstones carry the last field values](storage-and-backups.md#tombstones-carry-the-last-field-values).
 
 ## Work-profile guards and shell
 
-The work profile gets the GTD list and Pomodoro history. `work` remains **not selectable** (`WORK_PROFILE_SELECTABLE` is `false`); the guards are exercised through the test seam
-`SyncServiceDeps.workProfileSelectable` and through the engine's `profile` option and the stored `syncProfile`). The three layers
-that exist in code:
+The work profile gets the whole GTD list and terminal Pomodoro history. Its protections include
+folder separation, publication and apply guards, a restricted shell, and a fresh-database check:
 
 1. **What the machine can open.** `buildSyncEngine` for a work profile builds the shared GTD folder's transport only, even if a
    backup folder is configured, and `prepareFolders` prepares the GTD folder alone (the backup folder is only passed for the
@@ -392,7 +378,21 @@ startup when the gate is open, and when sync is enabled) rewrites a stored ident
 restored database), keeping its clock state, logs a warning and reports `repaired`; the copy then publishes under its own id as a
 normal second peer (tested with two machines sharing one stored identity).
 
-**Still not shipped:** selecting `work` and publishing conflicts. The work join and profile-change paths are exercised through test seams only.
+
+
+## Conflict queue and privacy
+
+The `/sync` conflict queue shows overwritten edits and conflicts needing a decision. A decision
+travels as its concrete selected value with a resolution clock, so peers can converge even when
+“local” and “remote” mean different things on each laptop. Conflicts travel only in their owning
+domain. The work device receives GTD conflicts only.
+
+Conflicts about filtered rows get an additional privacy check: both historical payloads must contain
+row-shaped snapshots with the matching key and filter fields proving eligibility; a chosen resolution
+must satisfy the same check for its value and evidence. An ambiguous or ineligible historical payload
+stays in the local queue and is not published, even if its current owner has since become eligible.
+Incoming violations are refused. This protects running Pomodoro data and non-statement finance
+balance snapshots; ordinary eligible conflicts remain available locally and sync in their own domain.
 
 ## Safety
 
@@ -409,12 +409,9 @@ normal second peer (tested with two machines sharing one stored identity).
 - The automatic triggers are described above and are untested in a real desktop window; with the gate closed nothing
   automatic exists. There is still no restore UI, and nothing runs while the app is fully closed (a laptop that is
   off does not sync; the other one publishes and the next start pulls).
-- Personal profile only. The work profile cannot be chosen (its [data-layer guards](#work-profile-guards-and-shell)
-  and its shell, routes and guided join path are exercised through test seams), and a **third laptop is not
-  supported yet**: the merge no longer blocks it (a delete racing edits from other laptops is a join since tombstones
-  carry their last field values, see [Deletes and tombstone values](#deletes-and-tombstone-values)), but it has only
-  been exercised in the simulation, and the lifecycle and conflict-UI slices that make it a supported setup are
-  still to come.
+- Work isolation depends on folder permissions: use a separate Google account shared only the GTD
+  folder. Bundles are plaintext and this boundary cannot prevent someone sharing the personal folder
+  with the work account later. Real multi-laptop behavior has not been smoke tested.
 - The enable backfill and the apply of a large incoming bundle are chunked (a writer slot of 0.1 to 0.3 s in process
   for the backfill and the usual merge, about 1 s with a simulated IPC cost, and a worst case of about 1,600
   statements for an oversized group; see above), but nothing resumes an interrupted backfill by itself: after a quit the user
@@ -425,8 +422,10 @@ normal second peer (tested with two machines sharing one stored identity).
   domain for a publish is the largest cost left (350 to 450 MB of JavaScript heap measured in Node, not in the
   webview): automatic publishing now rebuilds only the domains that changed, which makes it rarer, not smaller, and
   the real webview figure is unmeasured.
-- **Disable leaves change tracking installed.** The capture triggers stay on the database and keep recording every edit
-  (a small cost per write), so enabling again is a catch-up. There is no "remove tracking" action.
+- **Disable leaves change tracking installed.** The capture triggers keep recording edits, so enabling again is a catch-up.
+  The separate confirmed uninstall action disables sync and removes capture triggers, pending marks and backfill progress;
+  application data, backups, folder files, clocks and snapshots remain. Re-enabling verifies and backfills changes made
+  while capture was off ([storage details](storage-and-backups.md#multi-device-sync-change-capture)).
 - **Minimum system.** Compression needs `CompressionStream`/`DecompressionStream` (WebKit 16.4+, i.e. macOS 13 or a
   recent Safari/WebKit; Chromium WebView2 is fine). On an older system this laptop writes **uncompressed** bundles (about
   12 times larger: a 50,000-transaction finance domain is about 62 MiB, close to the 64 MiB cap, and a larger one is a
@@ -439,7 +438,7 @@ normal second peer (tested with two machines sharing one stored identity).
   cannot be published or read: both are refused when publishing, as the persistent "données trop volumineuses" error,
   before anything is written. Measured encoded sizes stay far below the first cap (see [Sync bundle format and folder transport](storage-and-backups.md#sync-bundle-format-and-folder-transport)).
 - Publish serialization is in-process: running two instances of the app with one device identity is not supported.
-- Conflicts are logged in `sync_conflicts` but not listed anywhere; calendar sync on two laptops is not warned about.
+- Filtered-row conflicts with ambiguous or ineligible historical payloads remain local, as described above.
 - Settings merged from a peer reach the running app after a run that applied something. GTD, Today, Daily and Pomodoro
   screens reload after a merge; Reviews, Journal, Finance and the other pages show merged data when opened.
 

@@ -1,3 +1,4 @@
+- 2026-11-03: Documented device-local AI endpoint and work-task coach scope, and removed the obsolete sync debug gate.
 - 2026-10-27: Settings storage lists the four device-local multi-device sync keys (`multiDeviceSyncEnabled`, `syncProfile`, `syncGtdFolderDir`, `syncDeviceName`); debug mode is also the gate of the experimental sync card, page and nav entry.
 - 2026-10-21: The weekly invalid-JSON compatibility snapshot now records the configured model and null usage. Weekly synthesis writes that fallback row itself, so it does not keep the failed calls' model or summed usage.
 - 2026-10-23: Relationship draws pick their activity deterministically (seed `<category>:<date>`) and derive the task id from the source external ID, so the same list, category and date give the same task on every laptop.

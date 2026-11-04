@@ -97,6 +97,26 @@ const shared = async () => {
 };
 
 describe("terminal beats pending whatever the clocks say", () => {
+  it("keeps an explicit dismissed decision over a stale accepted proposal", async () => {
+    const { sim, a, b } = await shared();
+    await a.repo.decideAiProposal("p1", "accepted");
+    await b.repo.decideAiProposal("p1", "dismissed");
+    const stale = jsonRoundTrip(await a.repo.listSyncChanges("personal"));
+    await sim.exchange(a, b, "personal");
+    const conflict = (await b.repo.listSyncConflicts()).find(
+      (item) => item.kind === "terminal_divergence",
+    );
+    expect(conflict).toBeDefined();
+    const side =
+      (conflict!.local as { status: string }).status === "dismissed" ? "local" : "remote";
+    await b.repo.resolveSyncConflict(conflict!.id, { action: "choose", side });
+    await sim.syncAll("personal");
+    expect(await statusRows(a)).toEqual([{ id: "p1", status: "dismissed" }]);
+    await a.repo.applySyncBundle("personal", stale);
+    const second = await a.repo.applySyncBundle("personal", stale);
+    expect(second.applied + second.conflictsLogged + second.tombstonesApplied).toBe(0);
+    expect(await statusRows(a)).toEqual([{ id: "p1", status: "dismissed" }]);
+  });
   it("an accepted proposal wins over a LATER pending edit, on both laptops", async () => {
     const { sim, a, b } = await shared();
     a.clock.advance(1_000);

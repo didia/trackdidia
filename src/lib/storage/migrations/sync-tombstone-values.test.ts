@@ -34,7 +34,7 @@ describe("migration 48 add_sync_tombstone_row_values", () => {
     expect(migration.name).toBe("add_sync_tombstone_row_values");
     const index = migrations.indexOf(migration);
     expect(migrations[index - 1]?.id).toBe(47);
-    expect(migrations[index + 1]).toBeUndefined();
+    expect(migrations[index + 1]?.id).toBe(49);
     expect(migration.sql).not.toMatch(/\b(DROP|DELETE|INSERT|REPLACE|UPDATE|TRIGGER|CREATE)\b/i);
     expect(
       migration.sql

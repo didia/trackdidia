@@ -13,7 +13,7 @@ current-product behavior remains documented in [`docs/`](../docs/).
 
 - [`todo/mobile-and-sync.md`](todo/mobile-and-sync.md) — approved, unshipped lean iOS
   companion app and decentralized desktop↔phone sync engine.
-- [`todo/multi-laptop-sync.md`](todo/multi-laptop-sync.md) — draft (not yet approved): personal
+- [`done/multi-laptop-sync.md`](done/multi-laptop-sync.md) — implemented: personal
   laptops sync everything, a work laptop syncs only GTD + Pomodoro, through per-device state bundles
   in two Drive folders, with pull-before-generators at startup. Shares its merge engine with
   `mobile-and-sync.md`.

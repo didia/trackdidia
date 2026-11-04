@@ -163,10 +163,10 @@ describe("finance categorization unit: concurrent writes", () => {
         source: "user",
       });
     }
-    // Only A lost a value, so only A logged it.
-    expect(await categoryEvents(b)).toEqual([]);
+    // A logged its lost value, and B received that same conflict during sync.
     const logged = await categoryEvents(a);
     expect(logged).toHaveLength(1);
+    expect(await categoryEvents(b)).toEqual(logged);
     expect(JSON.parse(String(logged[0]?.local_json)).categorization.value.category_id).toBe(
       "fincat:logement",
     );

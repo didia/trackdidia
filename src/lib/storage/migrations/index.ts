@@ -1323,6 +1323,21 @@ export const migrations: Migration[] = [
       ],
     },
   },
+  {
+    id: 49,
+    name: "add_sync_conflict_resolution_clock",
+    sql: `ALTER TABLE sync_conflicts ADD COLUMN resolution_hlc TEXT;
+      CREATE INDEX IF NOT EXISTS idx_sync_conflicts_resolved ON sync_conflicts (entity_type, kind, resolution_hlc) WHERE resolution_hlc IS NOT NULL;`,
+    guards: {
+      skipIfColumnExists: [
+        {
+          table: "sync_conflicts",
+          column: "resolution_hlc",
+          statement: "ALTER TABLE sync_conflicts ADD COLUMN resolution_hlc TEXT;",
+        },
+      ],
+    },
+  },
 ];
 
 /** Retains all repeatable SQL while skipping only guarded statements already applied. */

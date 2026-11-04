@@ -462,7 +462,7 @@ describe("refusals", () => {
     const { a, b } = await twoDevices();
     const changeSet = await b.repo.listSyncChanges("gtd");
     await expect(
-      a.repo.applySyncBundle("gtd", { ...changeSet, formatVersion: 3 } as never),
+      a.repo.applySyncBundle("gtd", { ...changeSet, formatVersion: 4 } as never),
     ).rejects.toMatchObject({ code: "unsupported_format_version" });
     await expect(a.repo.applySyncBundle("gtd", null as never)).rejects.toBeInstanceOf(
       SyncChangeSetError,

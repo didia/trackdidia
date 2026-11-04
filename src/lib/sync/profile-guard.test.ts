@@ -132,6 +132,10 @@ describe("assertChangeSetAllowedForProfile", () => {
         },
       ],
       ["a personal setting", { settings: [{ key: "aiModel", value: "x", clock: "0" }] as never }],
+      [
+        "a finance conflict",
+        { conflicts: [{ entity_type: "finance_accounts", entity_id: "private" }] as never },
+      ],
       ["a device table", { entities: [entity("sync_identity", true)] as never }],
     ];
     for (const [name, overrides] of cases) {
